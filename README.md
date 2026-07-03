@@ -114,14 +114,14 @@ Running from source gives the complete experience — inference worker, agent ac
 Download the latest `.deb` from the [**Releases page**](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest), then:
 
 ```bash
-sudo dpkg -i nexora-ai_0.8.3_amd64.deb
+sudo dpkg -i nexora-ai_0.8.4_amd64.deb
 ```
 
 Or as a single copy-paste:
 
 ```bash
-wget https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest/download/nexora-ai_0.8.3_amd64.deb
-sudo dpkg -i nexora-ai_0.8.3_amd64.deb
+wget https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest/download/nexora-ai_0.8.4_amd64.deb
+sudo dpkg -i nexora-ai_0.8.4_amd64.deb
 ```
 
 ### Build from source
