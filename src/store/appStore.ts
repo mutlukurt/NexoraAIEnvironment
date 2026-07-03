@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
-import type { ChatMessage, ModelLoadedInfo, ChatStreamEvent, ModelLoadProgressEvent } from '@shared/ipc'
+import type {
+  ChatMessage,
+  ModelLoadedInfo,
+  ChatStreamEvent,
+  ModelLoadProgressEvent,
+  AgentBuildErrorEvent
+} from '@shared/ipc'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode'
@@ -36,6 +42,8 @@ interface AppState {
   modelError: string | null
   /** GGUF okuma / oturum hazırlama ilerlemesi (0..1); yükleme yokken null. */
   modelLoadProgress: { stage: 'model' | 'context'; progress: number } | null
+  /** "Çalıştır" denetiminin yakaladığı son derleme hatası — "düzelt" denince modele iliştirilir. */
+  lastBuildError: string | null
 
   messages: ChatMessage[]
   sending: boolean
@@ -65,6 +73,31 @@ interface AppState {
 
 let streamUnsub: (() => void) | null = null
 let loadProgressUnsub: (() => void) | null = null
+let buildErrorUnsub: (() => void) | null = null
+/** Bu tur bir "düzelt" turuysa, üretim bitince derleme doğrulaması yapılır. */
+let pendingBuildVerify = false
+/** Otomatik yeniden deneme sayacı (en fazla 2; yeni hata olayında sıfırlanır). */
+let autoFixRounds = 0
+
+/** "Çalıştır" derleme denetimi hata yakalarsa chat'e bildirim düşür. */
+function ensureBuildErrorSub(set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void): void {
+  if (buildErrorUnsub || !window.nexora?.agent?.onBuildError) return
+  buildErrorUnsub = window.nexora.agent.onBuildError((e: AgentBuildErrorEvent) => {
+    autoFixRounds = 0
+    const short = e.error.split('\n').slice(0, 6).join('\n')
+    set((s) => ({
+      lastBuildError: e.error,
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: `⚠️ Projede derleme hatası yakaladım:\n\n${short}\n\nSohbete sadece "düzelt" yazmanız yeterli — hatanın tamamını modele ben iletirim.`
+        }
+      ]
+    }))
+  })
+}
 let currentStreamingContent = ''
 let lastApplyAt = 0
 let applyTimer: ReturnType<typeof setTimeout> | null = null
@@ -191,6 +224,58 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         useArtifactsStore.getState().setWritingPath(null)
       }
 
+      // "Düzelt" turu doğrulaması: düzeltme uygulandıktan sonra derlemeyi
+      // yeniden denetle. Geçtiyse kutla; geçmediyse tırmanan ipucuyla en fazla
+      // 2 otomatik tur daha dene — kullanıcı hiçbir şey yazmadan.
+      if (pendingBuildVerify) {
+        pendingBuildVerify = false
+        void (async () => {
+          const files = Object.values(useArtifactsStore.getState().files).map((f) => ({
+            path: f.path,
+            content: f.content
+          }))
+          const { getProjectName } = await import('@/lib/agentActions')
+          const check = await window.nexora.agent.buildCheck({ projectName: getProjectName(), files })
+          if (check.ok) {
+            autoFixRounds = 0
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                { id: nanoid(), role: 'assistant', content: '✅ Derleme hatası giderildi — proje tekrar derleniyor.' }
+              ]
+            }))
+          } else if (autoFixRounds < 2 && check.error) {
+            autoFixRounds++
+            set((s) => ({
+              lastBuildError: check.error ?? null,
+              messages: [
+                ...s.messages,
+                {
+                  id: nanoid(),
+                  role: 'assistant',
+                  content: `⏳ Hata henüz gitmedi, otomatik olarak yeniden deniyorum (${autoFixRounds}/2)…`
+                }
+              ]
+            }))
+            void get().sendMessage(
+              'düzelt — önceki düzeltme hatayı gidermedi. Hata satırındaki değil, ASIL nedeni bul: kapanmamış tırnak/parantez/JSX etiketi genellikle hata satırının YUKARISINDADIR. Dosyayı dikkatle tara.'
+            )
+          } else if (check.error) {
+            set((s) => ({
+              lastBuildError: check.error ?? null,
+              messages: [
+                ...s.messages,
+                {
+                  id: nanoid(),
+                  role: 'assistant',
+                  content: `⚠️ Otomatik denemelere rağmen derleme hatası sürüyor:\n\n${check.error.split('\n').slice(0, 6).join('\n')}\n\nKod sekmesinden ilgili dosyaya bakıp chat'te daha net tarif edebilirsiniz.`
+                }
+              ]
+            }))
+          }
+        })()
+      }
+
       // Agent direktifleri ([PKG]/[FONT]/[FETCH]/[RUN]/[DEV]) — üretim bitince
       // sırayla yürütülür; ilerleme chat'e canlı eylem günlüğü olarak yazılır.
       if (full) {
@@ -252,6 +337,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelLoading: false,
   modelError: null,
   modelLoadProgress: null,
+  lastBuildError: null,
 
   messages: [],
   sending: false,
@@ -301,6 +387,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (res.ok && res.info) {
         set({ modelInfo: res.info, modelLoading: false, modelLoadProgress: null })
         ensureStream(get, set)
+        ensureBuildErrorSub(set)
         set({
           messages: [
             {
@@ -371,9 +458,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       content: f.content
     }))
 
+    // "Düzelt" akışı: Çalıştır denetimi bir derleme hatası yakaladıysa ve
+    // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
+    // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
+    let outgoing = trimmed
+    const buildErr = get().lastBuildError
+    if (buildErr && /d[üu]zelt|fix|hata/i.test(trimmed)) {
+      outgoing = `${trimmed}
+
+=== BUILD ERROR (NexoraAI tarafından otomatik yakalandı) ===
+${buildErr}
+=== END BUILD ERROR ===`
+      set({ lastBuildError: null })
+      pendingBuildVerify = true
+    }
+
     try {
       const res = await window.nexora.chat.send({
-        prompt: trimmed,
+        prompt: outgoing,
         currentFiles: currentFiles.length > 0 ? currentFiles : undefined
       })
       if (!res.ok) {

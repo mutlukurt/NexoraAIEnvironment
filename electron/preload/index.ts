@@ -19,7 +19,8 @@ import {
   type AgentFontInput,
   type AgentFontResult,
   type AgentDevInput,
-  type AgentDevResult
+  type AgentDevResult,
+  type AgentBuildErrorEvent
 } from '../shared/ipc'
 
 export interface ModelLoadResponse {
@@ -94,7 +95,9 @@ export interface NexoraApi {
     font: (input: AgentFontInput) => Promise<AgentFontResult>
     devStart: (input: AgentDevInput) => Promise<AgentDevResult>
     devStop: () => Promise<{ ok: boolean }>
+    buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string }>
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
+    onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
   }
 }
 
@@ -149,10 +152,16 @@ const api: NexoraApi = {
     font: (input: AgentFontInput) => ipcRenderer.invoke(IPC.AGENT_FONT, input),
     devStart: (input: AgentDevInput) => ipcRenderer.invoke(IPC.AGENT_DEV_START, input),
     devStop: () => ipcRenderer.invoke(IPC.AGENT_DEV_STOP),
+    buildCheck: (input: AgentDevInput) => ipcRenderer.invoke(IPC.AGENT_BUILD_CHECK, input),
     onDevStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)
       ipcRenderer.on(IPC.AGENT_DEV_STATUS, handler as never)
       return () => ipcRenderer.off(IPC.AGENT_DEV_STATUS, handler as never)
+    },
+    onBuildError: (cb) => {
+      const handler = (_e: unknown, data: AgentBuildErrorEvent) => cb(data)
+      ipcRenderer.on(IPC.AGENT_BUILD_ERROR, handler as never)
+      return () => ipcRenderer.off(IPC.AGENT_BUILD_ERROR, handler as never)
     }
   }
 }

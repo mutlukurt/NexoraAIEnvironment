@@ -64,7 +64,9 @@ export const IPC = {
   AGENT_FONT: 'agent:font',
   AGENT_DEV_START: 'agent:dev-start',
   AGENT_DEV_STOP: 'agent:dev-stop',
-  AGENT_DEV_STATUS: 'agent:dev-status'
+  AGENT_DEV_STATUS: 'agent:dev-status',
+  AGENT_BUILD_ERROR: 'agent:build-error',
+  AGENT_BUILD_CHECK: 'agent:build-check'
 } as const
 
 export interface ModelLoadProgressEvent {
@@ -174,4 +176,9 @@ export interface AgentDevResult {
   url?: string
   output?: string
   error?: string
+}
+
+/** "Çalıştır" sonrası otomatik derleme denetiminin yakaladığı hata. */
+export interface AgentBuildErrorEvent {
+  error: string
 }

@@ -366,6 +366,35 @@ export function applySearchReplace(original: string, block: string): EditApplyRe
       oLines.splice(matchAt, sTrim.length, ...rLines)
       content = oLines.join('\n')
       applied++
+      continue
+    }
+
+    // 3. kademe: tırnak-duyarsız BENZERSİZ eşleşme. Modeller bozuk satırı
+    // SEARCH'e kopyalarken istemsizce düzeltiyor (eksik tırnağı tamamlıyor) —
+    // gerçek 14B testinde görüldü. Tırnaklar yok sayılarak karşılaştırılır;
+    // güvenlik için dosyada TEK eşleşme varsa uygulanır.
+    const dequote = (s: string) => s.replace(/["']/g, '').trim()
+    const sDq = sTrim.map(dequote)
+    let dqMatch = -1
+    let dqCount = 0
+    for (let i = 0; i + sDq.length <= oLines.length; i++) {
+      let ok = true
+      for (let j = 0; j < sDq.length; j++) {
+        if (dequote(oLines[i + j]) !== sDq[j]) {
+          ok = false
+          break
+        }
+      }
+      if (ok) {
+        dqCount++
+        dqMatch = i
+      }
+    }
+    if (dqCount === 1) {
+      const rLines = seg.replace.split('\n')
+      oLines.splice(dqMatch, sDq.length, ...rLines)
+      content = oLines.join('\n')
+      applied++
     } else {
       failed++
     }

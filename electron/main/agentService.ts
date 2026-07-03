@@ -692,6 +692,62 @@ export function getDevUrl(): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Derleme denetimi: "Çalıştır" sonrası arka planda vite build koşulur; hata
+// varsa dosya+satır+kod çerçevesiyle yakalanıp chat'e taşınır. Kullanıcının
+// tek yapması gereken "düzelt" yazmak — teknik olmayan kullanıcı için köprü.
+// ---------------------------------------------------------------------------
+
+export interface BuildCheckResult {
+  ok: boolean
+  error?: string
+}
+
+export async function buildCheck(projectName: string): Promise<BuildCheckResult> {
+  const dir = workspaceDir(projectName)
+  if (!existsSync(join(dir, 'package.json'))) return { ok: true } // statik proje: derleme yok
+
+  const res = await runCommand(projectName, 'npx vite build --logLevel error', 240_000)
+  if (res.ok) return { ok: true }
+
+  // Hata bölümünü çıkar: ilk "error" satırından itibaren, mutlak yolları
+  // proje-görece yollara çevirerek (model dosyaları o adlarla tanıyor).
+  const lines = res.output.split('\n')
+  const firstErr = lines.findIndex((l) => /error/i.test(l))
+  const slice = lines.slice(Math.max(0, firstErr), firstErr + 30).join('\n')
+  const relativized = slice.split(dir + sep).join('').split(dir + '/').join('')
+  let error = relativized.trim().slice(0, 1500) || res.output.slice(-1000)
+  // Hata sınıfı ipuçları: modeller "dosya sonu" hatasında hata satırına takılıp
+  // kök nedeni aramıyor (gerçek 14B testinde iki kez görüldü). Yönlendir.
+  if (/unexpected end of file/i.test(error)) {
+    error +=
+      '\n\nİPUCU: "Unexpected end of file" hatasının asıl nedeni neredeyse her zaman dosyanın DAHA YUKARISINDA kapanmamış bir tırnak, parantez veya JSX etiketidir. Hata satırına değil, açık kalan yere odaklan (örn. className="... ifadesinde eksik kapanış tırnağı).'
+
+    // Şüpheli satır taraması: çift tırnak sayısı TEK olan satırlar kapanmamış
+    // string demektir. Modele nokta atışı hedef ver (14B testinde, satır
+    // içeriği verilmeden EOF hatasının 3 turda da çözülemediği görüldü).
+    const fileMatch = error.match(/([\w./-]+\.(?:tsx|ts|jsx|js)):\d+/)
+    if (fileMatch) {
+      try {
+        const src = await readFile(join(dir, fileMatch[1]), 'utf8')
+        const suspects = src
+          .split('\n')
+          .map((l, i) => ({ n: i + 1, l }))
+          .filter(({ l }) => ((l.match(/"/g) ?? []).length % 2 === 1))
+          .slice(0, 3)
+        if (suspects.length > 0) {
+          error +=
+            '\n\nŞÜPHELİ SATIR(LAR) — tırnak sayısı tek, kapanmamış string olabilir:\n' +
+            suspects.map(({ n, l }) => `${fileMatch[1]}:${n}: ${l.trim()}`).join('\n')
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return { ok: false, error }
+}
+
+// ---------------------------------------------------------------------------
 // Profesyonel dışa aktarma: <seçilen dizin>/<proje-adı>/ altına tam proje
 // ---------------------------------------------------------------------------
 

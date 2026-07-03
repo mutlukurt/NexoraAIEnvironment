@@ -25,7 +25,8 @@ import {
   startDev,
   stopDev,
   getDevUrl,
-  exportProject
+  exportProject,
+  buildCheck
 } from './agentService'
 import {
   IPC,
@@ -255,9 +256,28 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
-    return startDev(input.projectName, input.files, (msg) => {
+    const res = await startDev(input.projectName, input.files, (msg) => {
       mainWindow?.webContents.send(IPC.AGENT_DEV_STATUS, { msg })
     })
+    if (res.ok) {
+      // Dev sunucusu ayakta ama kod derlenmiyor olabilir (vite tembel derler):
+      // arka planda tam derleme denetimi koş, hata varsa chat'e taşınmak üzere
+      // renderer'a ilet. Kullanıcı "düzelt" yazınca hata modele otomatik gider.
+      void buildCheck(input.projectName).then((check) => {
+        if (!check.ok && check.error) {
+          mainWindow?.webContents.send(IPC.AGENT_BUILD_ERROR, { error: check.error })
+        }
+      })
+    } else if (res.error) {
+      mainWindow?.webContents.send(IPC.AGENT_BUILD_ERROR, { error: res.error })
+    }
+    return res
+  })
+
+  ipcMain.handle(IPC.AGENT_BUILD_CHECK, async (_e, input: AgentDevInput) => {
+    // "düzelt" turundan sonra doğrulama: güncel dosyaları senkronla ve derle
+    await syncWorkspace(input.projectName, input.files)
+    return buildCheck(input.projectName)
   })
 
   ipcMain.handle(IPC.AGENT_DEV_STOP, async () => {
