@@ -191,6 +191,11 @@ npm run dist
 │  └── node-llama-cpp           │      │  npm install • vite dev      │
 │      llama.cpp (CPU/GPU)      │      │  fonts • fetched assets      │
 └───────────────────────────────┘      └──────────────────────────────┘
+┌───────────────────────────────┐
+│  Vision sidecar (on demand)   │  ← attached images: llama.cpp's
+│  official llama-server+libmtmd│    llama-server + Qwen2.5-VL analyzes;
+│  auto-downloaded on first use │    analysis feeds the coding model
+└───────────────────────────────┘
 ```
 
 **Data flow of one generation:** user prompt → main process assembles the system prompt (profile-matched, size-adaptive) and the update-mode wrapper → worker streams tokens back over IPC → renderer parses the stream *live* (`parseStreaming`) into prose + fenced file blocks → complete files land in the artifacts store (visible immediately in the tree/editor); edit blocks are applied through `applySearchReplace`; agent directives (`[PKG]`, `[FONT]`, `[FETCH]`, `[RUN]`, `[DEV]`) execute sequentially after generation with a live action log in the chat.
@@ -252,6 +257,8 @@ An honest, chronological log of how this project actually happened — including
 **Phase 10 — The real large-model campaign (v0.6.5 → v0.6.6).** Downloaded Qwen2.5-Coder-14B (9 GB) and ran it on the development laptop itself — metadata-based size detection picked the professional prompt live, and a detailed client-style brief yielded a 17-file restaurant site. Every real mistake the model made became product: `package.json` sanitization (CRA relics), dependency-free `cn()` injection, a project-wide export map that auto-imports forgotten components *and* data exports, and a Turkish-apostrophe string repair (whose own first version corrupted key-value pairs — caught and hardened with a negative guard). Remaining slip-ups (a missing quote, lazy `// Add items here` stubs, an `Array(4.5)` crash) were fixed by the model itself through the surgical-edit iteration loop.
 
 **Phase 11 — The self-fixing app (v0.7.0 → v0.7.1).** Build errors from **Run** are now captured automatically (background full compile, code frame, error-class hints, suspicious-line scan) and posted to the chat; the user types one word — *"düzelt"* — and the app attaches the diagnosis, applies the model's edit through a new quote-insensitive matcher, re-verifies the build, and auto-retries up to two rounds. Engineered against real 14B failures (three consecutive misdiagnoses without the pinpoint scan; models auto-correcting broken code inside `SEARCH` blocks) and finally verified end-to-end: broken project → one word → clean build. v0.7.1 made the trigger multilingual — *fix, repair, onar, çöz, arregla, répare, behebe, napraw, исправь…*
+
+**Phase 12 — Eyes for the agent (v0.8.0 → v0.8.2).** node-llama-cpp has no multimodal API, so vision runs through llama.cpp's official `llama-server` (libmtmd) as an on-demand sidecar: a small Qwen2.5-VL model (auto-downloaded with the platform server binary on first use) analyzes attached images. *"Make me a site like this"* extracts a structured design system and pipes it to the coding model; a plain question gets answered directly. Feasibility was proven live on the CPU-only dev laptop (35 s per analysis) — after two real lessons: large screenshots overflow the vision context (fixed with automatic 1024 px downscaling + 8 k context), and the first intent classifier mistook the Turkish question *"ne YAPıyor?"* for a build command because of the embedded stem *yap* (fixed with a noun+verb combination rule, verified by a 19-case battery). v0.8.2 added explicit-override priority: the user's *"…but make the hero fonts red"* always beats the extracted analysis.
 
 ## Large-Model Verification
 
@@ -332,6 +339,7 @@ NexoraAIEnvironment/
 │   │   ├── llamaService.ts   # inference-worker client (RPC over child-process IPC)
 │   │   ├── llamaWorker.ts    # ⭐ plain-Node inference worker (runs OUTSIDE Electron)
 │   │   ├── agentService.ts   # workspace, shell, fetch, fonts, dev server, scaffold, export
+│   │   ├── visionService.ts  # vision sidecar: llama-server lifecycle, image analysis
 │   │   └── hfService.ts      # HuggingFace search + GGUF downloads
 │   ├── preload/index.ts      # typed contextBridge API (window.nexora)
 │   └── shared/
@@ -343,6 +351,7 @@ NexoraAIEnvironment/
 │   └── lib/
 │       ├── parseCode.ts      # streaming fence parser + SEARCH/REPLACE applier
 │       ├── agentActions.ts   # directive parsing + execution pipeline
+│       ├── visionIntent.ts   # build-vs-question classifier for attached images
 │       └── codeFixer.ts      # post-generation code fixes
 ├── docs/screenshots/         # images used in this README
 ├── scripts/                  # vendor copy, icon generation
@@ -356,6 +365,7 @@ NexoraAIEnvironment/
 | Shell | Electron 43, electron-vite, electron-builder (`.deb`) |
 | UI | React 18, TypeScript, Tailwind CSS, Zustand, CodeMirror 6, lucide icons |
 | Inference | node-llama-cpp 3 (llama.cpp), bundled Node 22 runtime, TokenBias sampling control |
+| Vision | llama.cpp `llama-server` + libmtmd sidecar, Qwen2.5-VL (auto-downloaded GGUF + mmproj) |
 | Generated projects | Vite 5, React 18, TypeScript, Tailwind (scaffolded deterministically) |
 
 ## Roadmap
