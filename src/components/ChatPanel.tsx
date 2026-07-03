@@ -5,7 +5,7 @@ import { parseStreaming, isEditBlock } from '@/lib/parseCode'
 import { DIRECTIVE_LINE_RE, isDirectiveOnlyContent } from '@/lib/agentActions'
 import { useHfStore } from '@/store/hfStore'
 import logoImg from '@/assets/logo.png'
-import { Sparkles, PenTool, BookOpen, Code2, Rocket, FolderOpen } from 'lucide-react'
+import { Sparkles, PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X } from 'lucide-react'
 import { translations } from '@/lib/translations'
 
 function FileIcon({ path }: { path: string }) {
@@ -191,6 +191,9 @@ export default function ChatPanel() {
 
   const profileLabel = useAppStore((s) => s.profileLabel)
   const language = useAppStore((s) => s.language)
+  const pendingImage = useAppStore((s) => s.pendingImage)
+  const attachImage = useAppStore((s) => s.attachImage)
+  const clearImage = useAppStore((s) => s.clearImage)
 
   const [text, setText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -288,9 +291,31 @@ export default function ChatPanel() {
                   className="max-h-40 w-full resize-none bg-transparent text-[15px] text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50"
                 />
                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-400">
-                    {modelInfo ? t.ggufReady : t.ggufNotLoaded}
-                  </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      onClick={() => void attachImage()}
+                      disabled={!modelInfo}
+                      title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
+                      className={
+                        'shrink-0 rounded-lg p-1.5 transition disabled:opacity-40 ' +
+                        (pendingImage ? 'text-brand-600 bg-brand-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50')
+                      }
+                    >
+                      <ImagePlus className="h-4.5 w-4.5" />
+                    </button>
+                    {pendingImage ? (
+                      <span className="flex min-w-0 items-center gap-1 text-[11px] font-bold text-brand-600">
+                        <span className="truncate max-w-[200px]">{pendingImage.name}</span>
+                        <button onClick={clearImage} className="text-brand-400 hover:text-brand-700">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold text-slate-400">
+                        {modelInfo ? t.ggufReady : t.ggufNotLoaded}
+                      </span>
+                    )}
+                  </div>
                   {sending ? (
                     <button
                       onClick={() => void abort()}
@@ -448,7 +473,29 @@ export default function ChatPanel() {
       {/* Bottom input area: only visible when there are messages */}
       {messages.length > 0 && (
         <div className="p-4 bg-white border-t border-slate-100">
+          {pendingImage && (
+            <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">
+              <ImagePlus className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{pendingImage.name}</span>
+              <span className="shrink-0 text-[10px] font-semibold text-brand-500">
+                {language === 'tr' ? 'mesajla birlikte analiz edilecek' : 'will be analyzed with your message'}
+              </span>
+              <button onClick={clearImage} className="shrink-0 text-brand-400 hover:text-brand-700 transition">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-[0_8px_30px_rgba(99,102,241,0.06)] focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 transition max-w-3xl mx-auto w-full">
+            <button
+              onClick={() => void attachImage()}
+              title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
+              className={
+                'shrink-0 rounded-lg p-2 transition ' +
+                (pendingImage ? 'text-brand-600 bg-brand-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50')
+              }
+            >
+              <ImagePlus className="h-5 w-5" />
+            </button>
             <textarea
               ref={taRef}
               rows={1}

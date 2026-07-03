@@ -20,7 +20,9 @@ import {
   type AgentFontResult,
   type AgentDevInput,
   type AgentDevResult,
-  type AgentBuildErrorEvent
+  type AgentBuildErrorEvent,
+  type VisionAnalyzeInput,
+  type VisionAnalyzeResult
 } from '../shared/ipc'
 
 export interface ModelLoadResponse {
@@ -99,6 +101,11 @@ export interface NexoraApi {
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
     onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
   }
+  vision: {
+    pickImage: () => Promise<{ path: string } | null>
+    analyze: (input: VisionAnalyzeInput) => Promise<VisionAnalyzeResult>
+    onStatus: (cb: (event: { msg: string }) => void) => () => void
+  }
 }
 
 const api: NexoraApi = {
@@ -162,6 +169,15 @@ const api: NexoraApi = {
       const handler = (_e: unknown, data: AgentBuildErrorEvent) => cb(data)
       ipcRenderer.on(IPC.AGENT_BUILD_ERROR, handler as never)
       return () => ipcRenderer.off(IPC.AGENT_BUILD_ERROR, handler as never)
+    }
+  },
+  vision: {
+    pickImage: () => ipcRenderer.invoke(IPC.VISION_PICK_IMAGE),
+    analyze: (input: VisionAnalyzeInput) => ipcRenderer.invoke(IPC.VISION_ANALYZE, input),
+    onStatus: (cb) => {
+      const handler = (_e: unknown, data: { msg: string }) => cb(data)
+      ipcRenderer.on(IPC.VISION_STATUS, handler as never)
+      return () => ipcRenderer.off(IPC.VISION_STATUS, handler as never)
     }
   }
 }

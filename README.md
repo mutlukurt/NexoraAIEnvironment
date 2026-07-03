@@ -59,6 +59,7 @@ NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B m
 - 🔪 **Surgical iteration** — changes are applied as `SEARCH/REPLACE` edit blocks: asking for a tweak edits *only* that section, in seconds, without risking the rest of the file.
 - 🤖 **Real agent actions** — the model can (only when your request calls for it): add npm packages, download Google Fonts (woff2, wired into CSS), fetch any file from the internet into the project, run shell commands inside the project folder, and start the dev server.
 - ▶️ **One-click Run** — syncs the workspace to disk, `npm install`s, boots Vite, and opens your browser at localhost. What you see is the real project, not a simulation.
+- 👁️ **Reference images & chat with images** — attach a screenshot or design mock; a small local vision model (Qwen2.5-VL, auto-downloaded on first use) extracts the design system (colors, typography, sections, component styles) and feeds it to your coding model — *"make me a site like this"* actually works. Attach an image with a question and the vision model answers directly in chat. Runs through llama.cpp's official multimodal server, fully local.
 - 🩺 **Say "düzelt" and it fixes itself** — after Run, the app compiles the project in the background; any build error is captured with its code frame, enriched with a *suspicious-line scan* (e.g. unclosed-quote detection), and posted to the chat. You type just **"düzelt"** — or **"fix"**, **"repair"**, "arregla", "répare", "behebe", "napraw", "исправь"… any common fix-word in ~10 languages — the full diagnosis is attached to the model automatically, the resulting edit is applied, the build is re-verified, and the app auto-retries up to two more rounds if needed. No technical bug reports required from the user.
 - 📦 **Professional export** — one click produces `<your-folder>/<project-name>/` with every missing standard file scaffolded (package.json with auto-detected dependencies, `index.html`, `src/main.tsx`, `vite.config.ts`, `tsconfig.json`, Tailwind/PostCSS configs, `.gitignore`, `README.md`) so `npm install && npm run dev` just works.
 - 🎚️ **Model-size-adaptive prompting** — reads the model's true parameter count from GGUF metadata: <13B gets a compact single-file strategy it can actually execute; ≥13B gets the full professional multi-file architecture prompt.
@@ -163,7 +164,8 @@ npm run dist
    | "şu komutu çalıştır …" | runs it in the project folder (sandboxed cwd, denylist, 5-min timeout) |
    | "projeyi çalıştır" | full Run flow, browser opens automatically |
 
-6. **Export** — **Dışa aktar** asks for a target directory and writes a complete professional project folder named after your project.
+6. **Use a reference image** — click the 🖼 button next to the input, pick a screenshot/mock, and describe what you want (*"buna benzer bir site yap"*). NexoraAI's local vision model analyzes the design (first use downloads it, ~2.8 GB) and passes a structured design brief to your coding model. Attach an image with a plain question instead, and the vision model answers it directly.
+7. **Export** — **Dışa aktar** asks for a target directory and writes a complete professional project folder named after your project.
 
 ## Software Architecture
 
@@ -358,6 +360,7 @@ NexoraAIEnvironment/
 
 ## Roadmap
 
+- **Local image generation** — GGUF language models cannot generate images; a stable-diffusion.cpp integration could add fully-local asset generation for stronger machines.
 - **Hybrid API mode** — optional OpenAI-compatible / Anthropic endpoint support, so weak hardware can opt into cloud quality while keeping the local pipeline as default.
 - Session persistence (chat history + workspace across restarts).
 - GPU offload UX (layer slider, VRAM telemetry).

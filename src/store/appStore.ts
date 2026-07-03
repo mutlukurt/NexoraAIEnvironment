@@ -44,6 +44,10 @@ interface AppState {
   modelLoadProgress: { stage: 'model' | 'context'; progress: number } | null
   /** "Çalıştır" denetiminin yakaladığı son derleme hatası — "düzelt" denince modele iliştirilir. */
   lastBuildError: string | null
+  /** Sohbete iliştirilmiş referans görsel (bir sonraki mesajla işlenir). */
+  pendingImage: { path: string; name: string } | null
+  attachImage: () => Promise<void>
+  clearImage: () => void
 
   messages: ChatMessage[]
   sending: boolean
@@ -338,6 +342,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelError: null,
   modelLoadProgress: null,
   lastBuildError: null,
+  pendingImage: null,
+
+  attachImage: async () => {
+    const res = await window.nexora.vision.pickImage()
+    if (res?.path) {
+      const name = res.path.split('/').pop() ?? res.path
+      set({ pendingImage: { path: res.path, name } })
+    }
+  },
+  clearImage: () => set({ pendingImage: null }),
 
   messages: [],
   sending: false,
@@ -439,14 +453,77 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ profileId: detected.id, profileLabel: detected.label })
     }
 
+    // GÖRSEL AKIŞI ("gözler + eller"): iliştirilmiş görsel varsa önce küçük VL
+    // modeli görür. Kullanıcı bir şey İNŞA ettirmek istiyorsa tasarım analizi
+    // çıkarılıp kodlayıcı modele beslenir; sadece soru soruyorsa VL'in cevabı
+    // doğrudan gösterilir.
+    const image = get().pendingImage
+    let visionAnalysis: string | null = null
+    if (image) {
+      set({ pendingImage: null })
+      const BUILD_INTENT =
+        /yap|oluştur|olustur|kur|kodla|tasarla|üret|uret|site|sayfa|proje|uygula|klonla|benze|aynı|ayni|birebir|build|create|make|clone|implement|design/i
+      const isBuild = BUILD_INTENT.test(trimmed)
+      const statusId = nanoid()
+      set((s) => ({
+        messages: [
+          ...s.messages,
+          { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` },
+          { id: statusId, role: 'assistant', content: '🖼 Görsel işleniyor…' }
+        ]
+      }))
+      const visionUnsub = window.nexora.vision.onStatus((e: { msg: string }) => {
+        set((s) => ({
+          messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🖼 ${e.msg}` } : m))
+        }))
+      })
+      const visionPrompt = isBuild
+        ? `Bu bir web sitesi tasarım referansı. Tasarım sistemini AYRINTILI çıkar:
+1) Renk paleti (hex tahminleriyle: arkaplan, birincil, vurgu, metin)
+2) Tipografi (başlık/gövde hiyerarşisi, ağırlıklar, yaklaşık boyutlar)
+3) Sayfa bölümleri yukarıdan aşağıya, her birinin içeriği ve yerleşimi
+4) Bileşen stilleri (butonlar, kartlar: köşe yuvarlaklığı, gölge, kenarlık)
+5) Genel his (minimal/kurumsal/oyuncu vb.) ve boşluk kullanımı
+Maddeler halinde, uygulanabilir netlikte yaz.`
+        : trimmed
+      const vres = await window.nexora.vision.analyze({ imagePath: image.path, prompt: visionPrompt })
+      visionUnsub()
+      if (!vres.ok || !vres.text) {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === statusId ? { ...m, content: `⚠️ Görsel analizi başarısız: ${vres.error ?? 'bilinmeyen hata'}` } : m
+          )
+        }))
+        return
+      }
+      if (!isBuild) {
+        // Soru-cevap modu: VL'in cevabı doğrudan gösterilir, kodlayıcıya gidilmez.
+        set((s) => ({
+          messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: vres.text! } : m))
+        }))
+        return
+      }
+      visionAnalysis = vres.text
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id === statusId
+            ? { ...m, content: '🖼 Tasarım analizi çıkarıldı — kodlayıcı modele aktarılıyor:\n\n' + vres.text!.slice(0, 600) + (vres.text!.length > 600 ? '…' : '') }
+            : m
+        )
+      }))
+    }
+
     // Snapshot for the accept/reject cycle (iteration support).
     useArtifactsStore.getState().snapshot()
 
-    const userMsg: ChatMessage = { id: nanoid(), role: 'user', content: trimmed }
+    // Görsel akışında kullanıcı mesajı (🖼 adıyla) yukarıda zaten eklendi.
+    const userMsg: ChatMessage | null = visionAnalysis
+      ? null
+      : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
     const asstMsg: ChatMessage = { id: asstId, role: 'assistant', content: '', streaming: true }
     set((s) => ({
-      messages: [...s.messages, userMsg, asstMsg],
+      messages: [...s.messages, ...(userMsg ? [userMsg] : []), asstMsg],
       sending: true,
       generating: true,
       error: null,
@@ -462,6 +539,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
     // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
     let outgoing = trimmed
+    if (visionAnalysis) {
+      outgoing = `${trimmed}
+
+=== REFERANS GÖRSEL TASARIM ANALİZİ (görsel modelden otomatik) ===
+${visionAnalysis}
+=== ANALİZ SONU ===
+Bu analizi tasarım rehberi olarak birebir uygula.`
+    }
     const buildErr = get().lastBuildError
     // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
     // + genel "hata/error" göndermeleri. Yakalanmış hata varken bu kelimelerden

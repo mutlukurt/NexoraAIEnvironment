@@ -1,0 +1,237 @@
+/**
+ * Görsel (vision) desteği — "gözler + eller" mimarisi.
+ *
+ * node-llama-cpp henüz görsel girişi desteklemediği için görme işi llama.cpp'nin
+ * RESMİ sunucusuna (llama-server + libmtmd) verilir: küçük bir VL modeli
+ * (Qwen2.5-VL-3B) referans görseli analiz eder; çıkan tasarım analizi normal
+ * kodlayıcı modele beslenir. Sunucu yalnızca görsel işlenirken ayakta tutulur.
+ *
+ * Kurulum tembeldir: ilk görsel eklendiğinde binary (~16 MB) ve VL model
+ * (~2.8 GB) yoksa indirilir; ilerleme chat'e bildirilir.
+ */
+import { spawn, type ChildProcess } from 'child_process'
+import { homedir } from 'os'
+import { join, dirname } from 'path'
+import { mkdir, readFile, rename, rm } from 'fs/promises'
+import { existsSync } from 'fs'
+import { nativeImage } from 'electron'
+
+const BIN_TAG = 'b9870'
+const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
+const MODELS_DIR = join(homedir(), 'NexoraAI', 'models')
+const VISION_PORT = 8091
+
+const VL_MODEL_URL =
+  'https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf'
+const VL_MMPROJ_URL =
+  'https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf'
+const VL_MODEL = join(MODELS_DIR, 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf')
+const VL_MMPROJ = join(MODELS_DIR, 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf')
+
+function binaryUrl(): { url: string; archive: 'tar' | 'zip' } | null {
+  const base = `https://github.com/ggml-org/llama.cpp/releases/download/${BIN_TAG}/llama-${BIN_TAG}-bin-`
+  if (process.platform === 'linux' && process.arch === 'x64') return { url: base + 'ubuntu-x64.tar.gz', archive: 'tar' }
+  if (process.platform === 'darwin' && process.arch === 'arm64') return { url: base + 'macos-arm64.tar.gz', archive: 'tar' }
+  if (process.platform === 'darwin') return { url: base + 'macos-x64.tar.gz', archive: 'tar' }
+  if (process.platform === 'win32' && process.arch === 'x64') return { url: base + 'win-cpu-x64.zip', archive: 'zip' }
+  return null
+}
+
+function serverBinaryPath(): string {
+  const name = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  return join(BIN_ROOT, `llama-${BIN_TAG}`, name)
+}
+
+export type VisionStatusCallback = (msg: string) => void
+
+async function downloadFile(url: string, dest: string, onStatus: VisionStatusCallback, label: string): Promise<void> {
+  const res = await fetch(url, { redirect: 'follow' })
+  if (!res.ok || !res.body) throw new Error(`${label} indirilemedi (HTTP ${res.status})`)
+  const total = Number(res.headers.get('content-length') ?? 0)
+  await mkdir(dirname(dest), { recursive: true })
+  const tmp = dest + '.part'
+  const { createWriteStream } = await import('fs')
+  const { Readable } = await import('stream')
+  const { pipeline } = await import('stream/promises')
+  let done = 0
+  let lastPct = -10
+  const counter = new (await import('stream')).Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      done += chunk.length
+      if (total > 0) {
+        const pct = Math.floor((done / total) * 100)
+        if (pct >= lastPct + 10) {
+          lastPct = pct
+          onStatus(`${label} indiriliyor… %${pct}`)
+        }
+      }
+      cb(null, chunk)
+    }
+  })
+  await pipeline(Readable.fromWeb(res.body as never), counter, createWriteStream(tmp))
+  await rename(tmp, dest)
+}
+
+/** Binary + VL model + mmproj hazır mı; değilse indir. */
+export async function ensureVisionReady(onStatus: VisionStatusCallback): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (!existsSync(serverBinaryPath())) {
+      const src = binaryUrl()
+      if (!src) return { ok: false, error: 'Bu platform için hazır llama-server paketi yok.' }
+      onStatus('Görsel motoru (llama-server) indiriliyor…')
+      const archivePath = join(BIN_ROOT, 'llama-download.' + (src.archive === 'tar' ? 'tar.gz' : 'zip'))
+      await downloadFile(src.url, archivePath, onStatus, 'Görsel motoru')
+      onStatus('Görsel motoru açılıyor…')
+      const extractDir = join(BIN_ROOT, `llama-${BIN_TAG}`)
+      await mkdir(extractDir, { recursive: true })
+      const cmd =
+        src.archive === 'tar'
+          ? `tar xzf "${archivePath}" -C "${BIN_ROOT}"`
+          : `tar -xf "${archivePath}" -C "${extractDir}"`
+      await new Promise<void>((res, rej) => {
+        const p = spawn(cmd, { shell: true })
+        p.on('close', (c) => (c === 0 ? res() : rej(new Error('arşiv açılamadı'))))
+        p.on('error', rej)
+      })
+      await rm(archivePath, { force: true })
+      if (!existsSync(serverBinaryPath())) return { ok: false, error: 'llama-server çıkarılamadı.' }
+    }
+    if (!existsSync(VL_MODEL)) {
+      onStatus('Görsel modeli (Qwen2.5-VL-3B, ~1.9 GB) indiriliyor…')
+      await downloadFile(VL_MODEL_URL, VL_MODEL, onStatus, 'Görsel modeli')
+    }
+    if (!existsSync(VL_MMPROJ)) {
+      onStatus('Görsel projektörü (~0.8 GB) indiriliyor…')
+      await downloadFile(VL_MMPROJ_URL, VL_MMPROJ, onStatus, 'Görsel projektörü')
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+}
+
+let visionProc: ChildProcess | null = null
+
+async function startVisionServer(onStatus: VisionStatusCallback): Promise<{ ok: boolean; error?: string }> {
+  if (visionProc) return { ok: true }
+  onStatus('Görsel modeli belleğe yükleniyor…')
+  return new Promise((resolvePromise) => {
+    const child = spawn(
+      serverBinaryPath(),
+      // 8192 bağlam şart: büyük görseller 4k'yı aşan görsel-token üretiyor
+      // (fizibilite testinde 3828px ekran görüntüsü 4162 tokene çıktı).
+      ['-m', VL_MODEL, '--mmproj', VL_MMPROJ, '--port', String(VISION_PORT), '--host', '127.0.0.1', '-c', '8192', '--no-webui'],
+      {
+        env: { ...process.env, LD_LIBRARY_PATH: dirname(serverBinaryPath()) } as NodeJS.ProcessEnv,
+        stdio: ['ignore', 'pipe', 'pipe']
+      }
+    )
+    visionProc = child
+    let out = ''
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        resolvePromise({ ok: false, error: 'Görsel sunucusu 120 sn içinde hazır olmadı.\n' + out.slice(-500) })
+      }
+    }, 120_000)
+    const scan = (d: Buffer) => {
+      out += d.toString()
+      if (out.length > 20000) out = out.slice(-20000)
+      if (!settled && /listening|server is listening|HTTP server/i.test(out)) {
+        settled = true
+        clearTimeout(timer)
+        resolvePromise({ ok: true })
+      }
+    }
+    child.stdout?.on('data', scan)
+    child.stderr?.on('data', scan)
+    child.on('exit', (code) => {
+      visionProc = null
+      if (!settled) {
+        settled = true
+        clearTimeout(timer)
+        resolvePromise({ ok: false, error: `Görsel sunucusu kapandı (kod ${code}):\n` + out.slice(-500) })
+      }
+    })
+    child.on('error', (err) => {
+      visionProc = null
+      if (!settled) {
+        settled = true
+        clearTimeout(timer)
+        resolvePromise({ ok: false, error: 'Görsel sunucusu başlatılamadı: ' + err.message })
+      }
+    })
+  })
+}
+
+export function stopVisionServer(): void {
+  try {
+    visionProc?.kill()
+  } catch {
+    /* ignore */
+  }
+  visionProc = null
+}
+
+export interface VisionAnalyzeResult {
+  ok: boolean
+  text?: string
+  error?: string
+}
+
+/** Görseli VL modele göster, verilen istemle cevabı al. */
+export async function analyzeImage(
+  imagePath: string,
+  prompt: string,
+  onStatus: VisionStatusCallback
+): Promise<VisionAnalyzeResult> {
+  const ready = await ensureVisionReady(onStatus)
+  if (!ready.ok) return { ok: false, error: ready.error }
+  const started = await startVisionServer(onStatus)
+  if (!started.ok) return { ok: false, error: started.error }
+
+  try {
+    onStatus('Görsel inceleniyor…')
+    // Uzun kenarı 1024px'e küçült: hem görsel-token sayısını bağlama sığdırır
+    // hem CPU'daki görsel kodlamayı ciddi hızlandırır.
+    let buf: Buffer
+    let mime = 'image/png'
+    try {
+      const img = nativeImage.createFromPath(imagePath)
+      const { width, height } = img.getSize()
+      const long = Math.max(width, height)
+      buf = long > 1024 ? img.resize(width >= height ? { width: 1024 } : { height: 1024 }).toPNG() : img.toPNG()
+      if (buf.length === 0) throw new Error('boş görsel')
+    } catch {
+      buf = await readFile(imagePath)
+      const ext = imagePath.split('.').pop()?.toLowerCase() ?? 'png'
+      mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
+    }
+    const res = await fetch(`http://127.0.0.1:${VISION_PORT}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: `data:${mime};base64,${buf.toString('base64')}` } }
+            ]
+          }
+        ],
+        max_tokens: 1200,
+        temperature: 0.2
+      }),
+      signal: AbortSignal.timeout(300_000)
+    })
+    if (!res.ok) return { ok: false, error: `Görsel analizi başarısız (HTTP ${res.status}): ${await res.text()}` }
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+    const text = data.choices?.[0]?.message?.content?.trim()
+    if (!text) return { ok: false, error: 'Görsel modeli boş cevap döndürdü.' }
+    return { ok: true, text }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+}

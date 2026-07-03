@@ -66,7 +66,10 @@ export const IPC = {
   AGENT_DEV_STOP: 'agent:dev-stop',
   AGENT_DEV_STATUS: 'agent:dev-status',
   AGENT_BUILD_ERROR: 'agent:build-error',
-  AGENT_BUILD_CHECK: 'agent:build-check'
+  AGENT_BUILD_CHECK: 'agent:build-check',
+  VISION_PICK_IMAGE: 'vision:pick-image',
+  VISION_ANALYZE: 'vision:analyze',
+  VISION_STATUS: 'vision:status'
 } as const
 
 export interface ModelLoadProgressEvent {
@@ -181,4 +184,17 @@ export interface AgentDevResult {
 /** "Çalıştır" sonrası otomatik derleme denetiminin yakaladığı hata. */
 export interface AgentBuildErrorEvent {
   error: string
+}
+
+// --- Görsel (vision) ---
+
+export interface VisionAnalyzeInput {
+  imagePath: string
+  prompt: string
+}
+
+export interface VisionAnalyzeResult {
+  ok: boolean
+  text?: string
+  error?: string
 }

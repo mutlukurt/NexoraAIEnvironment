@@ -28,6 +28,7 @@ import {
   exportProject,
   buildCheck
 } from './agentService'
+import { analyzeImage, stopVisionServer } from './visionService'
 import {
   IPC,
   type ChatSendInput,
@@ -285,6 +286,22 @@ function registerIpc(): void {
     return { ok: true }
   })
 
+  ipcMain.handle(IPC.VISION_PICK_IMAGE, async () => {
+    const res = await dialog.showOpenDialog({
+      title: 'Referans görsel seç',
+      properties: ['openFile'],
+      filters: [{ name: 'Görseller', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    return { path: res.filePaths[0] }
+  })
+
+  ipcMain.handle(IPC.VISION_ANALYZE, async (_e, input: { imagePath: string; prompt: string }) => {
+    return analyzeImage(input.imagePath, input.prompt, (msg) => {
+      mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
+    })
+  })
+
   ipcMain.handle(IPC.AGENT_DEV_STATUS, async () => {
     return { url: getDevUrl() }
   })
@@ -322,4 +339,5 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   disposeWorker()
   void stopDev()
+  stopVisionServer()
 })
