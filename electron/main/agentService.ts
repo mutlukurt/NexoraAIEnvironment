@@ -116,9 +116,84 @@ export function scaffoldProject(files: ProjectFileInput[], projectName: string):
   const isStaticHtml = has('index.html') && !appEntry && !isNext
   const tailwind = usesTailwind(out)
 
-  // cn() onarımı: modeller (gerçek 14B testinde yakalandı) cn() kullanıp
-  // tanımlamayı unutabiliyor → runtime ReferenceError → bembeyaz sayfa.
-  // Eksikse bağımlılıksız bir cn üret ve her kullanan dosyaya import et.
+  // Türkçe kesme işareti onarımı (gerçek 14B testinde 4 kez yakalandı):
+  // model 'İstanbul'un lezzetleri' gibi tek tırnaklı stringler yazıyor ve
+  // içteki kesme işareti stringi erken kapatıyor. Satırın tamamı tek bir
+  // tek-tırnaklı değerse ve içinde kesme işareti varsa çift tırnağa çevir.
+  for (const f of out) {
+    if (!/\.(tsx|ts|jsx|js)$/.test(f.path)) continue
+    f.content = f.content
+      .split('\n')
+      .map((line) => {
+        const m = line.match(/^(\s*)'(.*)',?(\s*)$/)
+        // Yalnızca TEK string değeri olan satırlar: 'a': 'b' anahtar-değer
+        // çiftlerine (içinde "':" deseni olanlara) asla dokunma.
+        if (m && m[2].includes("'") && !m[2].includes('"') && !/'\s*:/.test(m[2])) {
+          return `${m[1]}"${m[2]}"${line.trimEnd().endsWith(',') ? ',' : ''}${m[3]}`
+        }
+        return line
+      })
+      .join('\n')
+  }
+
+  // "Kullanılmış ama import edilmemiş tanımlayıcı" onarımı — gerçek 14B
+  // testlerinde iki kez yakalandı (cn() ve <Button/>): runtime ReferenceError
+  // → bembeyaz sayfa. Projedeki export'ların haritası çıkarılır; bir dosyada
+  // kullanılan ama ne tanımlanan ne import edilen isimler otomatik bağlanır.
+  const relModulePath = (fromFile: string, targetFile: string): string => {
+    const fromDir = fromFile.includes('/') ? fromFile.slice(0, fromFile.lastIndexOf('/')).split('/') : []
+    const target = targetFile.replace(/\.(tsx|ts|jsx|js)$/, '').split('/')
+    let common = 0
+    while (common < fromDir.length && common < target.length - 1 && fromDir[common] === target[common]) common++
+    const rel = '../'.repeat(fromDir.length - common) + target.slice(common).join('/')
+    return rel.startsWith('.') ? rel : './' + rel
+  }
+
+  // 1) Export haritası: isim → { dosya, default mı? }
+  const exportMap = new Map<string, { path: string; isDefault: boolean }>()
+  for (const f of out) {
+    if (!/\.(tsx|ts|jsx)$/.test(f.path)) continue
+    for (const m of f.content.matchAll(/export\s+default\s+(?:function\s+)?([A-Z]\w*)/g)) {
+      exportMap.set(m[1], { path: f.path, isDefault: true })
+    }
+    const base = f.path.split('/').pop()!.split('.')[0]
+    if (/^[A-Z]/.test(base) && /export\s+default\b/.test(f.content) && !exportMap.has(base)) {
+      exportMap.set(base, { path: f.path, isDefault: true })
+    }
+    for (const m of f.content.matchAll(/export\s+(?:const|function|class)\s+([A-Z]\w*)/g)) {
+      if (!exportMap.has(m[1])) exportMap.set(m[1], { path: f.path, isDefault: false })
+    }
+    // Veri exportları da (menuCategories, reviews, site...) — 14B testinde
+    // bileşen importu kadar sık unutuldukları görüldü.
+    for (const m of f.content.matchAll(/export\s+const\s+([a-z]\w*)/g)) {
+      if (!exportMap.has(m[1])) exportMap.set(m[1], { path: f.path, isDefault: false })
+    }
+  }
+
+  // 2) Eksik importları bağla: JSX bileşenleri + kullanılan veri exportları
+  const REACT_BUILTINS = new Set(['Fragment', 'StrictMode', 'Suspense', 'React'])
+  for (const f of out) {
+    if (!/\.(tsx|jsx)$/.test(f.path)) continue
+    const jsxTags = [...new Set([...f.content.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]))]
+    const candidates = new Set<string>(jsxTags)
+    for (const [name] of exportMap) {
+      if (/^[a-z]/.test(name) && new RegExp(`\\b${name}\\b`).test(f.content)) candidates.add(name)
+    }
+    const importLines: string[] = []
+    for (const name of candidates) {
+      if (REACT_BUILTINS.has(name)) continue
+      const info = exportMap.get(name)
+      if (!info || info.path === f.path) continue
+      const declared = new RegExp(`(?:const|let|var|function|class)\\s+${name}\\b`).test(f.content)
+      const imported = new RegExp(`import[^\\n]*\\b${name}\\b`).test(f.content)
+      if (declared || imported) continue
+      const rel = relModulePath(f.path, info.path)
+      importLines.push(info.isDefault ? `import ${name} from '${rel}'` : `import { ${name} } from '${rel}'`)
+    }
+    if (importLines.length > 0) f.content = importLines.join('\n') + '\n' + f.content
+  }
+
+  // 3) cn() özel durumu: hiçbir dosya export etmiyorsa bağımlılıksız üret
   const cnNeedy = out.filter(
     (f) =>
       /\.(tsx|jsx)$/.test(f.path) &&
@@ -126,9 +201,11 @@ export function scaffoldProject(files: ProjectFileInput[], projectName: string):
       !/(?:import|const|function|var|let)[^\n]*\bcn\b/.test(f.content)
   )
   if (cnNeedy.length > 0) {
-    add(
-      'src/lib/utils.ts',
-      `type ClassInput = string | number | null | undefined | false | Record<string, unknown>
+    const cnSource = out.find((f) => /\.(ts|tsx)$/.test(f.path) && /export\s+(?:const|function)\s+cn\b/.test(f.content))?.path
+    if (!cnSource) {
+      add(
+        'src/lib/utils.ts',
+        `type ClassInput = string | number | null | undefined | false | Record<string, unknown>
 
 export function cn(...inputs: ClassInput[]): string {
   const out: string[] = []
@@ -140,14 +217,11 @@ export function cn(...inputs: ClassInput[]): string {
   return out.join(' ')
 }
 `
-    )
+      )
+    }
+    const cnPath = cnSource ?? 'src/lib/utils.ts'
     for (const f of cnNeedy) {
-      const fromDir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')).split('/') : []
-      const target = ['src', 'lib', 'utils']
-      let common = 0
-      while (common < fromDir.length && common < target.length - 1 && fromDir[common] === target[common]) common++
-      const rel = '../'.repeat(fromDir.length - common) + target.slice(common).join('/')
-      f.content = `import { cn } from '${rel.startsWith('.') ? rel : './' + rel}'\n` + f.content
+      f.content = `import { cn } from '${relModulePath(f.path, cnPath)}'\n` + f.content
     }
   }
 
