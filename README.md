@@ -100,10 +100,19 @@ Running from source gives the complete experience — inference worker, agent ac
   - `Qwen2.5-Coder-7B-Instruct` Q4_K_M (~4.7 GB) — best quality/speed balance on 16 GB RAM
   - `Qwen2.5-Coder-3B-Instruct` Q5_K_M (~2.4 GB) — for lighter machines
 
-### Install from the .deb
+### Install from the .deb (Debian / Ubuntu / Mint / Pop!_OS)
+
+Download the latest `.deb` from the [**Releases page**](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest), then:
 
 ```bash
-sudo dpkg -i nexora-ai_<version>_amd64.deb
+sudo dpkg -i nexora-ai_0.6.4_amd64.deb
+```
+
+Or as a single copy-paste:
+
+```bash
+wget https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest/download/nexora-ai_0.6.4_amd64.deb
+sudo dpkg -i nexora-ai_0.6.4_amd64.deb
 ```
 
 ### Build from source
