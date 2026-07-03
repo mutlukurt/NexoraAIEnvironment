@@ -461,9 +461,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     let visionAnalysis: string | null = null
     if (image) {
       set({ pendingImage: null })
-      const BUILD_INTENT =
-        /yap|oluştur|olustur|kur|kodla|tasarla|üret|uret|site|sayfa|proje|uygula|klonla|benze|aynı|ayni|birebir|build|create|make|clone|implement|design/i
-      const isBuild = BUILD_INTENT.test(trimmed)
+      const { isBuildIntent } = await import('@/lib/visionIntent')
+      const isBuild = isBuildIntent(trimmed)
       const statusId = nanoid()
       set((s) => ({
         messages: [
