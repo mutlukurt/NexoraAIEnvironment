@@ -80,9 +80,20 @@ NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B m
 
 ## Getting Started
 
+### Platform Support
+
+| Platform | How | Status |
+|---|---|---|
+| Ubuntu / Debian / Mint / Pop!_OS | install the `.deb` | ✅ fully supported |
+| Any other Linux (Fedora, Arch…) | run from source (`npm run dev`) | ✅ fully supported — verified with a fresh clone |
+| macOS | run from source | ✅ expected to work (POSIX shell, PATH node) |
+| Windows | run from source | ⚙️ core + agent run via `cmd.exe` shell; not yet CI-tested |
+
+Running from source gives the complete experience — inference worker, agent actions, dev server, export — because in dev mode the worker uses the Node.js already on your PATH (no bundled runtime needed).
+
 ### Requirements
 
-- Linux x64 (built and tested on Ubuntu; `.deb` packaging)
+- Linux x64 for the `.deb` (built and tested on Ubuntu)
 - ~8 GB RAM minimum (16 GB recommended for 7B models)
 - Node.js 20+ and npm (for the Run/dev-server feature; the app ships its own Node runtime for inference)
 - A GGUF model file — good starters:
