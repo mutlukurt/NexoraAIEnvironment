@@ -463,7 +463,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
     let outgoing = trimmed
     const buildErr = get().lastBuildError
-    if (buildErr && /d[üu]zelt|fix|hata/i.test(trimmed)) {
+    // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
+    // + genel "hata/error" göndermeleri. Yakalanmış hata varken bu kelimelerden
+    // biri geçiyorsa teşhis paketi modele otomatik iliştirilir.
+    const FIX_WORDS =
+      /d[üu]zelt|onar|tamir|gider|[çc][öo]z|hata|fix|repair|solve|correct|debug|error|arregl|corrig|repar|solucion|conserta|r[ée]par|beheb|korrigier|reparier|risolv|corregg|napraw|исправ|почин|herstel|verbeter/i
+    if (buildErr && FIX_WORDS.test(trimmed)) {
       outgoing = `${trimmed}
 
 === BUILD ERROR (NexoraAI tarafından otomatik yakalandı) ===
