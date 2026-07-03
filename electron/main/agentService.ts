@@ -116,6 +116,41 @@ export function scaffoldProject(files: ProjectFileInput[], projectName: string):
   const isStaticHtml = has('index.html') && !appEntry && !isNext
   const tailwind = usesTailwind(out)
 
+  // cn() onarımı: modeller (gerçek 14B testinde yakalandı) cn() kullanıp
+  // tanımlamayı unutabiliyor → runtime ReferenceError → bembeyaz sayfa.
+  // Eksikse bağımlılıksız bir cn üret ve her kullanan dosyaya import et.
+  const cnNeedy = out.filter(
+    (f) =>
+      /\.(tsx|jsx)$/.test(f.path) &&
+      /\bcn\(/.test(f.content) &&
+      !/(?:import|const|function|var|let)[^\n]*\bcn\b/.test(f.content)
+  )
+  if (cnNeedy.length > 0) {
+    add(
+      'src/lib/utils.ts',
+      `type ClassInput = string | number | null | undefined | false | Record<string, unknown>
+
+export function cn(...inputs: ClassInput[]): string {
+  const out: string[] = []
+  for (const i of inputs) {
+    if (!i) continue
+    if (typeof i === 'string' || typeof i === 'number') out.push(String(i))
+    else for (const k in i) if (i[k]) out.push(k)
+  }
+  return out.join(' ')
+}
+`
+    )
+    for (const f of cnNeedy) {
+      const fromDir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')).split('/') : []
+      const target = ['src', 'lib', 'utils']
+      let common = 0
+      while (common < fromDir.length && common < target.length - 1 && fromDir[common] === target[common]) common++
+      const rel = '../'.repeat(fromDir.length - common) + target.slice(common).join('/')
+      f.content = `import { cn } from '${rel.startsWith('.') ? rel : './' + rel}'\n` + f.content
+    }
+  }
+
   add('.gitignore', 'node_modules/\ndist/\nbuild/\n.next/\nout/\n*.log\n.DS_Store\n.env\n__pycache__/\n')
   add('README.md', `# ${projectName}\n\nNexoraAI ile oluşturuldu.\n\n## Çalıştırma\n\n\`\`\`bash\nnpm install\nnpm run dev\n\`\`\`\n`)
 
@@ -173,15 +208,35 @@ export function scaffoldProject(files: ProjectFileInput[], projectName: string):
         2
       )
     )
-    // package.json model tarafından yazıldıysa eksik dep'leri tamamla
+    // package.json model tarafından yazıldıysa eksik dep'leri tamamla ve
+    // DEZENFEKTE ET: büyük modeller bile Vite projesine CRA kalıntıları
+    // (react-scripts) veya çakışan sürümler karıştırabiliyor (gerçek 14B
+    // testinde yakalandı: react-scripts@5 + typescript@5 → ERESOLVE).
     if (has('package.json')) {
       try {
         const pj = JSON.parse(map.get('package.json')!.content)
+        // Vite ile çakışan / gereksiz araçlar hiçbir listede kalamaz
+        const BANNED = ['react-scripts', 'postcss-cli', 'webpack', 'webpack-cli', 'parcel']
         pj.dependencies = pj.dependencies ?? {}
+        pj.devDependencies = pj.devDependencies ?? {}
+        for (const b of BANNED) {
+          delete pj.dependencies[b]
+          delete pj.devDependencies[b]
+        }
+        // Derleme araçları dependencies'e değil devDependencies'e aittir;
+        // bizim bilinen-iyi sürümlerimiz modelinkileri EZER.
+        for (const tool of Object.keys(devDeps)) delete pj.dependencies[tool]
+        pj.devDependencies = { ...pj.devDependencies, ...devDeps }
         for (const [k, v] of Object.entries(deps)) if (!pj.dependencies[k]) pj.dependencies[k] = v
-        pj.devDependencies = { ...devDeps, ...(pj.devDependencies ?? {}) }
-        pj.scripts = pj.scripts && pj.scripts.dev ? pj.scripts : { ...(pj.scripts ?? {}), dev: 'vite', build: 'vite build', preview: 'vite preview' }
+        // Çalıştırma script'leri her zaman vite üçlüsü; react-scripts
+        // referanslı artık script'ler atılır.
+        const scripts: Record<string, string> = {}
+        for (const [k, v] of Object.entries((pj.scripts ?? {}) as Record<string, string>)) {
+          if (!/react-scripts/.test(v)) scripts[k] = v
+        }
+        pj.scripts = { ...scripts, dev: 'vite', build: 'vite build', preview: 'vite preview' }
         if (!pj.type) pj.type = 'module'
+        delete pj.main
         const rec = map.get('package.json')!
         rec.content = JSON.stringify(pj, null, 2)
         const idx = out.findIndex((f) => f.path === 'package.json')
