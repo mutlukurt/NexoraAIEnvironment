@@ -313,8 +313,11 @@ export async function runCommand(projectName: string, cmd: string, timeoutMs = 3
   await mkdir(dir, { recursive: true })
 
   return new Promise<RunResult>((resolvePromise) => {
-    const child = spawn('bash', ['-lc', cmd], {
+    // shell: true → Linux/macOS'ta /bin/sh, Windows'ta cmd.exe. 'bash'e sabitlemek
+    // Windows'ta kaynak koddan çalıştıran kullanıcıların agent komutlarını kırar.
+    const child = spawn(cmd, {
       cwd: dir,
+      shell: true,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } as NodeJS.ProcessEnv,
       detached: false
     })
@@ -510,10 +513,12 @@ export async function startDev(
   return new Promise<DevResult>((resolvePromise) => {
     let output = ''
     let settled = false
-    const child = spawn('bash', ['-lc', 'npm run dev'], {
+    const child = spawn('npm run dev', {
       cwd: dir,
+      shell: true,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, FORCE_COLOR: '0', NO_COLOR: '1', BROWSER: 'none' } as NodeJS.ProcessEnv,
-      detached: true
+      // Windows'ta süreç grubu ayrımı desteklenmez; stopDev zaten child.kill'e düşer
+      detached: process.platform !== 'win32'
     })
     devProc = child
 
