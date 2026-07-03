@@ -477,13 +477,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         }))
       })
       const visionPrompt = isBuild
-        ? `Bu bir web sitesi tasarım referansı. Tasarım sistemini AYRINTILI çıkar:
-1) Renk paleti (hex tahminleriyle: arkaplan, birincil, vurgu, metin)
-2) Tipografi (başlık/gövde hiyerarşisi, ağırlıklar, yaklaşık boyutlar)
-3) Sayfa bölümleri yukarıdan aşağıya, her birinin içeriği ve yerleşimi
-4) Bileşen stilleri (butonlar, kartlar: köşe yuvarlaklığı, gölge, kenarlık)
-5) Genel his (minimal/kurumsal/oyuncu vb.) ve boşluk kullanımı
-Maddeler halinde, uygulanabilir netlikte yaz.`
+        ? `Bu bir web sitesi tasarım referansı. Bir geliştiricinin SENİN TARİFİNLE bu sayfayı yeniden inşa edeceğini unutma — belirsiz sıfatlar değil, ölçülebilir detaylar ver:
+
+1) SAYFA ÇERÇEVESİ: sayfanın genel zemini ne renk (hex)? İçerik bir çerçeve/kutu içinde mi (kenar boşluğu, köşe yuvarlaklığı)? Maksimum içerik genişliği dar mı geniş mi?
+2) RENKLER (hex tahminleri): zemin, ikincil zemin(ler), birincil vurgu, metin, açık/koyu bölge geçişleri. HANGİ BÖLGE HANGİ RENK — "her yer X" deme, bölge bölge yaz.
+3) TİPOGRAFİ: başlık fontu serif mi sans mı, ağırlıklar, hero başlığının yaklaşık büyüklüğü, satır aralığı hissi.
+4) BÖLÜMLER (yukarıdan aşağıya TEK TEK): her bölüm için — kaç sütun, hangi tarafta ne var (metin sol / görsel sağ gibi), kart sayısı, arka plan rengi, dikkat çeken öğeler (rozet, istatistik kutusu, logo şeridi).
+5) BİLEŞENLER: buton stilleri (dolgu/çerçeve, köşe, renk), kart stilleri (gölge, kenarlık, köşe), ikon kullanımı.
+6) GENEL HİS: minimal/kurumsal/lüks vb. + boşluk yoğunluğu.
+
+Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz.`
         : trimmed
       const vres = await window.nexora.vision.analyze({ imagePath: image.path, prompt: visionPrompt })
       visionUnsub()

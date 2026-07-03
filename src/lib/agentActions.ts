@@ -41,7 +41,13 @@ export function isDirectiveOnlyContent(code: string): boolean {
 
 /** "<url>", "<shell command>" gibi şablon değerleri — asla yürütülmez. */
 export function isPlaceholderValue(v: string): boolean {
-  return /<[^>]*>/.test(v) || /^(package-name|paket-adi|Font Family Name|komut|url)$/i.test(v.trim())
+  return (
+    /<[^>]*>/.test(v) ||
+    /^(package-name|paket-adi|Font Family Name|komut|url)$/i.test(v.trim()) ||
+    // example.com/org/net RFC'de yer tutucudur — modeller URL uydururken bunu
+    // kullanıyor (gerçek 14B vakası: https://example.com/logo.svg → 404)
+    /\/\/(www\.)?example\.(com|org|net)/i.test(v)
+  )
 }
 
 export function parseDirectives(text: string): AgentDirectives {
@@ -57,7 +63,9 @@ export function parseDirectives(text: string): AgentDirectives {
     if (fam && fam.length < 60 && !isPlaceholderValue(fam)) d.fonts.push(fam)
   }
   for (const m of text.matchAll(FETCH_RE)) {
-    if (/^https?:\/\//i.test(m[1])) d.fetches.push({ url: m[1], path: m[2].replace(/^\.?\//, '') })
+    if (/^https?:\/\//i.test(m[1]) && !isPlaceholderValue(m[1])) {
+      d.fetches.push({ url: m[1], path: m[2].replace(/^\.?\//, '') })
+    }
   }
   for (const m of text.matchAll(RUN_RE)) {
     if (!isPlaceholderValue(m[1])) d.runs.push(m[1])

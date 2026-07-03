@@ -442,6 +442,19 @@ export async function runCommand(projectName: string, cmd: string, timeoutMs = 3
   const dir = workspaceDir(projectName)
   await mkdir(dir, { recursive: true })
 
+  // Model, kurulum yapılmadan "npm run build" gibi komutlar verebiliyor
+  // (gerçek 14B vakası: "vite: not found"). package.json varsa ve
+  // node_modules yoksa, npm komutlarından önce bağımlılıkları kur.
+  if (
+    /^(npm|npx|vite|yarn|pnpm)\b/.test(cmd.trim()) &&
+    !/^(npm|yarn|pnpm)\s+(install|i|ci)\b/.test(cmd.trim()) &&
+    existsSync(join(dir, 'package.json')) &&
+    !existsSync(join(dir, 'node_modules'))
+  ) {
+    const inst = await runCommand(projectName, 'npm install --no-audit --no-fund', 600_000)
+    if (!inst.ok) return { ok: false, output: 'Önkoşul npm install başarısız:\n' + inst.output.slice(-800), exitCode: inst.exitCode }
+  }
+
   return new Promise<RunResult>((resolvePromise) => {
     // shell: true → Linux/macOS'ta /bin/sh, Windows'ta cmd.exe. 'bash'e sabitlemek
     // Windows'ta kaynak koddan çalıştıran kullanıcıların agent komutlarını kırar.
