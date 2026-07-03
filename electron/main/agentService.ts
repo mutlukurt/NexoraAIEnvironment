@@ -8,6 +8,7 @@
  * "[RUN] npm install" gibi komutları güvenli bir klasör bağlamında çalıştırır.
  */
 import { spawn, type ChildProcess } from 'child_process'
+import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { join, dirname, resolve, sep } from 'path'
 import { mkdir, writeFile, readFile, cp, rm, access } from 'fs/promises'
@@ -492,7 +493,8 @@ export async function startDev(
     const idx = join(dir, 'index.html')
     try {
       await access(idx)
-      const url = 'file://' + idx
+      // pathToFileURL: Windows sürücü harfli yollarda da geçerli file:/// üretir
+      const url = pathToFileURL(idx).toString()
       void shell.openExternal(url)
       return { ok: true, url }
     } catch {
