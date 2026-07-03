@@ -544,7 +544,7 @@ Maddeler halinde, uygulanabilir netlikte yaz.`
 === REFERANS GÖRSEL TASARIM ANALİZİ (görsel modelden otomatik) ===
 ${visionAnalysis}
 === ANALİZ SONU ===
-Bu analizi tasarım rehberi olarak birebir uygula.`
+Bu analizi tasarım rehberi olarak uygula. ÖNEMLİ: Kullanıcının isteğinde analizden farklı özel talimatlar varsa (renk/font/bölüm değişikliği gibi "ama/fakat/şöyle olsun" ifadeleri), KULLANICININ TALİMATI analizden ÜSTÜNDÜR — önce onu uygula, kalan her şeyde analize sadık kal.`
     }
     const buildErr = get().lastBuildError
     // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
