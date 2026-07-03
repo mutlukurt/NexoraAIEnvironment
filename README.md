@@ -146,6 +146,13 @@ npm run dist
 2. **Describe your project** — e.g. *"Bana modern bir portfolio sitesi yap"*. Watch per-file progress right in the chat.
 3. **Iterate** — *"Hakkımda kısmını daha detaylı yaz"*, *"projeler bölümüne 3 kart ekle"*. Small requests become surgical edits (marked *updated* in the file card).
 4. **Run it** — the green **Çalıştır** button installs dependencies and opens the real site at `localhost` in your browser. Press again to stop.
+
+   **When something breaks — the exact timeline:**
+   - The *Accept/Reject* buttons after a generation are **not** a correctness check — they only decide whether the changes stay in your workspace (Reject rolls everything back instantly).
+   - Error detection happens at **Run**: while Vite opens your browser, NexoraAI silently runs a *full* compile of the project in the background. (This matters because Vite compiles lazily — a broken project can still "start".)
+   - If the compile fails, the error lands **in the chat** — with file, line, code frame, an error-class hint, and a *suspicious-line scan* (e.g. the app itself finds the line with an unclosed quote).
+   - You type **"düzelt"** — nothing more. The diagnosis is attached to the model automatically; its edit is applied through a copy-tolerant matcher; the app **re-compiles to verify**; if the error persists it retries by itself (up to 2 extra rounds with escalating hints) before asking you for help. Success is announced in the chat: *"✅ Derleme hatası giderildi."*
+   - **Scope note:** this catches *build/compile* errors (syntax, broken imports, unclosed quotes — the vast majority). Purely runtime glitches (e.g. a section rendering empty) are things you *see* on localhost and report in plain words — that's the normal iteration flow.
 5. **Use agent powers** (optional) — phrases like these trigger real actions, logged live in the chat:
 
    | You say | The agent does |
