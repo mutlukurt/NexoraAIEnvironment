@@ -10,7 +10,7 @@
  * (~2.8 GB) yoksa indirilir; ilerleme chat'e bildirilir.
  */
 import { spawn, type ChildProcess } from 'child_process'
-import { homedir } from 'os'
+import { homedir, freemem } from 'os'
 import { join, dirname } from 'path'
 import { mkdir, readFile, rename, rm } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -27,6 +27,39 @@ const VL_MMPROJ_URL =
   'https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf'
 const VL_MODEL = join(MODELS_DIR, 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf')
 const VL_MMPROJ = join(MODELS_DIR, 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf')
+
+/**
+ * Göz adayları — kaliteden düşüğe. Kullanıcı models klasörüne daha büyük bir
+ * VL çifti indirirse (model + mmproj) ve o anki boş RAM yetiyorsa uygulama
+ * OTOMATİK olarak onu kullanır. needGb: model + mmproj + bağlam payı.
+ */
+const VL_CANDIDATES: Array<{ label: string; model: string; mmproj: string; needGb: number }> = [
+  {
+    label: 'Qwen2.5-VL-7B',
+    model: 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf',
+    mmproj: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
+    needGb: 7
+  },
+  {
+    label: 'Qwen2.5-VL-3B',
+    model: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf',
+    mmproj: 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf',
+    needGb: 4
+  }
+]
+
+/** RAM'e sığan en iyi mevcut gözü seç (yoksa 3B varsayılanına düşülür). */
+function pickVisionModel(): { label: string; model: string; mmproj: string } {
+  const freeGb = freemem() / 1e9
+  for (const c of VL_CANDIDATES) {
+    const m = join(MODELS_DIR, c.model)
+    const p = join(MODELS_DIR, c.mmproj)
+    if (existsSync(m) && existsSync(p) && freeGb >= c.needGb) {
+      return { label: c.label, model: m, mmproj: p }
+    }
+  }
+  return { label: 'Qwen2.5-VL-3B', model: VL_MODEL, mmproj: VL_MMPROJ }
+}
 
 function binaryUrl(): { url: string; archive: 'tar' | 'zip' } | null {
   const base = `https://github.com/ggml-org/llama.cpp/releases/download/${BIN_TAG}/llama-${BIN_TAG}-bin-`
@@ -114,13 +147,14 @@ let visionProc: ChildProcess | null = null
 
 async function startVisionServer(onStatus: VisionStatusCallback): Promise<{ ok: boolean; error?: string }> {
   if (visionProc) return { ok: true }
-  onStatus('Görsel modeli belleğe yükleniyor…')
+  const eyes = pickVisionModel()
+  onStatus(`Görsel modeli belleğe yükleniyor (${eyes.label})…`)
   return new Promise((resolvePromise) => {
     const child = spawn(
       serverBinaryPath(),
       // 8192 bağlam şart: büyük görseller 4k'yı aşan görsel-token üretiyor
       // (fizibilite testinde 3828px ekran görüntüsü 4162 tokene çıktı).
-      ['-m', VL_MODEL, '--mmproj', VL_MMPROJ, '--port', String(VISION_PORT), '--host', '127.0.0.1', '-c', '8192', '--no-webui'],
+      ['-m', eyes.model, '--mmproj', eyes.mmproj, '--port', String(VISION_PORT), '--host', '127.0.0.1', '-c', '8192', '--no-webui'],
       {
         env: { ...process.env, LD_LIBRARY_PATH: dirname(serverBinaryPath()) } as NodeJS.ProcessEnv,
         stdio: ['ignore', 'pipe', 'pipe']
