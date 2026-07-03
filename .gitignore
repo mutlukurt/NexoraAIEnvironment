@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# build outputs
+out/
+dist/
+release/
+.vite/
+
+# bundled runtime (125 MB node binary — recreated at build time, see README)
+vendor/
+
+# local tooling & logs
+.claude/
+*.log
+.DS_Store
