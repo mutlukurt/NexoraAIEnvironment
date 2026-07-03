@@ -268,6 +268,25 @@ Additionally verified at the logic level: `buildSystemPrompt(…, smallModel=fal
 
 **Not simulatable:** physically loading a 40 GB file into RAM. That part is llama.cpp's most-traveled code path (identical for all model sizes), the >4 GB Electron crash class is already eliminated by the worker architecture, and memory pressure degrades gracefully (context-size step-down ladder, clean error instead of a hang). But honest is honest: run-a-real-70B remains hardware-gated, not verified here.
 
+### Follow-up: verified with a REAL ≥13B model on real hardware
+
+The simulation left one open question, so we closed it: **Qwen2.5-Coder-14B-Instruct Q4_K_M (9 GB)** — above the 13B professional-prompt threshold — was downloaded and run **on the same 16 GB development laptop, CPU-only**.
+
+- The loader read `14B` from GGUF metadata and selected the **full professional prompt** — the size-adaptive logic worked live, not just in unit tests.
+- In 24 minutes (~2 tok/s on CPU) the model produced a **12-file professional project** on its own: six section components, a `ui/` primitive, typed props, Tailwind config, dark-mode state — the structure small models can't sustain.
+- The output flowed through the same pipeline: parse → scaffold → `npm install` → `vite build` (752 ms) → static serve. The result, exactly as rendered:
+
+![Real 14B-generated restaurant site](docs/screenshots/06-real-14b-site.png)
+
+*Generated end-to-end by a real 14B model through NexoraAI on a laptop — including the hero image: the model hard-coded `picsum.photos/id/1025`, which happens to be a pug in a blanket. Real model outputs, quirks included.*
+
+Better yet, the real run caught **two real model mistakes** that the simulation couldn't, and both became deterministic auto-repairs in the scaffold:
+
+1. The 14B mixed Create-React-App relics (`react-scripts@5`) into a Vite `package.json`, breaking `npm install` with `ERESOLVE` → the scaffold now sanitizes model-authored manifests (bans CRA/webpack relics, pins build-tool versions, forces the vite script trio).
+2. It used a `cn()` class helper without ever defining or importing it — a runtime `ReferenceError` and a blank page → the scaffold now detects this, generates a dependency-free `src/lib/utils.ts`, and injects correct relative imports.
+
+*Plain-language version:* we rented nothing and faked nothing — a genuinely big model ran on the actual laptop, slowly but correctly, and the two mistakes it made taught the app to auto-fix that whole class of mistakes for everyone.
+
 ## Project Structure
 
 ```
