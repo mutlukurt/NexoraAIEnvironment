@@ -4,6 +4,9 @@
   "description": "NexoraAI - Local GGUF, agent-first desktop app",
   "main": "./out/main/index.js",
   "author": "NexoraAI",
+  "engines": {
+    "node": ">=20"
+  },
   "homepage": "https://github.com/nexora-ai/nexora",
   "scripts": {
     "dev": "node scripts/copy-vendor.js && electron-vite dev --no-sandbox",
