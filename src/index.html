@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- img/font/media geniş: srcdoc önizleme iframe'i bu CSP'yi miras alır (picsum vb. placeholder'lar) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src * data:; media-src * data: blob:; connect-src 'self' https://huggingface.co https://*.huggingface.co https://cdn-lfs.huggingface.co;" />
+    <title>NexoraAI</title>
+  </head>
+  <body class="bg-[#f8f9fc] text-slate-800 antialiased">
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
