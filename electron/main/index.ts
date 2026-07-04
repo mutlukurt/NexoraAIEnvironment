@@ -28,7 +28,10 @@ import {
   exportProject,
   buildCheck
 } from './agentService'
-import { analyzeImage, stopVisionServer } from './visionService'
+import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
+import { detectHardware } from './advisorService'
+import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
+import { getRules, setRules } from './rulesService'
 import {
   IPC,
   type ChatSendInput,
@@ -37,7 +40,8 @@ import {
   type AgentRunInput,
   type AgentFetchInput,
   type AgentFontInput,
-  type AgentDevInput
+  type AgentDevInput,
+  type SessionData
 } from '../shared/ipc'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
@@ -300,6 +304,43 @@ function registerIpc(): void {
     return analyzeImage(input.imagePath, input.prompt, (msg) => {
       mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
     })
+  })
+
+  ipcMain.handle(IPC.VISION_PREPARE, async () => {
+    return ensureVisionReady((msg) => {
+      mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
+    })
+  })
+
+  ipcMain.handle(IPC.ADVISOR_DETECT, async () => {
+    return detectHardware()
+  })
+
+  ipcMain.handle(IPC.SESSIONS_LIST, async () => {
+    return listSessions()
+  })
+
+  ipcMain.handle(IPC.SESSIONS_SAVE, async (_e, data: SessionData) => {
+    await saveSession(data)
+    return { ok: true }
+  })
+
+  ipcMain.handle(IPC.SESSIONS_LOAD, async (_e, id: string) => {
+    return loadSession(id)
+  })
+
+  ipcMain.handle(IPC.SESSIONS_DELETE, async (_e, id: string) => {
+    await deleteSession(id)
+    return { ok: true }
+  })
+
+  ipcMain.handle(IPC.RULES_GET, async (_e, projectName: string) => {
+    return { content: await getRules(projectName) }
+  })
+
+  ipcMain.handle(IPC.RULES_SET, async (_e, projectName: string, content: string) => {
+    await setRules(projectName, content)
+    return { ok: true }
   })
 
   ipcMain.handle(IPC.AGENT_DEV_STATUS, async () => {

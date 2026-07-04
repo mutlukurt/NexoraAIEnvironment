@@ -725,8 +725,8 @@ export default function Preview() {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
         <div className="mb-2 text-2xl text-zinc-700">🌐</div>
-        <p className="text-sm text-zinc-500">Önizleme için bir HTML veya JSX/TSX dosyası gerekli</p>
-        <p className="mt-1 text-xs text-zinc-600">Dosya ekle ya da modelden bir bileşen üret</p>
+        <p className="text-sm text-ink-dim">Önizleme için bir HTML veya JSX/TSX dosyası gerekli</p>
+        <p className="mt-1 text-xs text-ink-dim">Dosya ekle ya da modelden bir bileşen üret</p>
       </div>
     )
   }
@@ -738,7 +738,7 @@ export default function Preview() {
         title="preview"
         sandbox="allow-scripts allow-forms allow-modals allow-popups"
         srcDoc={srcDoc}
-        className="h-full w-full border-0 bg-white"
+        className="h-full w-full border-0 bg-ink-card"
       />
       {/* Elle yenileme: çerçeveyi sıfırdan yaratır */}
       <button
@@ -748,7 +748,7 @@ export default function Preview() {
           setNonce((n) => n + 1)
         }}
         title="Önizlemeyi yenile"
-        className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition hover:text-slate-800"
+        className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-ink-line bg-ink-card/90 text-ink-mut shadow-sm backdrop-blur transition hover:text-ink-text"
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12a9 9 0 1 1-2.64-6.36" />
@@ -756,10 +756,10 @@ export default function Preview() {
         </svg>
       </button>
       {dead && (
-        <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-4 py-3">
+        <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between gap-3 border-t border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <div className="min-w-0">
-            <p className="text-xs font-bold text-amber-800">Önizleme çerçevesinden yanıt gelmedi</p>
-            <p className="text-[11px] text-amber-700/80">Sayfa hâlâ yükleniyor olabilir; yenilemek genellikle çözer.</p>
+            <p className="text-xs font-bold text-amber-700 dark:text-amber-300">Önizleme çerçevesinden yanıt gelmedi</p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-300/80">Sayfa hâlâ yükleniyor olabilir; yenilemek genellikle çözer.</p>
           </div>
           <div className="flex shrink-0 gap-2">
             <button
@@ -773,7 +773,7 @@ export default function Preview() {
             </button>
             <button
               onClick={() => setDead(false)}
-              className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100"
+              className="rounded-lg border border-amber-500/30 bg-ink-card px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 transition hover:bg-amber-100"
             >
               Kapat
             </button>

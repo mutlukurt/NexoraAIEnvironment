@@ -45,9 +45,10 @@ const FORMAT_RULES = `=== OUTPUT FORMAT (STRICT, MANDATORY) ===
 4) NEVER put code outside code blocks. NEVER merge two files into one block. NEVER truncate a file — always the COMPLETE file content.
 5) Use professional, conventional file paths. Every import must resolve to a file you actually output.
 6) ALWAYS output a root-level README.md explaining the project purpose, architecture, features, and file tree.
-7) ALWAYS generate professional directory structures (including mock public/ asset folder files, styling configurations, data layers) as appropriate.
+7) ALWAYS generate professional directory structures (styling configurations, data layers, lib/ helpers) as appropriate.
 8) To delete any file, write: [DELETE] path/to/file on a single line in your response.
-9) Only answer without code blocks when the user is clearly just chatting or asking a question (then reply briefly in their language).`
+9) Only answer without code blocks when the user is clearly just chatting or asking a question (then reply briefly in their language).
+10) IMAGES & ICONS: local image files DO NOT EXIST — NEVER reference paths like /assets/photo.jpg, images/hero.png or public/logo.svg. For photos use https://picsum.photos/seed/<keyword>/<width>/<height> URLs; for icons use lucide-react components; for logos use styled text (no image).`
 
 /**
  * Agent direktifleri KASITLI olarak varsayılan sistem prompt'unda DEĞİL:
@@ -76,14 +77,15 @@ export function detectAgentIntent(text: string): boolean {
 
 const ITERATION_RULES = `=== ITERATIONS / UPDATES (CRITICAL) ===
 When "Current project files" are provided, the user wants CHANGES to the existing project:
-- Prefer SURGICAL edit blocks over rewriting files:
+- Respond with SMALL surgical edit blocks — one block per fix:
   \`\`\`edit path/to/file
   <<<<<<< SEARCH
-  (lines copied exactly from the current file)
+  (the SMALLEST unique snippet that changes — 2 to 8 lines, NEVER more than 12)
   =======
   (replacement lines)
   >>>>>>> REPLACE
   \`\`\`
+- FORBIDDEN: copying an entire component/section/file into SEARCH. Many changes in one section → several small blocks, one per exact spot.
 - Output a COMPLETE file only when it is brand new (normal fenced format).
 - DO NOT output any unchanged files. DO NOT rewrite the entire project structure.
 - To delete an unnecessary file from the workspace, write: [DELETE] path/to/file on its own line.

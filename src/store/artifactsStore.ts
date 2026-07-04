@@ -19,6 +19,11 @@ interface ArtifactsState {
   pendingChanges: boolean
   writingPath: string | null
   _snapshot: string | null
+  /** Zaman çizelgesi: her üretim turunun ÖNCESİ (en yenisi sonda, en çok 20). */
+  _undoStack: string[]
+  _redoStack: string[]
+  canUndo: boolean
+  canRedo: boolean
 
   createFile: (path: string, content: string, language?: FileLanguage) => string
   upsertFile: (path: string, content: string, language?: FileLanguage) => void
@@ -33,6 +38,11 @@ interface ArtifactsState {
   snapshot: () => void
   restoreSnapshot: () => void
   acceptChanges: () => void
+  /** Oturum yükleme: dosya setini bekleyen-değişiklik üretmeden komple değiştir. */
+  replaceAll: (files: Record<string, ArtifactFile>, selectedPath: string | null) => void
+  /** Üretim turları arasında geri/ileri gezinme (tek adımlık Reddet'in ötesi). */
+  undo: () => void
+  redo: () => void
   setWritingPath: (path: string | null) => void
   finishStreaming: () => void
 }
@@ -84,6 +94,10 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
   pendingChanges: false,
   writingPath: null,
   _snapshot: null,
+  _undoStack: [],
+  _redoStack: [],
+  canUndo: false,
+  canRedo: false,
 
   createFile: (path, content, language) => {
     const lang = language ?? detectLanguage(path)
@@ -179,10 +193,42 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
 
   setView: (view) => set({ view }),
 
-  clearAll: () => set({ files: {}, selectedPath: null, view: 'code', pendingChanges: false, writingPath: null, _snapshot: null }),
+  clearAll: () =>
+    set({
+      files: {},
+      selectedPath: null,
+      view: 'code',
+      pendingChanges: false,
+      writingPath: null,
+      _snapshot: null,
+      _undoStack: [],
+      _redoStack: [],
+      canUndo: false,
+      canRedo: false
+    }),
+
+  replaceAll: (files, selectedPath) =>
+    set({
+      files,
+      selectedPath: selectedPath && files[selectedPath] ? selectedPath : (Object.keys(files)[0] ?? null),
+      view: 'code',
+      pendingChanges: false,
+      writingPath: null,
+      _snapshot: null,
+      _undoStack: [],
+      _redoStack: [],
+      canUndo: false,
+      canRedo: false
+    }),
 
   snapshot: () => {
-    set({ _snapshot: JSON.stringify(get().files) })
+    const snap = JSON.stringify(get().files)
+    set((s) => {
+      // Aynı durumu üst üste yığma (boş/başarısız turlar gürültü yapmasın).
+      const push = s._undoStack[s._undoStack.length - 1] !== snap
+      const _undoStack = push ? [...s._undoStack.slice(-19), snap] : s._undoStack
+      return { _snapshot: snap, _undoStack, _redoStack: [], canUndo: _undoStack.length > 0, canRedo: false }
+    })
   },
 
   restoreSnapshot: () => {
@@ -191,15 +237,73 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
       const files = JSON.parse(snap) as Record<string, ArtifactFile>
       const paths = Object.keys(files)
       const prevSelected = get().selectedPath
-      set({
-        files,
-        pendingChanges: false,
-        writingPath: null,
-        _snapshot: null,
-        selectedPath: prevSelected && files[prevSelected] ? prevSelected : paths[0] ?? null,
-        view: 'code'
+      set((s) => {
+        // Reddedilen turun yığın girdisi restorasyonla aynı — düşür ki undo
+        // "hiçbir şey değişmedi" adımı göstermesin.
+        const _undoStack =
+          s._undoStack[s._undoStack.length - 1] === snap ? s._undoStack.slice(0, -1) : s._undoStack
+        return {
+          files,
+          pendingChanges: false,
+          writingPath: null,
+          _snapshot: null,
+          selectedPath: prevSelected && files[prevSelected] ? prevSelected : paths[0] ?? null,
+          view: 'code',
+          _undoStack,
+          canUndo: _undoStack.length > 0
+        }
       })
     }
+  },
+
+  undo: () => {
+    const s = get()
+    const cur = JSON.stringify(s.files)
+    const stack = [...s._undoStack]
+    let prev = stack.pop()
+    while (prev === cur && stack.length) prev = stack.pop()
+    if (!prev || prev === cur) {
+      set({ _undoStack: stack, canUndo: stack.length > 0 })
+      return
+    }
+    const files = JSON.parse(prev) as Record<string, ArtifactFile>
+    set({
+      files,
+      selectedPath: s.selectedPath && files[s.selectedPath] ? s.selectedPath : (Object.keys(files)[0] ?? null),
+      pendingChanges: false,
+      writingPath: null,
+      _snapshot: null,
+      _undoStack: stack,
+      _redoStack: [...s._redoStack.slice(-19), cur],
+      canUndo: stack.length > 0,
+      canRedo: true,
+      view: 'code'
+    })
+  },
+
+  redo: () => {
+    const s = get()
+    const cur = JSON.stringify(s.files)
+    const stack = [...s._redoStack]
+    let next = stack.pop()
+    while (next === cur && stack.length) next = stack.pop()
+    if (!next || next === cur) {
+      set({ _redoStack: stack, canRedo: stack.length > 0 })
+      return
+    }
+    const files = JSON.parse(next) as Record<string, ArtifactFile>
+    set({
+      files,
+      selectedPath: s.selectedPath && files[s.selectedPath] ? s.selectedPath : (Object.keys(files)[0] ?? null),
+      pendingChanges: false,
+      writingPath: null,
+      _snapshot: null,
+      _undoStack: [...s._undoStack.slice(-19), cur],
+      _redoStack: stack,
+      canUndo: true,
+      canRedo: stack.length > 0,
+      view: 'code'
+    })
   },
 
   acceptChanges: () => {

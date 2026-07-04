@@ -7,6 +7,7 @@ import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import { useArtifactsStore } from '@/store/artifactsStore'
+import { useAppStore } from '@/store/appStore'
 import type { FileLanguage } from '@/store/artifactsStore'
 
 function extensionsFor(lang: FileLanguage) {
@@ -33,6 +34,7 @@ export default function CodeEditor() {
   const file = useArtifactsStore((s) => (s.selectedPath ? s.files[s.selectedPath] : null))
   const writingPath = useArtifactsStore((s) => s.writingPath)
   const updateFile = useArtifactsStore((s) => s.updateFile)
+  const theme = useAppStore((s) => s.theme)
 
   const isWriting = !!file && writingPath === file.path
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -46,7 +48,7 @@ export default function CodeEditor() {
 
   if (!file) {
     return (
-      <div className="flex h-full items-center justify-center text-center text-sm text-zinc-600">
+      <div className="flex h-full items-center justify-center text-center text-sm text-ink-dim">
         <p>Düzenlemek için bir dosya seç</p>
       </div>
     )
@@ -54,23 +56,23 @@ export default function CodeEditor() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/60 px-3 py-1.5">
+      <div className="flex items-center justify-between border-b border-ink-line bg-ink-card/60 px-3 py-1.5">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-xs text-zinc-400">{file.path}</span>
+          <span className="truncate font-mono text-xs text-ink-mut">{file.path}</span>
           {isWriting && (
-            <span className="flex shrink-0 items-center gap-1 rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] text-brand-400">
+            <span className="flex shrink-0 items-center gap-1 rounded-lg bg-brand-500/10 px-1.5 py-0.5 text-[10px] text-brand-600 dark:text-brand-400">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
               yazılıyor
             </span>
           )}
         </span>
-        <span className="text-[10px] uppercase text-zinc-600">{file.language}</span>
+        <span className="text-[10px] uppercase text-ink-dim">{file.language}</span>
       </div>
       <div ref={wrapRef} className="flex-1 overflow-auto">
         <CodeMirror
           key={selectedPath}
           value={file.content}
-          theme={oneDark}
+          theme={theme === 'dark' ? oneDark : 'light'}
           height="100%"
           readOnly={isWriting}
           extensions={[...extensionsFor(file.language), EditorView.lineWrapping]}

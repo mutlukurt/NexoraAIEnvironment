@@ -3,7 +3,7 @@ import { useArtifactsStore } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
-import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square } from 'lucide-react'
+import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2 } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 
@@ -17,6 +17,10 @@ export default function ArtifactsPanel() {
   const acceptChanges = useArtifactsStore((s) => s.acceptChanges)
   const restoreSnapshot = useArtifactsStore((s) => s.restoreSnapshot)
   const writingPath = useArtifactsStore((s) => s.writingPath)
+  const canUndo = useArtifactsStore((s) => s.canUndo)
+  const canRedo = useArtifactsStore((s) => s.canRedo)
+  const undoFiles = useArtifactsStore((s) => s.undo)
+  const redoFiles = useArtifactsStore((s) => s.redo)
   const generating = useAppStore((s) => s.generating)
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
@@ -75,41 +79,61 @@ export default function ArtifactsPanel() {
   }
 
   return (
-    <section className="flex flex-1 min-w-0 flex-col bg-[#fafafc] text-slate-800 font-sans">
-      <header className="flex items-center justify-between border-b border-slate-200/80 px-5 py-4 bg-white">
+    <section className="flex flex-1 min-w-0 flex-col bg-ink-bg text-ink-text font-sans">
+      <header className="flex items-center justify-between border-b border-ink-line/80 px-5 py-4 bg-ink-card">
         <div className="flex items-center gap-2.5">
-          <h2 className="text-base font-extrabold text-slate-800">{t.workspace}</h2>
+          <h2 className="text-base font-extrabold text-ink-text">{t.workspace}</h2>
           {fileCount > 0 && (
-            <span className="rounded-lg bg-slate-50 border border-slate-200/60 px-2.5 py-0.5 text-xs font-bold text-slate-500 shadow-sm">
+            <span className="rounded-lg bg-ink-card border border-ink-line/60 px-2.5 py-0.5 text-xs font-bold text-ink-mut shadow-sm">
               {fileCount} {t.filesCount}
             </span>
           )}
           {(generating || writingPath) && (
-            <span className="flex items-center gap-1.5 rounded-lg bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-xs font-bold text-brand-600 shadow-sm animate-pulse">
+            <span className="flex items-center gap-1.5 rounded-lg bg-brand-500/10 border border-brand-500/20 px-2.5 py-0.5 text-xs font-bold text-brand-700 dark:text-brand-300 shadow-sm animate-pulse">
               <span className="h-2 w-2 rounded-full bg-brand-500" />
               {writingPath ? writingPath.split('/').pop() : t.generating}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Üretim turları arasında geri/ileri */}
+          <div className="flex gap-1 rounded-xl border border-ink-line/40 bg-ink-hi/60 p-0.5">
+            <button
+              onClick={undoFiles}
+              disabled={!canUndo || generating}
+              title={t.undoBtn}
+              className="rounded-lg px-2 py-1.5 text-ink-mut transition hover:bg-ink-card hover:text-ink-text disabled:opacity-35 disabled:hover:bg-transparent"
+            >
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={redoFiles}
+              disabled={!canRedo || generating}
+              title={t.redoBtn}
+              className="rounded-lg px-2 py-1.5 text-ink-mut transition hover:bg-ink-card hover:text-ink-text disabled:opacity-35 disabled:hover:bg-transparent"
+            >
+              <Redo2 className="h-4 w-4" />
+            </button>
+          </div>
+
           {/* Quick toggle to return to Chat */}
           <button
             onClick={() => setActiveTab('chat')}
-            className="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm mr-2 flex items-center gap-1.5"
+            className="rounded-xl border border-ink-line bg-ink-card px-3.5 py-1.5 text-xs font-bold text-ink-text hover:bg-ink-hi transition shadow-sm mr-2 flex items-center gap-1.5"
           >
-            <MessageSquare className="h-4 w-4 text-slate-400" />
+            <MessageSquare className="h-4 w-4 text-ink-dim" />
             <span>{t.backToChat}</span>
           </button>
 
-          <div className="flex gap-1 text-xs bg-slate-100/60 p-0.5 rounded-xl border border-slate-200/40">
+          <div className="flex gap-1 text-xs bg-ink-hi/60 p-0.5 rounded-xl border border-ink-line/40">
             {tabs.map((tabItem) => (
               <button
                 key={tabItem.id}
                 onClick={() => setView(tabItem.id)}
                 className={
                   view === tabItem.id
-                    ? 'rounded-lg bg-white border border-slate-200/50 shadow-sm px-3.5 py-1.5 font-bold text-slate-800 transition'
-                    : 'rounded-lg px-3.5 py-1.5 font-semibold text-slate-400 hover:text-slate-600 transition'
+                    ? 'rounded-lg bg-ink-card border border-ink-line/50 shadow-sm px-3.5 py-1.5 font-bold text-ink-text transition'
+                    : 'rounded-lg px-3.5 py-1.5 font-semibold text-ink-dim hover:text-ink-mut transition'
                 }
               >
                 {tabItem.label}
@@ -125,7 +149,7 @@ export default function ArtifactsPanel() {
                 className={
                   'ml-1 rounded-xl px-4 py-2 text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 ' +
                   (devUrl
-                    ? 'bg-red-50 border border-red-200 text-red-600 hover:bg-red-100'
+                    ? 'bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/20'
                     : 'bg-emerald-600 text-white hover:bg-emerald-500')
                 }
               >
@@ -148,7 +172,7 @@ export default function ArtifactsPanel() {
               </button>
               <button
                 onClick={clearAll}
-                className="rounded-lg px-2.5 py-2 text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 transition"
+                className="rounded-lg px-2.5 py-2 text-xs text-ink-dim hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition"
                 title={t.clearAll}
               >
                 <X className="h-4 w-4" />
@@ -159,9 +183,15 @@ export default function ArtifactsPanel() {
       </header>
 
       {pendingChanges && fileCount > 0 && !writingPath && !generating && (
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-2.5">
-          <span className="text-sm font-bold text-amber-800">{t.pendingChanges}</span>
+        <div className="flex items-center justify-between border-b border-amber-500/30 bg-amber-500/10 px-5 py-2.5">
+          <span className="text-sm font-bold text-amber-700 dark:text-amber-300">{t.pendingChanges}</span>
           <div className="flex gap-2.5">
+            <button
+              onClick={() => window.dispatchEvent(new Event('nexora:openDiff'))}
+              className="rounded-xl border border-amber-500/40 bg-ink-card px-4 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 transition shadow-sm"
+            >
+              ⇄ {t.viewDiff}
+            </button>
             <button
               onClick={acceptChanges}
               className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 transition shadow-sm"
@@ -170,7 +200,7 @@ export default function ArtifactsPanel() {
             </button>
             <button
               onClick={restoreSnapshot}
-              className="rounded-xl border border-amber-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm"
+              className="rounded-xl border border-amber-500/30 bg-ink-card px-4 py-2 text-xs font-bold text-ink-text hover:bg-ink-hi transition shadow-sm"
             >
               ✕ {t.reject}
             </button>
@@ -179,7 +209,7 @@ export default function ArtifactsPanel() {
       )}
 
       {exportMsg && (
-        <div className="border-b border-slate-200 bg-slate-50 px-5 py-2 text-xs font-semibold text-slate-500">
+        <div className="border-b border-ink-line bg-ink-card px-5 py-2 text-xs font-semibold text-ink-mut">
           {exportMsg}
         </div>
       )}
@@ -187,11 +217,11 @@ export default function ArtifactsPanel() {
       {fileCount === 0 ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center">
           <div>
-            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 border border-slate-200/50 shadow-sm">
-              <Terminal className="h-6 w-6 text-slate-400" />
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-ink-hi border border-ink-line/50 shadow-sm">
+              <Terminal className="h-6 w-6 text-ink-dim" />
             </div>
-            <p className="text-base font-bold text-slate-700">{t.noFilesYet}</p>
-            <p className="mt-1.5 text-xs font-semibold text-slate-400 leading-relaxed max-w-sm">
+            <p className="text-base font-bold text-ink-text">{t.noFilesYet}</p>
+            <p className="mt-1.5 text-xs font-semibold text-ink-dim leading-relaxed max-w-sm">
               {t.noFilesDesc}
             </p>
             <button
@@ -204,12 +234,12 @@ export default function ArtifactsPanel() {
           </div>
         </div>
       ) : view === 'tree' ? (
-        <div className="flex-1 overflow-hidden bg-white">
+        <div className="flex-1 overflow-hidden bg-ink-card">
           <FileTree />
         </div>
       ) : (
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <div className="w-52 shrink-0 border-r border-slate-200/80 bg-white">
+          <div className="w-52 shrink-0 border-r border-ink-line/80 bg-ink-card">
             <FileTree />
           </div>
           <div className="flex-1 min-w-0 overflow-hidden">
@@ -218,7 +248,7 @@ export default function ArtifactsPanel() {
         </div>
       )}
 
-      <footer className="border-t border-slate-200/80 px-5 py-3 text-xs font-semibold text-slate-400 bg-white">
+      <footer className="border-t border-ink-line/80 px-5 py-3 text-xs font-semibold text-ink-dim bg-ink-card">
         {t.localInfo}
       </footer>
     </section>

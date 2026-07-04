@@ -104,7 +104,21 @@ export interface NexoraApi {
   vision: {
     pickImage: () => Promise<{ path: string } | null>
     analyze: (input: VisionAnalyzeInput) => Promise<VisionAnalyzeResult>
+    prepare: () => Promise<{ ok: boolean; error?: string }>
     onStatus: (cb: (event: { msg: string }) => void) => () => void
+  }
+  advisor: {
+    detect: () => Promise<import('../shared/advisor').HardwareInfo>
+  }
+  sessions: {
+    list: () => Promise<import('../shared/ipc').SessionMeta[]>
+    save: (data: import('../shared/ipc').SessionData) => Promise<{ ok: boolean }>
+    load: (id: string) => Promise<import('../shared/ipc').SessionData | null>
+    remove: (id: string) => Promise<{ ok: boolean }>
+  }
+  rules: {
+    get: (projectName: string) => Promise<{ content: string }>
+    set: (projectName: string, content: string) => Promise<{ ok: boolean }>
   }
 }
 
@@ -174,11 +188,25 @@ const api: NexoraApi = {
   vision: {
     pickImage: () => ipcRenderer.invoke(IPC.VISION_PICK_IMAGE),
     analyze: (input: VisionAnalyzeInput) => ipcRenderer.invoke(IPC.VISION_ANALYZE, input),
+    prepare: () => ipcRenderer.invoke(IPC.VISION_PREPARE),
     onStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)
       ipcRenderer.on(IPC.VISION_STATUS, handler as never)
       return () => ipcRenderer.off(IPC.VISION_STATUS, handler as never)
     }
+  },
+  advisor: {
+    detect: () => ipcRenderer.invoke(IPC.ADVISOR_DETECT)
+  },
+  sessions: {
+    list: () => ipcRenderer.invoke(IPC.SESSIONS_LIST),
+    save: (data) => ipcRenderer.invoke(IPC.SESSIONS_SAVE, data),
+    load: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_LOAD, id),
+    remove: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_DELETE, id)
+  },
+  rules: {
+    get: (projectName: string) => ipcRenderer.invoke(IPC.RULES_GET, projectName),
+    set: (projectName: string, content: string) => ipcRenderer.invoke(IPC.RULES_SET, projectName, content)
   }
 }
 

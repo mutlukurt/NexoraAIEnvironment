@@ -34,6 +34,8 @@ export type ChatStreamEvent = ChatStreamChunk | ChatStreamDone
 export interface ChatSendInput {
   prompt: string
   currentFiles?: Array<{ path: string; content: string }>
+  /** Bağlam diyeti: var olan ama içeriği gönderilmeyen proje dosyaları. */
+  otherPaths?: string[]
   options?: {
     temperature?: number
     topP?: number
@@ -69,8 +71,41 @@ export const IPC = {
   AGENT_BUILD_CHECK: 'agent:build-check',
   VISION_PICK_IMAGE: 'vision:pick-image',
   VISION_ANALYZE: 'vision:analyze',
-  VISION_STATUS: 'vision:status'
+  VISION_STATUS: 'vision:status',
+  VISION_PREPARE: 'vision:prepare',
+  ADVISOR_DETECT: 'advisor:detect',
+  SESSIONS_LIST: 'sessions:list',
+  SESSIONS_SAVE: 'sessions:save',
+  SESSIONS_LOAD: 'sessions:load',
+  SESSIONS_DELETE: 'sessions:delete',
+  RULES_GET: 'rules:get',
+  RULES_SET: 'rules:set'
 } as const
+
+// --- Kalıcı oturumlar ---
+
+export interface SessionFileEntry {
+  path: string
+  content: string
+  language: string
+  updatedAt: number
+}
+
+export interface SessionMeta {
+  id: string
+  /** İlk kullanıcı mesajından türetilen kısa başlık */
+  title: string
+  createdAt: number
+  updatedAt: number
+  msgCount: number
+  fileCount: number
+}
+
+export interface SessionData extends SessionMeta {
+  messages: ChatMessage[]
+  files: Record<string, SessionFileEntry>
+  selectedPath: string | null
+}
 
 export interface ModelLoadProgressEvent {
   /** 'model' = GGUF dosyası belleğe okunuyor, 'context' = oturum hazırlanıyor */

@@ -31,6 +31,9 @@ export default defineConfig({
   },
   renderer: {
     root: 'src',
+    // Kök public/ klasörü (logo.png, vendor/) out/renderer'a kopyalanır —
+    // pencere ikonu ve açılış (splash) logosu buradan yüklenir.
+    publicDir: resolve(__dirname, 'public'),
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src'),

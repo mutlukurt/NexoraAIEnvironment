@@ -2,6 +2,15 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt } from '@/store/appStore'
+import { useHfStore } from '@/store/hfStore'
+import { useArtifactsStore } from '@/store/artifactsStore'
+
+// Tema, React başlamadan uygulanır (açılışta yanlış tema parlaması olmasın).
+applyTheme(themeInitial())
+
+// CDP/harici test sürücüleri için store kancası — üretim akışını değiştirmez
+;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, lastPrompt: getLastOutgoingPrompt }
 
 // Inject window.nexora mock provider for web browser testing
 if (typeof window !== 'undefined' && !window.nexora) {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
-import { parseStreaming, isEditBlock } from '@/lib/parseCode'
+import { parseStreaming, isEditBlock, editStreamInfo } from '@/lib/parseCode'
 import { DIRECTIVE_LINE_RE, isDirectiveOnlyContent } from '@/lib/agentActions'
 import { useHfStore } from '@/store/hfStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
-import { Sparkles, PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X } from 'lucide-react'
+import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles } from 'lucide-react'
 import { translations } from '@/lib/translations'
 
 function FileIcon({ path }: { path: string }) {
@@ -16,8 +17,8 @@ function FileIcon({ path }: { path: string }) {
     : ext === 'tsx' || ext === 'ts' ? 'text-indigo-500'
     : ext === 'jsx' || ext === 'js' ? 'text-amber-500'
     : ext === 'json' ? 'text-emerald-500'
-    : ext === 'md' ? 'text-slate-400'
-    : 'text-slate-500'
+    : ext === 'md' ? 'text-ink-dim'
+    : 'text-ink-mut'
   return (
     <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 ${color}`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
@@ -26,33 +27,37 @@ function FileIcon({ path }: { path: string }) {
   )
 }
 
-function FileRow({ path, done, edited, onOpen, t }: { path: string; done: boolean; edited?: boolean; onOpen: () => void; t: any }) {
+function FileRow({ path, done, edited, editLive, onOpen, t }: { path: string; done: boolean; edited?: boolean; editLive?: { blocks: number; phase: 'search' | 'replace' }; onOpen: () => void; t: any }) {
+  // Düzenleme akarken genel "üretiliyor…" yerine hangi blokta ne yapıldığı yazılır.
+  const liveText = editLive
+    ? `✂️ ${editLive.blocks}. ${t.editBlockWord} — ${editLive.phase === 'replace' ? t.editWriting : t.editMarking}`
+    : t.generating
   return (
     <button
       onClick={onOpen}
       title="Kod panelinde aç"
-      className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-slate-100/60 border-b border-slate-100/40 last:border-b-0"
+      className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-ink-hi/60 border-b border-ink-line/40 last:border-b-0"
     >
       {done ? (
-        <span className="grid h-4.5 w-4.5 shrink-0 place-items-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-600 border border-emerald-100">
+        <span className="grid h-4.5 w-4.5 shrink-0 place-items-center rounded-full bg-emerald-500/10 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
           ✓
         </span>
       ) : (
-        <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-brand-500" />
+        <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-ink-line border-t-brand-400" />
       )}
       <FileIcon path={path} />
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600 group-hover:text-slate-900">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-mut group-hover:text-ink-text">
         {path}
       </span>
-      <span className={'shrink-0 text-xs font-semibold ' + (done ? 'text-emerald-600/80' : 'text-brand-500')}>
-        {done ? (edited ? t.updated : t.created) : t.generating}
+      <span className={'shrink-0 text-xs font-semibold ' + (done ? 'text-emerald-600 dark:text-emerald-400/90' : 'text-brand-600 dark:text-brand-400')}>
+        {done ? (edited ? t.updated : t.created) : liveText}
       </span>
     </button>
   )
 }
 
 /** Bolt-style artifact card: file list + progress. The code itself never renders here. */
-function ArtifactCard({ files, streaming, t, language }: { files: { path: string; complete: boolean; edited?: boolean }[]; streaming?: boolean; t: any; language: string }) {
+function ArtifactCard({ files, streaming, t, language }: { files: { path: string; complete: boolean; edited?: boolean; editLive?: { blocks: number; phase: 'search' | 'replace' } }[]; streaming?: boolean; t: any; language: string }) {
   const openFile = (path: string) => {
     const s = useArtifactsStore.getState()
     if (s.files[path]) {
@@ -65,36 +70,36 @@ function ArtifactCard({ files, streaming, t, language }: { files: { path: string
   const pct = files.length ? Math.round((doneCount / files.length) * 100) : 0
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 shadow-sm my-2">
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-100/70 px-4 py-3">
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-600 border border-brand-100">
+    <div className="overflow-hidden rounded-2xl border border-ink-line bg-ink-card/60 my-2">
+      <div className="flex items-center gap-2 border-b border-ink-line bg-ink-card px-4 py-3">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-500/10 text-brand-600 dark:text-brand-400 border border-brand-500/20">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="16 18 22 12 16 6" />
             <polyline points="8 6 2 12 8 18" />
           </svg>
         </span>
-        <span className="flex-1 text-xs font-bold text-slate-700">{t.projectFiles}</span>
+        <span className="flex-1 text-xs font-bold text-ink-mut">{t.projectFiles}</span>
         {streaming ? (
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-brand-600">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-brand-600 dark:text-brand-400">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-400" />
             {doneCount}/{files.length}
           </span>
         ) : (
-          <span className="rounded-md bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+          <span className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
             ✓ {files.length} {t.filesCount} {language === 'tr' ? 'hazır' : 'ready'}
           </span>
         )}
       </div>
 
       {streaming && (
-        <div className="h-0.5 w-full bg-slate-200">
-          <div className="h-full bg-brand-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+        <div className="h-0.5 w-full bg-ink-hi">
+          <div className="h-full bg-brand-400 transition-all duration-300" style={{ width: `${pct}%` }} />
         </div>
       )}
 
-      <div className="flex flex-col divide-y divide-slate-100">
+      <div className="flex flex-col divide-y divide-ink-line/60">
         {files.map((f) => (
-          <FileRow key={f.path} path={f.path} done={!streaming || f.complete} edited={f.edited} onOpen={() => openFile(f.path)} t={t} />
+          <FileRow key={f.path} path={f.path} done={!streaming || f.complete} edited={f.edited} editLive={f.editLive} onOpen={() => openFile(f.path)} t={t} />
         ))}
       </div>
     </div>
@@ -117,6 +122,9 @@ function AssistantMessage({
   const acceptChanges = useArtifactsStore((s) => s.acceptChanges)
   const restoreSnapshot = useArtifactsStore((s) => s.restoreSnapshot)
   const pendingChanges = useArtifactsStore((s) => s.pendingChanges)
+  const planPending = useAppStore((s) => s.planPending)
+  const applyPlan = useAppStore((s) => s.applyPlan)
+  const cancelPlan = useAppStore((s) => s.cancelPlan)
 
   // Code NEVER renders in chat — prose + per-file progress only (Bolt style).
   const { text, files: parsedFiles } = parseStreaming(content, { final: !streaming })
@@ -129,21 +137,27 @@ function AssistantMessage({
     .trim()
 
   // Dedupe by path (a rewritten file keeps its latest state), preserve order.
-  const byPath = new Map<string, { path: string; complete: boolean; edited: boolean }>()
+  const byPath = new Map<string, { path: string; complete: boolean; edited: boolean; editLive?: { blocks: number; phase: 'search' | 'replace' } }>()
   for (const f of parsedFiles) {
     if (isDirectiveOnlyContent(f.code)) continue
-    byPath.set(f.path, { path: f.path, complete: f.complete, edited: isEditBlock(f.lang, f.code) })
+    const edited = isEditBlock(f.lang, f.code)
+    byPath.set(f.path, {
+      path: f.path,
+      complete: f.complete,
+      edited,
+      editLive: edited && !f.complete && streaming ? editStreamInfo(f.code) : undefined
+    })
   }
   const files = [...byPath.values()]
 
   if (streaming && files.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-slate-500">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-brand-500" />
+        <div className="flex items-center gap-2 text-ink-mut">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-line border-t-brand-400" />
           <span className="text-sm font-semibold">{prose ? t.writing : t.thinking}</span>
         </div>
-        {prose && <p className="whitespace-pre-wrap break-words text-[14.5px] text-slate-700 leading-relaxed font-normal">{prose}</p>}
+        {prose && <p className="whitespace-pre-wrap break-words text-[14.5px] text-ink-mut leading-relaxed font-normal">{prose}</p>}
       </div>
     )
   }
@@ -151,12 +165,18 @@ function AssistantMessage({
   if (files.length > 0) {
     return (
       <div className="flex flex-col gap-3">
-        {prose && <p className="whitespace-pre-wrap break-words text-[14.5px] text-slate-700 leading-relaxed font-normal">{prose}</p>}
+        {prose && <p className="whitespace-pre-wrap break-words text-[14.5px] text-ink-mut leading-relaxed font-normal">{prose}</p>}
 
         <ArtifactCard files={files} streaming={streaming} t={t} language={language} />
 
         {!streaming && isLast && pendingChanges && (
           <div className="mt-1 flex gap-2">
+            <button
+              onClick={() => window.dispatchEvent(new Event('nexora:openDiff'))}
+              className="rounded-xl border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs font-bold text-brand-700 dark:text-brand-300 hover:bg-brand-500/20 transition"
+            >
+              ⇄ {t.viewDiff}
+            </button>
             <button
               onClick={acceptChanges}
               className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 transition shadow-sm"
@@ -165,7 +185,7 @@ function AssistantMessage({
             </button>
             <button
               onClick={restoreSnapshot}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"
+              className="rounded-xl border border-ink-line bg-ink-card px-4 py-2 text-xs font-bold text-ink-mut hover:bg-ink-hi transition"
             >
               ✕ {t.rejectAll}
             </button>
@@ -176,7 +196,27 @@ function AssistantMessage({
   }
 
   // Plain answer — only prose, raw content is never dumped into the chat.
-  return <span className="whitespace-pre-wrap break-words text-[14.5px] text-slate-700 leading-relaxed font-normal">{prose}</span>
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="whitespace-pre-wrap break-words text-[14.5px] text-ink-mut leading-relaxed font-normal">{prose}</span>
+      {!streaming && isLast && planPending && (
+        <div className="mt-1 flex gap-2">
+          <button
+            onClick={() => void applyPlan()}
+            className="rounded-xl bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-500 transition shadow-sm"
+          >
+            ✓ {t.planApply}
+          </button>
+          <button
+            onClick={cancelPlan}
+            className="rounded-xl border border-ink-line bg-ink-card px-4 py-2 text-xs font-bold text-ink-mut hover:bg-ink-hi transition"
+          >
+            ✕ {t.planCancel}
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function ChatPanel() {
@@ -194,6 +234,10 @@ export default function ChatPanel() {
   const pendingImage = useAppStore((s) => s.pendingImage)
   const attachImage = useAppStore((s) => s.attachImage)
   const clearImage = useAppStore((s) => s.clearImage)
+  const sessions = useAppStore((s) => s.sessions)
+  const openSession = useAppStore((s) => s.openSession)
+  const customCommands = useSettingsStore((s) => s.customCommands)
+  const usableCommands = customCommands.filter((c) => c.label.trim() && c.prompt.trim())
 
   const [text, setText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -203,6 +247,8 @@ export default function ChatPanel() {
   const t = translations[language]
 
   useEffect(() => {
+    // Boş sohbette (hero ekranı) dibe kaydırma — açılışta üst görünsün.
+    if (messages.length === 0) return
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
@@ -211,14 +257,67 @@ export default function ChatPanel() {
     if (!val || sending) return
     void sendMessage(val)
     setText('')
+    setMention(null)
+  }
+
+  // @ otomatik tamamlama: imleçten geriye en yakın @token'ı bul.
+  const filesMap = useArtifactsStore((s) => s.files)
+  const [mention, setMention] = useState<{ start: number; caret: number; token: string; which: 'hero' | 'bottom' } | null>(null)
+
+  const detectMention = (value: string, caret: number, which: 'hero' | 'bottom') => {
+    const upto = value.slice(0, caret)
+    const at = upto.lastIndexOf('@')
+    if (at === -1) return setMention(null)
+    if (at > 0 && !/\s/.test(upto[at - 1])) return setMention(null)
+    const token = upto.slice(at + 1)
+    if (!/^[\w./-]{0,60}$/.test(token)) return setMention(null)
+    setMention({ start: at, caret, token, which })
+  }
+
+  const mentionSuggestions = mention
+    ? Object.keys(filesMap)
+        .filter((p) => p.toLowerCase().includes(mention.token.toLowerCase()))
+        .slice(0, 6)
+    : []
+
+  const pickMention = (path: string) => {
+    if (!mention) return
+    const newText = text.slice(0, mention.start) + '@' + path + ' ' + text.slice(mention.caret)
+    setText(newText)
+    setMention(null)
+    ;(mention.which === 'hero' ? centerTaRef : taRef).current?.focus()
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, txtVal: string) => {
+    if (e.key === 'Escape' && mention) {
+      setMention(null)
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      // Açık @ önerisi varsa Enter önce dosyayı seçer, mesajı göndermez.
+      if (mention && mentionSuggestions.length > 0) {
+        pickMention(mentionSuggestions[0])
+        return
+      }
       submit(txtVal)
     }
   }
+
+  const MentionChips = ({ which }: { which: 'hero' | 'bottom' }) =>
+    mention?.which === which && mentionSuggestions.length > 0 ? (
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {mentionSuggestions.map((p) => (
+          <button
+            key={p}
+            onClick={() => pickMention(p)}
+            className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 font-mono text-[11px] font-bold text-brand-700 dark:text-brand-300 transition hover:bg-brand-500/20"
+          >
+            @{p}
+          </button>
+        ))}
+      </div>
+    ) : null
 
   const resize = (el: HTMLTextAreaElement | null) => {
     if (!el) return
@@ -244,53 +343,55 @@ export default function ChatPanel() {
   }
 
   return (
-    <section className="flex flex-1 w-full flex-col bg-white text-slate-800 font-sans">
+    <section className="relative flex flex-1 w-full flex-col bg-ink-bg text-ink-text font-sans overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200/80 px-5 py-4 bg-white">
-        <h2 className="text-base font-extrabold text-slate-800">{t.chat}</h2>
+      <header className="z-10 flex items-center justify-between gap-2 border-b border-ink-line bg-ink-bg/80 px-6 py-4 backdrop-blur-md">
+        <h2 className="text-base font-extrabold text-ink-text">{t.chat}</h2>
         <div className="flex min-w-0 items-center gap-2">
           <span
             title={t.activeProfile}
-            className="shrink-0 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-600 animate-fade-in"
+            className="shrink-0 rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-0.5 text-xs font-bold text-brand-700 dark:text-brand-300"
           >
             {profileLabel}
           </span>
-          <span className="truncate rounded-lg bg-slate-50 border border-slate-200/50 px-2.5 py-0.5 text-xs font-bold text-slate-500">
+          <span className="truncate rounded-lg border border-ink-line bg-ink-card px-2.5 py-0.5 text-xs font-bold text-ink-mut">
             {modelInfo ? modelInfo.name.split('/').pop() : t.modelNotLoaded}
           </span>
         </div>
       </header>
 
       {/* Main scroll or empty container */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 bg-white/50">
+      <div ref={scrollRef} className="z-10 flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-center max-w-2xl mx-auto py-4">
-            {/* Logo */}
-            <img src={logoImg} className="h-16 w-16 mb-4 rounded-2xl shadow-[0_12px_28px_rgba(95,75,240,0.3)] select-none animate-bounce-subtle" alt="NexoraAI Logo" />
-            
+          <div className="flex min-h-full flex-col items-center justify-center text-center max-w-2xl mx-auto py-4">
+            {/* Logo (kullanıcının şeffaf logosu — efektsiz) */}
+            <div className="mb-6 animate-bounce-subtle">
+              <img src={logoImg} alt="Nexora AI" className="h-24 w-24 select-none" />
+            </div>
+
             {/* Center greeting dynamic banner */}
-            <h1 className="text-[25px] font-extrabold tracking-tight text-slate-900 flex items-center justify-center gap-2.5">
-              <Sparkles className="h-6 w-6 text-brand-500 animate-pulse shrink-0" />
-              <span>{getGreeting()}</span>
-            </h1>
+            <h1 className="text-[28px] leading-9 font-extrabold tracking-tight text-ink-text">{getGreeting()}</h1>
+            <p className="mt-2 text-[15px] font-medium text-ink-dim">{t.heroSubtitle}</p>
             
-            {/* Large centered input box */}
+            {/* Large centered input box — cam yüzey (mock) */}
             <div className="mt-8 w-full">
-              <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_32px_rgba(99,102,241,0.06)] focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 transition text-left">
+              <div className="glass-surface flex flex-col gap-2 rounded-[1.75rem] border border-ink-line p-5 shadow-xl focus-within:border-brand-500/50 focus-within:ring-4 focus-within:ring-brand-500/10 transition text-left">
+                <MentionChips which="hero" />
                 <textarea
                   ref={centerTaRef}
-                  rows={2}
+                  rows={3}
                   value={text}
                   onChange={(e) => {
                     setText(e.target.value)
                     resize(centerTaRef.current)
+                    detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length, 'hero')
                   }}
                   onKeyDown={(e) => onKeyDown(e, text)}
                   placeholder={modelInfo ? t.inputPlaceholderEmpty : t.inputPlaceholderNoModel}
                   disabled={!modelInfo}
-                  className="max-h-40 w-full resize-none bg-transparent text-[15px] text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50"
+                  className="max-h-40 w-full resize-none bg-transparent text-[15px] text-ink-text placeholder-ink-dim focus:outline-none disabled:opacity-50"
                 />
-                <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100">
+                <div className="flex justify-between items-center mt-2 pt-3 border-t border-ink-line">
                   <div className="flex items-center gap-2 min-w-0">
                     <button
                       onClick={() => void attachImage()}
@@ -298,20 +399,20 @@ export default function ChatPanel() {
                       title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
                       className={
                         'shrink-0 rounded-lg p-1.5 transition disabled:opacity-40 ' +
-                        (pendingImage ? 'text-brand-600 bg-brand-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50')
+                        (pendingImage ? 'text-brand-700 dark:text-brand-300 bg-brand-500/15' : 'text-ink-dim hover:text-ink-mut hover:bg-ink-hi')
                       }
                     >
                       <ImagePlus className="h-4.5 w-4.5" />
                     </button>
                     {pendingImage ? (
-                      <span className="flex min-w-0 items-center gap-1 text-[11px] font-bold text-brand-600">
+                      <span className="flex min-w-0 items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-300">
                         <span className="truncate max-w-[200px]">{pendingImage.name}</span>
-                        <button onClick={clearImage} className="text-brand-400 hover:text-brand-700">
+                        <button onClick={clearImage} className="text-brand-600 dark:text-brand-400 hover:text-brand-200">
                           <X className="h-3.5 w-3.5" />
                         </button>
                       </span>
                     ) : (
-                      <span className="text-[11px] font-bold text-slate-400">
+                      <span className="text-[11px] font-bold text-ink-dim">
                         {modelInfo ? t.ggufReady : t.ggufNotLoaded}
                       </span>
                     )}
@@ -335,13 +436,13 @@ export default function ChatPanel() {
                 </div>
               </div>
               
-              {/* Pill buttons under input box */}
-              <div className="flex justify-center flex-wrap gap-2 mt-3.5">
+              {/* Pill buttons under input box (mock: mor ikonlu haplar) */}
+              <div className="flex justify-center flex-wrap gap-2.5 mt-5">
                 {[
-                  { label: t.writePill, icon: <PenTool className="h-3.5 w-3.5" />, prompt: t.writePrompt },
-                  { label: t.learnPill, icon: <BookOpen className="h-3.5 w-3.5" />, prompt: t.learnPrompt },
-                  { label: t.codePill, icon: <Code2 className="h-3.5 w-3.5" />, prompt: t.codePrompt },
-                  { label: t.projectPill, icon: <Rocket className="h-3.5 w-3.5" />, prompt: t.projectPrompt }
+                  { label: t.writePill, icon: <PenTool className="h-4 w-4 text-brand-600 dark:text-brand-400" />, prompt: t.writePrompt },
+                  { label: t.learnPill, icon: <BookOpen className="h-4 w-4 text-brand-600 dark:text-brand-400" />, prompt: t.learnPrompt },
+                  { label: t.codePill, icon: <Code2 className="h-4 w-4 text-brand-600 dark:text-brand-400" />, prompt: t.codePrompt },
+                  { label: t.projectPill, icon: <Rocket className="h-4 w-4 text-brand-600 dark:text-brand-400" />, prompt: t.projectPrompt }
                 ].map((pill) => (
                   <button
                     key={pill.label}
@@ -349,21 +450,37 @@ export default function ChatPanel() {
                       setText(pill.prompt)
                       centerTaRef.current?.focus()
                     }}
-                    className="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:border-slate-350 hover:text-slate-800 shadow-sm transition flex items-center gap-1.5"
+                    className="flex items-center gap-2 rounded-xl border border-ink-line bg-ink-card/60 px-5 py-2.5 text-xs font-bold text-ink-mut transition hover:bg-ink-hi hover:text-ink-text"
                   >
                     {pill.icon}
                     <span>{pill.label}</span>
+                  </button>
+                ))}
+                {/* Kullanıcı tanımlı hızlı komutlar (Ayarlar > Özel Komutlar) */}
+                {usableCommands.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      setText(c.prompt)
+                      centerTaRef.current?.focus()
+                    }}
+                    title={c.prompt}
+                    className="flex items-center gap-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-5 py-2.5 text-xs font-bold text-brand-700 dark:text-brand-300 transition hover:bg-brand-500/20"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    <span>{c.label}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Quick start template grid */}
-            <div className="mt-10 w-full">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-left mb-3.5">
-                {t.templatesTitle}
-              </p>
-              <div className="grid grid-cols-2 gap-3.5">
+            <div className="mt-12 w-full">
+              <div className="mb-4 flex items-center">
+                <div className="mr-3 h-1 w-8 rounded-full bg-brand-400" />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-ink-dim">{t.templatesTitle}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 {[
                   {
                     title: 'Modern Landing Page',
@@ -406,36 +523,79 @@ export default function ChatPanel() {
                       ? 'Sosyal medya girişleri ve form doğrulaması bulunan, cam morumsu (glassmorphism) efektli şık bir Login ekranı tasarla.'
                       : 'Design a sleek login screen with social auth integration and input validation utilizing a glassmorphism style.'
                   }
+                  const cardIcon =
+                    item.title === 'Modern Landing Page' ? (
+                      <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400 transition-transform group-hover:scale-110">
+                        <LayoutDashboard className="h-5 w-5" />
+                      </span>
+                    ) : item.title === 'Veri Dashboard' ? (
+                      <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-transform group-hover:scale-110">
+                        <BarChart3 className="h-5 w-5" />
+                      </span>
+                    ) : item.title === 'Kişisel Portfolyo' ? (
+                      <span className="grid h-11 w-11 place-items-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 transition-transform group-hover:scale-110">
+                        <UserRound className="h-5 w-5" />
+                      </span>
+                    ) : (
+                      <span className="grid h-11 w-11 place-items-center rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 transition-transform group-hover:scale-110">
+                        <LogIn className="h-5 w-5" />
+                      </span>
+                    )
                   return (
                     <button
                       key={item.title}
                       onClick={() => void sendMessage(getPromptText())}
                       disabled={sending || !modelInfo}
-                      className="group rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-[0_4px_16px_rgba(0,0,0,0.015)] hover:shadow-[0_8px_24px_rgba(95,75,240,0.06)] hover:border-brand-100 transition duration-200 disabled:opacity-50"
+                      className="group rounded-[1.5rem] border border-ink-line bg-ink-card/50 p-5 text-left transition duration-200 hover:border-brand-500/30 hover:bg-ink-hi/70 disabled:opacity-50"
                     >
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-600 group-hover:bg-brand-100 group-hover:text-brand-700 transition">
-                          <Sparkles className="h-4 w-4 animate-pulse" />
-                        </span>
-                        <span className="text-sm font-bold text-slate-800 group-hover:text-brand-600 transition">{language === 'tr' ? item.title : (item.title === 'Veri Dashboard' ? 'Data Dashboard' : item.title === 'Giriş Ekranı (Login)' ? 'Login Screen' : item.title === 'Kişisel Portfolyo' ? 'Personal Portfolio' : item.title)}</span>
+                      <div className="mb-3 flex items-start justify-between">
+                        {cardIcon}
+                        <ArrowUpRight className="h-4.5 w-4.5 text-ink-dim transition-colors group-hover:text-brand-600 dark:group-hover:text-brand-400" />
                       </div>
-                      <p className="text-xs text-slate-400 font-medium leading-relaxed">{item.desc}</p>
+                      <span className="block text-sm font-bold text-ink-text transition group-hover:text-brand-700 dark:group-hover:text-brand-300">
+                        {language === 'tr' ? item.title : item.title === 'Veri Dashboard' ? 'Data Dashboard' : item.title === 'Giriş Ekranı (Login)' ? 'Login Screen' : item.title === 'Kişisel Portfolyo' ? 'Personal Portfolio' : item.title}
+                      </span>
+                      <p className="mt-1.5 text-xs font-medium leading-relaxed text-ink-dim">{item.desc}</p>
                     </button>
                   )
                 })}
               </div>
             </div>
 
-            {/* Dotted recent files box */}
-            <div className="mt-8 w-full text-left">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2.5">
-                {t.projectsTitle}
-              </p>
-              <div className="rounded-xl border border-dashed border-slate-200/80 bg-slate-50/30 p-4 text-center">
-                <span className="text-xs text-slate-400 font-medium">
-                  {t.projectsPlaceholder}
-                </span>
+            {/* Son aktif projeler — gerçek oturumlardan (dosyası olanlar) */}
+            <div className="mt-12 mb-6 w-full text-left">
+              <div className="mb-4 flex items-center">
+                <div className="mr-3 h-1 w-8 rounded-full bg-ink-line" />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-ink-dim">{t.projectsTitle}</p>
               </div>
+              {sessions.filter((sess) => sess.fileCount > 0).length === 0 ? (
+                <div className="flex h-24 items-center justify-center rounded-[1.5rem] border-2 border-dashed border-ink-line bg-ink-card/30 px-4 text-center">
+                  <span className="text-xs font-medium italic text-ink-dim">{t.projectsPlaceholder}</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  {sessions
+                    .filter((sess) => sess.fileCount > 0)
+                    .slice(0, 3)
+                    .map((sess) => (
+                      <button
+                        key={sess.id}
+                        onClick={() => void openSession(sess.id)}
+                        className="group rounded-2xl border border-ink-line bg-ink-card/50 p-4 text-left transition hover:border-brand-500/30 hover:bg-ink-hi/70"
+                      >
+                        <FolderOpen className="mb-2 h-4.5 w-4.5 text-brand-600 dark:text-brand-400" />
+                        <span className="block truncate text-xs font-bold text-ink-text">{sess.title}</span>
+                        <span className="mt-0.5 block text-[10px] font-medium text-ink-dim">
+                          {sess.fileCount} {t.filesCount} ·{' '}
+                          {new Date(sess.updatedAt).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', {
+                            day: 'numeric',
+                            month: 'short'
+                          })}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -443,11 +603,11 @@ export default function ChatPanel() {
             {messages.map((m, i) => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                 {m.role === 'user' ? (
-                  <div className="max-w-[80%] rounded-2xl rounded-tr-none bg-brand-50/70 border border-brand-100/80 px-5 py-3 text-[14.5px] text-slate-800 shadow-sm">
+                  <div className="max-w-[80%] rounded-2xl rounded-tr-none border border-brand-500/25 bg-brand-500/15 px-5 py-3 text-[14.5px] text-ink-text">
                     <span className="whitespace-pre-wrap break-words leading-relaxed font-semibold">{m.content}</span>
                   </div>
                 ) : (
-                  <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none bg-white border border-slate-200/60 px-5 py-3.5 shadow-[0_4px_16px_rgba(0,0,0,0.015)]">
+                  <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
                     <AssistantMessage
                       content={m.content}
                       streaming={m.streaming}
@@ -464,34 +624,55 @@ export default function ChatPanel() {
       </div>
 
       {error && (
-        <div className="mx-4 mb-2 flex items-center justify-between rounded-xl bg-red-50 border border-red-100 px-3.5 py-2.5 text-sm text-red-600 font-bold">
+        <div className="z-10 mx-4 mb-2 flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2.5 text-sm font-bold text-red-600 dark:text-red-400">
           <span>{error}</span>
-          <button onClick={clearError} className="text-red-500 hover:text-red-700 font-extrabold">✕</button>
+          <button onClick={clearError} className="font-extrabold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">✕</button>
         </div>
       )}
 
       {/* Bottom input area: only visible when there are messages */}
       {messages.length > 0 && (
-        <div className="p-4 bg-white border-t border-slate-100">
+        <div className="z-10 border-t border-ink-line bg-ink-bg p-4">
+          {usableCommands.length > 0 && (
+            <div className="mx-auto mb-2 flex max-w-3xl flex-wrap gap-1.5">
+              {usableCommands.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setText(c.prompt)
+                    taRef.current?.focus()
+                  }}
+                  title={c.prompt}
+                  className="flex items-center gap-1.5 rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-[11px] font-bold text-brand-700 dark:text-brand-300 transition hover:bg-brand-500/20"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  <span>{c.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {pendingImage && (
-            <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">
+            <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2 text-xs font-bold text-brand-700 dark:text-brand-300">
               <ImagePlus className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{pendingImage.name}</span>
-              <span className="shrink-0 text-[10px] font-semibold text-brand-500">
+              <span className="shrink-0 text-[10px] font-semibold text-brand-600 dark:text-brand-400">
                 {language === 'tr' ? 'mesajla birlikte analiz edilecek' : 'will be analyzed with your message'}
               </span>
-              <button onClick={clearImage} className="shrink-0 text-brand-400 hover:text-brand-700 transition">
+              <button onClick={clearImage} className="shrink-0 text-brand-600 dark:text-brand-400 hover:text-brand-200 transition">
                 <X className="h-4 w-4" />
               </button>
             </div>
           )}
-          <div className="flex items-end gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-[0_8px_30px_rgba(99,102,241,0.06)] focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 transition max-w-3xl mx-auto w-full">
+          <div className="mx-auto w-full max-w-3xl">
+            <MentionChips which="bottom" />
+          </div>
+          <div className="mx-auto flex w-full max-w-3xl items-end gap-2.5 rounded-2xl border border-ink-line bg-ink-card px-4 py-3.5 transition focus-within:border-brand-500/50 focus-within:ring-4 focus-within:ring-brand-500/10">
             <button
               onClick={() => void attachImage()}
               title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
               className={
                 'shrink-0 rounded-lg p-2 transition ' +
-                (pendingImage ? 'text-brand-600 bg-brand-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50')
+                (pendingImage ? 'text-brand-700 dark:text-brand-300 bg-brand-500/15' : 'text-ink-dim hover:text-ink-mut hover:bg-ink-hi')
               }
             >
               <ImagePlus className="h-5 w-5" />
@@ -503,10 +684,11 @@ export default function ChatPanel() {
               onChange={(e) => {
                 setText(e.target.value)
                 resize(taRef.current)
+                detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length, 'bottom')
               }}
               onKeyDown={(e) => onKeyDown(e, text)}
               placeholder={t.inputPlaceholder}
-              className="max-h-40 flex-1 resize-none bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
+              className="max-h-40 flex-1 resize-none bg-transparent text-sm text-ink-text placeholder-ink-dim focus:outline-none"
             />
             {sending ? (
               <button

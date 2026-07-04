@@ -58,6 +58,7 @@ let llamaGpuMode: boolean | null = null
 let model: LlamaModel | null = null
 let context: LlamaContext | null = null
 let session: LlamaChatSession | null = null
+let lastSystemPrompt = ''
 let abortController: AbortController | null = null
 let activeContextSize = 4096
 let cjkBias: TokenBias | null = null
@@ -167,6 +168,7 @@ async function buildSession(systemPrompt: string): Promise<void> {
     contextSequence: sequence,
     systemPrompt
   })
+  lastSystemPrompt = systemPrompt
 }
 
 async function unload(): Promise<void> {
@@ -264,12 +266,41 @@ async function handleLoad(req: LoadRequest): Promise<void> {
 
 async function handlePrompt(req: PromptRequest): Promise<void> {
   if (!session) throw new Error('Model yüklenmemiş. Önce bir GGUF seç.')
+
+  // Bağlam sıkıştırma: pencere %75'i geçtiyse oturumu tazele. Sohbet geçmişi
+  // atılır ama proje dosyaları her UPDATE turunda yeniden gönderildiği için
+  // bilgi kaybı pratikte küçüktür; taşma sessiz kalite kaybından iyidir.
+  let promptText = req.text
+  try {
+    const used =
+      (session as unknown as { sequence?: { nextTokenIndex?: number } }).sequence?.nextTokenIndex ?? 0
+    if (used > activeContextSize * 0.75) {
+      console.log(`[llamaWorker] bağlam doldu (${used}/${activeContextSize}) — oturum tazeleniyor (sıkıştırma)`)
+      try {
+        session.dispose()
+      } catch {
+        /* ignore */
+      }
+      try {
+        await context?.dispose()
+      } catch {
+        /* ignore */
+      }
+      await buildSession(lastSystemPrompt)
+      promptText =
+        '[NOTE: earlier conversation was compacted due to context limits; the current project files in this message are the source of truth.]\n\n' +
+        req.text
+    }
+  } catch {
+    /* sıkıştırma denetimi başarısızsa normal akışa devam */
+  }
+
   abortController = new AbortController()
   // Kullanıcı Çince/Japonca/Korece YAZIYORSA yasak o mesaj için kalkar —
   // CJK dilli kullanıcı kendi dilinde cevap alabilmeli. Diğer tüm dillerde
   // yasak aktif kalır ve Qwen'in Çinceye sürüklenmesini engeller.
-  const userWritesCjk = CJK_RE.test(req.text)
-  const full = await session.prompt(req.text, {
+  const userWritesCjk = CJK_RE.test(promptText)
+  const full = await session!.prompt(promptText, {
     onTextChunk: (chunk: string) => send({ event: 'token', token: chunk }),
     tokenBias: userWritesCjk ? undefined : (cjkBias ?? undefined),
     temperature: req.options?.temperature ?? 0.2,

@@ -6,9 +6,30 @@
     <!-- img/font/media geniş: srcdoc önizleme iframe'i bu CSP'yi miras alır (picsum vb. placeholder'lar) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src * data:; media-src * data: blob:; connect-src 'self' https://huggingface.co https://*.huggingface.co https://cdn-lfs.huggingface.co;" />
     <title>NexoraAI</title>
+    <!-- Tema, ilk boyamadan ÖNCE uygulanır — açılışta yanlış tema parlaması olmaz -->
+    <script>
+      try {
+        var nxTheme = localStorage.getItem('nexora.theme') === 'light' ? 'light' : 'dark'
+        document.documentElement.classList.toggle('dark', nxTheme === 'dark')
+        document.documentElement.setAttribute('data-theme', nxTheme)
+      } catch (e) {}
+    </script>
   </head>
-  <body class="bg-[#f8f9fc] text-slate-800 antialiased">
-    <div id="root"></div>
+  <body class="antialiased">
+    <div id="root">
+      <!-- Açılış ekranı: React yüklenene kadar logo nabız atar; mount olunca kaybolur -->
+      <div class="nx-splash">
+        <style>
+          @keyframes nx-pulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.07); opacity: 1; } }
+          .nx-splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #f6f6f8; }
+          html.dark .nx-splash { background: #1b1b1f; }
+          .nx-splash span { font: 600 12px/1 Inter, system-ui, sans-serif; letter-spacing: 0.14em; color: #8c8c98; }
+          html.dark .nx-splash span { color: #787882; }
+        </style>
+        <img src="./logo.png" width="104" height="104" alt="Nexora AI" style="animation:nx-pulse 1.6s ease-in-out infinite" />
+        <span>NEXORA AI</span>
+      </div>
+    </div>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

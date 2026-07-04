@@ -35,6 +35,12 @@ const VL_MMPROJ = join(MODELS_DIR, 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf')
  */
 const VL_CANDIDATES: Array<{ label: string; model: string; mmproj: string; needGb: number }> = [
   {
+    label: 'Qwen2.5-VL-32B',
+    model: 'Qwen2.5-VL-32B-Instruct-Q4_K_M.gguf',
+    mmproj: 'mmproj-Qwen2.5-VL-32B-Instruct-Q8_0.gguf',
+    needGb: 24
+  },
+  {
     label: 'Qwen2.5-VL-7B',
     model: 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf',
     mmproj: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',

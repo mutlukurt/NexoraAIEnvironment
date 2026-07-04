@@ -5,13 +5,18 @@ import type {
   ModelLoadedInfo,
   ChatStreamEvent,
   ModelLoadProgressEvent,
-  AgentBuildErrorEvent
+  AgentBuildErrorEvent,
+  SessionMeta,
+  SessionData,
+  SessionFileEntry
 } from '@shared/ipc'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
-import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode'
+import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
+import { selectContextFiles } from '@/lib/contextSelect'
+import { fixBrokenAssetRefs } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
-import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent } from '@/lib/agentActions'
+import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 
 const AUTO_APPLY_KEY = 'nexora.autoApply'
@@ -22,6 +27,41 @@ function autoApplyInitial(): boolean {
     return v === null ? true : v === '1'
   } catch {
     return true
+  }
+}
+
+const PLAN_FIRST_KEY = 'nexora.planFirst'
+const THEME_KEY = 'nexora.theme'
+const ENHANCE_KEY = 'nexora.enhancePrompts'
+
+// Varsayılan AÇIK: özellik teknik olmayan kullanıcı için — kapatmak isteyen
+// güç kullanıcı anahtarı zaten bulur.
+function enhanceInitial(): boolean {
+  try {
+    return localStorage.getItem(ENHANCE_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+export function applyTheme(theme: 'dark' | 'light'): void {
+  document.documentElement.classList.toggle('dark', theme === 'dark')
+  document.documentElement.setAttribute('data-theme', theme)
+}
+
+export function themeInitial(): 'dark' | 'light' {
+  try {
+    return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+function planFirstInitial(): boolean {
+  try {
+    return localStorage.getItem(PLAN_FIRST_KEY) === '1'
+  } catch {
+    return false
   }
 }
 
@@ -73,6 +113,33 @@ interface AppState {
   setActiveTab: (v: 'chat' | 'code') => void
   language: 'tr' | 'en'
   setLanguage: (lang: 'tr' | 'en') => void
+  theme: 'dark' | 'light'
+  setTheme: (v: 'dark' | 'light') => void
+
+  // Kalıcı oturumlar (~/NexoraAI/Sessions)
+  sessions: SessionMeta[]
+  currentSessionId: string | null
+  refreshSessions: () => Promise<void>
+  saveSessionNow: () => Promise<void>
+  openSession: (id: string) => Promise<void>
+  removeSession: (id: string) => Promise<void>
+
+  /** Riskli agent eylemleri ([RUN]/[FETCH]) için bekleyen izin istemi. */
+  permissionRequest: {
+    items: Array<{ kind: 'run' | 'fetch'; text: string }>
+    resolve: (d: 'once' | 'always' | 'deny') => void
+  } | null
+
+  // Plan modu ("Önce Plan"): istekler önce plana çevrilir, onayla koda döner.
+  planFirst: boolean
+  setPlanFirst: (v: boolean) => void
+  planPending: { planText: string; request: string } | null
+  applyPlan: () => Promise<void>
+  cancelPlan: () => void
+
+  // Prompt güçlendirme: gündelik tarif → profesyonel brief (yeni projelerde).
+  enhancePrompts: boolean
+  setEnhancePrompts: (v: boolean) => void
 }
 
 let streamUnsub: (() => void) | null = null
@@ -80,6 +147,45 @@ let loadProgressUnsub: (() => void) | null = null
 let buildErrorUnsub: (() => void) | null = null
 /** Bu tur bir "düzelt" turuysa, üretim bitince derleme doğrulaması yapılır. */
 let pendingBuildVerify = false
+
+// --- Kalıcı oturum otomatik kaydı ---
+// Mesaj/dosya değişikliklerinden 1.5 sn sonra sessiz kayıt; üretim sürerken
+// atlanır (done olayı zaten tetikler). Oturum, ilk kullanıcı mesajıyla doğar.
+let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null
+let sessionCreatedAt = 0
+
+// Proje bazlı kalıcı ajan izni ("bu projede hep izin ver").
+function agentAllowKey(): string {
+  return 'nexora.agentAllowed.' + getProjectName()
+}
+function isAgentAllowed(): boolean {
+  try {
+    return localStorage.getItem(agentAllowKey()) === '1'
+  } catch {
+    return false
+  }
+}
+function setAgentAllowed(): void {
+  try {
+    localStorage.setItem(agentAllowKey(), '1')
+  } catch {
+    /* localStorage yoksa izin oturumluk kalır */
+  }
+}
+
+// Test/CDP sürücüleri için: modele giden son ham prompt (davranışı etkilemez).
+let lastOutgoingPrompt = ''
+export function getLastOutgoingPrompt(): string {
+  return lastOutgoingPrompt
+}
+
+export function scheduleSessionSave(): void {
+  if (sessionSaveTimer) clearTimeout(sessionSaveTimer)
+  sessionSaveTimer = setTimeout(() => {
+    sessionSaveTimer = null
+    void useAppStore.getState().saveSessionNow()
+  }, 1500)
+}
 /** Otomatik yeniden deneme sayacı (en fazla 2; yeni hata olayında sıfırlanır). */
 let autoFixRounds = 0
 
@@ -106,13 +212,59 @@ let currentStreamingContent = ''
 let lastApplyAt = 0
 let applyTimer: ReturnType<typeof setTimeout> | null = null
 
+// Cerrahi düzenleme bekçisi — İTERASYONDA BAŞTAN YAZMAK YASAK.
+// İki ihlal türü yakalanır: (1) SEARCH bloğuna komple bölüm kopyalamak,
+// (2) mevcut bir dosyayı tam dosya olarak yeniden göndermek. İlk ihlalde
+// üretim kesilir ve küçük bloklar isteyen otomatik geri bildirimle BİR kez
+// yeniden denenir; ikinci ihlalde üretim kesin olarak durdurulur. Mevcut bir
+// dosyanın üzerine tam yazım hiçbir koşulda uygulanmaz.
+let oversizedEditAborting = false
+let oversizedEditRetries = 0
+let editRetryInFlight = false
+let violationStop = false
+let updateTurn = false
+let preTurnPaths: Set<string> = new Set()
+
+// Plan modu: bu üretim bir plan turu mu; bir sonraki gönderim planı atlasın mı.
+let planTurnActive = false
+let planBypassNext = false
+let lastPlanRequest = ''
+
+// Prompt güçlendirme: teknik olmayan tarif önce profesyonel briefe çevrilir,
+// ardından (Önce Plan açıksa) plan turu o briefle koşar.
+let enhanceTurnActive = false
+let enhanceBypassNext = false
+
+// Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
+// + genel "hata/error" göndermeleri.
+const FIX_WORDS =
+  /d[üu]zelt|onar|tamir|gider|[çc][öo]z|hata|fix|repair|solve|correct|debug|error|arregl|corrig|repar|solucion|conserta|r[ée]par|beheb|korrigier|reparier|risolv|corregg|napraw|исправ|почин|herstel|verbeter/i
+
+function editViolation(): void {
+  if (oversizedEditAborting) return
+  oversizedEditAborting = true
+  if (oversizedEditRetries < 1) oversizedEditRetries++
+  else violationStop = true
+  void window.nexora.chat.abort()
+}
+
 /**
  * Bolt-style live apply: writes files into the artifacts store WHILE the model
  * is still generating. Open (unterminated) code blocks stream token-by-token
  * into the code editor; completed blocks get post-processing fixes.
  */
-function applyStreamingContent(content: string, final: boolean): number {
-  if (!content) return 0
+interface ApplyOutcome {
+  fileCount: number
+  /** Final geçişte uygulanan cerrahi düzenlemelerin dosya bazında dökümü. */
+  edits: Array<{ path: string; applied: number; failed: number }>
+  /** Final geçişte tam olarak yazılan dosyalar (formatlama için). */
+  written: string[]
+}
+
+function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
+  const edits: ApplyOutcome['edits'] = []
+  const written: string[] = []
+  if (!content) return { fileCount: 0, edits, written }
   const { files } = parseStreaming(content, { final })
   const store = useArtifactsStore.getState()
   let writing: string | null = null
@@ -134,6 +286,12 @@ function applyStreamingContent(content: string, final: boolean): number {
     // Direktif örneklerinin kopyalandığı sahte "dosyalar" hiç yazılmaz.
     if (isDirectiveOnlyContent(f.code)) continue
     if (!f.path.includes('/') && batchPaths.has('src/' + f.path)) continue
+    // İterasyonda MEVCUT dosyanın tam dosya olarak yeniden yazımı yasaktır:
+    // asla uygulanmaz, akış sürüyorsa üretim de kesilir (bekçi).
+    if (updateTurn && preTurnPaths.has(f.path) && !isEditBlock(f.lang, f.code)) {
+      if (!final) editViolation()
+      continue
+    }
     // On the final pass the stream is over — every block counts as complete.
     const complete = f.complete || final
 
@@ -153,6 +311,7 @@ function applyStreamingContent(content: string, final: boolean): number {
       if (res.failed > 0) {
         console.warn(`[NexoraAI] ${f.path}: ${res.failed} düzenleme bloğu eşleşmedi`)
       }
+      edits.push({ path: f.path, applied: res.applied, failed: res.failed })
       continue
     }
     const language: FileLanguage = langToLanguage(f.lang) ?? detectLanguage(f.path)
@@ -171,11 +330,12 @@ function applyStreamingContent(content: string, final: boolean): number {
       // While generating: follow the file live. On the final pass: no jumping.
       store.streamUpdateFile(f.path, fileContent, language, !final)
     }
+    if (complete) written.push(f.path)
     if (!complete) writing = f.path
   }
 
   useArtifactsStore.getState().setWritingPath(final ? null : writing)
-  return files.length
+  return { fileCount: files.length, edits, written }
 }
 
 function scheduleStreamingApply(): void {
@@ -210,10 +370,55 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       const full = event.full
       currentStreamingContent = full
       cancelScheduledApply()
-      let count = 0
-      if (get().autoApply && full) {
-        count = applyStreamingContent(full, true)
+
+      // Plan turu: kod uygulanmaz, direktif çalışmaz — plan sohbette kalır,
+      // altında "Planı uygula / Vazgeç" düğmeleri çıkar.
+      if (planTurnActive) {
+        planTurnActive = false
+        set((s) => ({
+          sending: false,
+          generating: false,
+          planPending: full.trim() ? { planText: full, request: lastPlanRequest } : null,
+          messages: s.messages.map((m) => (m.streaming ? { ...m, content: full, streaming: false } : m))
+        }))
+        scheduleSessionSave()
+        return
       }
+
+      // Güçlendirme turu bitti: brief otomatik olarak normal akışa gönderilir
+      // (Önce Plan açıksa plan turu bu briefle koşar).
+      if (enhanceTurnActive) {
+        enhanceTurnActive = false
+        cancelScheduledApply()
+        const improved = full.trim()
+        set((s) => ({
+          sending: false,
+          generating: false,
+          messages: s.messages.map((m) => (m.streaming ? { ...m, content: full, streaming: false } : m))
+        }))
+        scheduleSessionSave()
+        if (improved) {
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: '✨ Tarifin profesyonel bir briefe dönüştürüldü — şimdi bu briefle devam ediliyor.'
+              }
+            ]
+          }))
+          enhanceBypassNext = true
+          void get().sendMessage(improved)
+        }
+        return
+      }
+
+      let outcome: ApplyOutcome = { fileCount: 0, edits: [], written: [] }
+      if (get().autoApply && full) {
+        outcome = applyStreamingContent(full, true)
+      }
+      const count = outcome.fileCount
       set((s) => ({
         sending: false,
         generating: false,
@@ -227,6 +432,121 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       } else {
         useArtifactsStore.getState().setWritingPath(null)
       }
+
+      const touchedPaths = [
+        ...new Set([...outcome.written, ...outcome.edits.filter((e) => e.applied > 0).map((e) => e.path)])
+      ]
+
+      // Kırık görsel onarımı: var olmayan /assets vb. referansları yer
+      // tutucuya çevir ([FETCH] ile gerçekten indirilenler korunur).
+      // Prettier'dan ÖNCE ve senkron — yarış olmasın.
+      if (touchedPaths.length > 0 && full) {
+        const fetchTargets = new Set(parseDirectives(full).fetches.map((f) => f.path))
+        const store = useArtifactsStore.getState()
+        const existingPaths = new Set(Object.keys(store.files))
+        let fixedTotal = 0
+        for (const p of touchedPaths) {
+          const f = useArtifactsStore.getState().files[p]
+          if (!f) continue
+          const r = fixBrokenAssetRefs(f.content, existingPaths, fetchTargets)
+          if (r.fixed > 0) {
+            useArtifactsStore.getState().updateFile(p, r.content)
+            fixedTotal += r.fixed
+          }
+        }
+        if (fixedTotal > 0) {
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: `🖼 ${fixedTotal} kırık görsel referansı otomatik yer tutucuyla değiştirildi (model var olmayan dosyalara işaret etmişti).`
+              }
+            ]
+          }))
+        }
+      }
+
+      // Prettier: üretim TAMAMEN bittikten sonra yazılan/düzenlenen dosyaları
+      // formatla (dinamik import — ana pakete binmez). Bozuk dosya olduğu
+      // gibi kalır; SEARCH eşleşmeleri etkilenmez çünkü akış çoktan bitti.
+      if (touchedPaths.length > 0) {
+        void (async () => {
+          const { formatFileContent } = await import('@/lib/formatCode')
+          for (const p of touchedPaths) {
+            const f = useArtifactsStore.getState().files[p]
+            if (!f) continue
+            const formatted = await formatFileContent(p, f.content)
+            if (formatted) useArtifactsStore.getState().updateFile(p, formatted)
+          }
+          scheduleSessionSave()
+        })()
+      }
+
+      // Düzeltme raporu: hangi dosyada kaç nokta değişti, sohbete yazılır —
+      // kullanıcı modelin NEREYİ düzelttiğini kod okumadan görür.
+      if (outcome.edits.length > 0) {
+        // Aynı dosyaya ait blokları tek satırda topla.
+        const byFile = new Map<string, { applied: number; failed: number }>()
+        for (const e of outcome.edits) {
+          const cur = byFile.get(e.path) ?? { applied: 0, failed: 0 }
+          cur.applied += e.applied
+          cur.failed += e.failed
+          byFile.set(e.path, cur)
+        }
+        const rows = [...byFile.entries()].map(([path, e]) => {
+          const ok = `${path}: ${e.applied} nokta düzeltildi`
+          return e.failed > 0 ? `${ok} (⚠️ ${e.failed} blok eşleşmedi)` : ok
+        })
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            { id: nanoid(), role: 'assistant', content: '🔧 Düzeltme raporu:\n' + rows.map((r) => '• ' + r).join('\n') }
+          ]
+        }))
+      }
+
+      // Bekçi kesmesi: tamamlanan küçük bloklar yukarıda uygulandı. İlk ihlalde
+      // tek seferlik düzeltici geri bildirim gider; ikincisinde kesin durdurulur.
+      if (oversizedEditAborting) {
+        oversizedEditAborting = false
+        if (violationStop) {
+          violationStop = false
+          updateTurn = false
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content:
+                  '⛔ Model uyarıya rağmen yine baştan yazmaya kalktı — üretim durduruldu (iterasyonda baştan yazmak yasak). O ana kadar tamamlanan küçük düzeltmeler uygulandı. Kalan düzeltmeleri daha küçük parçalara bölüp tek tek isteyin.'
+              }
+            ]
+          }))
+          return
+        }
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content:
+                '✂️ Düzenleme kesildi: model baştan yazmaya kalkıştı (koca SEARCH bloğu ya da mevcut dosyanın tamamı). Yalnızca değişen satırları içeren küçük bloklar istenerek otomatik yeniden deneniyor…'
+            }
+          ]
+        }))
+        editRetryInFlight = true
+        void get().sendMessage(
+          'Az önceki düzenlemen kesildi çünkü baştan yazmaya kalktın — bu YASAK: ne komple bölümü SEARCH bloğuna kopyalayabilirsin ne de mevcut bir dosyayı tam dosya olarak yeniden yazabilirsin. Kalan düzeltmeleri şimdi HER BİRİ İÇİN AYRI edit bloğu olacak şekilde yaz; her SEARCH yalnızca değişecek 2-8 satırı içersin.'
+        )
+        return
+      }
+      updateTurn = false
+      // Üretim bitti — oturumu (sohbet + dosyalar) sessizce diske yaz.
+      scheduleSessionSave()
 
       // "Düzelt" turu doğrulaması: düzeltme uygulandıktan sonra derlemeyi
       // yeniden denetle. Geçtiyse kutla; geçmediyse tırmanan ipucuyla en fazla
@@ -293,28 +613,67 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           .join('\n')
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
         if (hasDirectives(directives)) {
-          const logId = nanoid()
-          const lines: string[] = ['⚙️ Agent eylemleri çalışıyor…']
-          set((s) => ({
-            messages: [...s.messages, { id: logId, role: 'assistant', content: lines[0] }]
-          }))
-          void executeDirectives(directives, (line) => {
-            lines.push(line)
+          void (async () => {
+            // İzin sistemi: [RUN] (kabuk komutu) ve [FETCH] (indirme) riskli —
+            // proje için kalıcı izin yoksa kullanıcıya sorulur.
+            const risky = [
+              ...directives.runs.map((r) => ({ kind: 'run' as const, text: r })),
+              ...directives.fetches.map((f) => ({ kind: 'fetch' as const, text: `${f.url} → ${f.path}` }))
+            ]
+            let effective = directives
+            if (risky.length > 0 && !isAgentAllowed()) {
+              const decision = await new Promise<'once' | 'always' | 'deny'>((resolve) => {
+                set({ permissionRequest: { items: risky, resolve } })
+              })
+              set({ permissionRequest: null })
+              if (decision === 'always') setAgentAllowed()
+              if (decision === 'deny') {
+                effective = { ...directives, runs: [], fetches: [] }
+                set((s) => ({
+                  messages: [
+                    ...s.messages,
+                    {
+                      id: nanoid(),
+                      role: 'assistant',
+                      content: `⛔ İzin verilmedi — ${risky.length} riskli eylem atlandı (${risky.map((r) => (r.kind === 'run' ? 'komut' : 'indirme')).join(', ')}).`
+                    }
+                  ]
+                }))
+                if (!hasDirectives(effective)) return
+              }
+            }
+            const logId = nanoid()
+            const lines: string[] = ['⚙️ Agent eylemleri çalışıyor…']
             set((s) => ({
-              messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m))
+              messages: [...s.messages, { id: logId, role: 'assistant', content: lines[0] }]
             }))
-          }).then(() => {
+            await executeDirectives(effective, (line) => {
+              lines.push(line)
+              set((s) => ({
+                messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m))
+              }))
+            })
             lines[0] = '⚙️ Agent eylemleri tamamlandı.'
             set((s) => ({
               messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m))
             }))
-          })
+          })()
         }
       }
       return
     }
     const token = (event as { token: string }).token
     currentStreamingContent += token
+    // Bekçi: açık SEARCH bölümü sınırı aştıysa model bölümü/dosyayı baştan
+    // yazıyordur — kes; done dalı ya küçük bloklarla yeniden dener ya durdurur.
+    if (
+      !oversizedEditAborting &&
+      updateTurn &&
+      currentStreamingContent.includes('```edit') &&
+      hasOversizedOpenSearch(currentStreamingContent)
+    ) {
+      editViolation()
+    }
     set((s) => {
       const streaming = s.messages.find((m) => m.streaming)
       if (!streaming) return {}
@@ -324,7 +683,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         )
       }
     })
-    if (get().autoApply) {
+    if (get().autoApply && !planTurnActive && !enhanceTurnActive) {
       scheduleStreamingApply()
     }
   })
@@ -358,6 +717,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   error: null,
 
   autoApply: autoApplyInitial(),
+  sessions: [],
+  currentSessionId: null,
+  permissionRequest: null,
+  planFirst: planFirstInitial(),
+  planPending: null,
+  enhancePrompts: enhanceInitial(),
   generating: false,
   generatedCount: 0,
   profileId: DEFAULT_PROFILE_ID,
@@ -368,6 +733,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   setLanguage: (language) => {
     localStorage.setItem('nexora:lang', language)
     set({ language })
+  },
+  theme: themeInitial(),
+  setTheme: (theme) => {
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch {
+      /* ignore */
+    }
+    applyTheme(theme)
+    set({ theme })
   },
 
   loadModel: async () => {
@@ -426,12 +801,141 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   newSession: async () => {
+    // Mevcut çalışmayı kaybetmeden yeni sayfa: önce kaydet, sonra temizle.
+    await get().saveSessionNow()
     await window.nexora.chat.newSession()
+    useArtifactsStore.getState().clearAll()
+    sessionCreatedAt = 0
     set({
       messages: [],
+      currentSessionId: null,
       profileId: DEFAULT_PROFILE_ID,
       profileLabel: getProfile(DEFAULT_PROFILE_ID).label
     })
+  },
+
+  refreshSessions: async () => {
+    try {
+      const list = await window.nexora.sessions.list()
+      set({ sessions: list })
+    } catch {
+      /* liste alınamadıysa mevcut kalsın */
+    }
+  },
+
+  saveSessionNow: async () => {
+    const s = get()
+    if (s.generating) return
+    const firstUser = s.messages.find((m) => m.role === 'user')
+    if (!firstUser) return
+    let id = s.currentSessionId
+    if (!id) {
+      id = nanoid()
+      sessionCreatedAt = Date.now()
+      set({ currentSessionId: id })
+    }
+    if (!sessionCreatedAt) sessionCreatedAt = Date.now()
+    const files = useArtifactsStore.getState().files
+    const data: SessionData = {
+      id,
+      title: firstUser.content.split('\n')[0].slice(0, 48),
+      createdAt: sessionCreatedAt,
+      updatedAt: Date.now(),
+      msgCount: s.messages.length,
+      fileCount: Object.keys(files).length,
+      messages: s.messages.map((m) => ({ ...m, streaming: false })),
+      files: Object.fromEntries(
+        Object.entries(files).map(([p, f]) => [
+          p,
+          { path: f.path, content: f.content, language: f.language, updatedAt: f.updatedAt }
+        ])
+      ),
+      selectedPath: useArtifactsStore.getState().selectedPath
+    }
+    try {
+      await window.nexora.sessions.save(data)
+      void get().refreshSessions()
+    } catch {
+      /* diske yazılamadıysa sohbeti bozma */
+    }
+  },
+
+  openSession: async (id: string) => {
+    if (get().sending || get().generating) return
+    if (id === get().currentSessionId) return
+    await get().saveSessionNow()
+    const data = (await window.nexora.sessions.load(id)) as SessionData | null
+    if (!data) {
+      void get().refreshSessions()
+      return
+    }
+    // Taze model bağlamı — eski sohbet UI'da durur, iterasyonlar güncel
+    // dosyalar üzerinden çalışır (UPDATE MODE dosyaları her tur gönderir).
+    await window.nexora.chat.newSession()
+    const files = Object.fromEntries(
+      (Object.entries(data.files) as Array<[string, SessionFileEntry]>).map(([p, f]) => [
+        p,
+        {
+          path: f.path,
+          content: f.content,
+          language: (f.language as FileLanguage) || detectLanguage(f.path),
+          updatedAt: f.updatedAt
+        }
+      ])
+    )
+    useArtifactsStore.getState().replaceAll(files, data.selectedPath)
+    sessionCreatedAt = data.createdAt
+    set({
+      messages: data.messages.map((m: ChatMessage) => ({ ...m, streaming: false })),
+      currentSessionId: data.id,
+      activeTab: 'chat',
+      profileId: DEFAULT_PROFILE_ID,
+      profileLabel: getProfile(DEFAULT_PROFILE_ID).label
+    })
+  },
+
+  removeSession: async (id: string) => {
+    await window.nexora.sessions.remove(id)
+    if (get().currentSessionId === id) {
+      set({ currentSessionId: null })
+      sessionCreatedAt = 0
+    }
+    void get().refreshSessions()
+  },
+
+  setPlanFirst: (v: boolean) => {
+    try {
+      localStorage.setItem(PLAN_FIRST_KEY, v ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+    set({ planFirst: v })
+  },
+
+  applyPlan: async () => {
+    const p = get().planPending
+    if (!p || get().sending) return
+    set({ planPending: null })
+    planBypassNext = true
+    await get().sendMessage(
+      `İstek: ${p.request}
+
+Onaylanan plan:
+${p.planText}
+
+Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
+    )
+  },
+
+  cancelPlan: () => set({ planPending: null }),
+
+  setEnhancePrompts: (v: boolean) => {
+    try {
+      localStorage.setItem(ENHANCE_KEY, v ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+    set({ enhancePrompts: v })
   },
 
   sendMessage: async (text: string) => {
@@ -446,6 +950,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     cancelScheduledApply()
     currentStreamingContent = ''
     lastApplyAt = 0
+    // Kullanıcıdan gelen her yeni istek bekçi hakkını tazeler; otomatik
+    // yeniden deneme turu ise mevcut hakkı tüketmeye devam eder.
+    if (!editRetryInFlight) oversizedEditRetries = 0
+    editRetryInFlight = false
+    oversizedEditAborting = false
+    violationStop = false
 
     // Mirror the main process' sticky profile detection for the UI badge.
     const detected = detectProfile(trimmed)
@@ -486,7 +996,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 5) BİLEŞENLER: buton stilleri (dolgu/çerçeve, köşe, renk), kart stilleri (gölge, kenarlık, köşe), ikon kullanımı.
 6) GENEL HİS: minimal/kurumsal/lüks vb. + boşluk yoğunluğu.
 
-Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz.`
+ÖNEMLİ RENK KURALI: Renkleri YALNIZCA bu görselden oku. Görselde OLMAYAN bir rengi asla yazma; web şablonlarından ezber renk (#007BFF, #FF5733 gibi) yazmak YASAK. Bir bölgenin renginden emin olamıyorsan o renge "belirsiz" yaz.
+
+Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da bitir.`
         : trimmed
       const vres = await window.nexora.vision.analyze({ imagePath: image.path, prompt: visionPrompt })
       visionUnsub()
@@ -509,7 +1021,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz.`
       set((s) => ({
         messages: s.messages.map((m) =>
           m.id === statusId
-            ? { ...m, content: '🖼 Tasarım analizi çıkarıldı — kodlayıcı modele aktarılıyor:\n\n' + vres.text!.slice(0, 600) + (vres.text!.length > 600 ? '…' : '') }
+            ? { ...m, content: '🖼 Tasarım analizi çıkarıldı — kodlayıcı modele aktarılıyor:\n\n' + vres.text!.slice(0, 1500) + (vres.text!.length > 1500 ? '…\n\n(önizleme kısaltıldı — analizin TAMAMI modele iletildi)' : '') }
             : m
         )
       }))
@@ -532,10 +1044,51 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz.`
       generatedCount: 0
     }))
 
-    const currentFiles = Object.values(useArtifactsStore.getState().files).map((f) => ({
-      path: f.path,
-      content: f.content
-    }))
+    const allFiles = Object.values(useArtifactsStore.getState().files)
+    const buildErr = get().lastBuildError
+    const fixFlow = !!buildErr && FIX_WORDS.test(trimmed)
+    // Prompt güçlendirme: yeni projede (dosya yokken) gündelik tarif önce
+    // profesyonel briefe çevrilir; brief otomatik yeniden gönderilir ve o
+    // gönderim (bypass) normal akışa — Önce Plan açıksa plana — girer.
+    const isEnhanceTurn =
+      get().enhancePrompts &&
+      !enhanceBypassNext &&
+      !planBypassNext &&
+      !visionAnalysis &&
+      !fixFlow &&
+      allFiles.length === 0
+    enhanceBypassNext = false
+    // Plan modu: "Önce Plan" açıkken normal istekler önce plana çevrilir.
+    // Görsel akışı, düzelt akışı ve plan onayı (bypass) doğrudan koda gider.
+    const isPlanTurn = get().planFirst && !planBypassNext && !visionAnalysis && !fixFlow && !isEnhanceTurn
+    planBypassNext = false
+
+    // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
+    // kalanlar modele yalnızca yol listesi olarak bildirilir. Plan turunda
+    // içerik gitmez — plan için dosya LİSTESİ yeter, bağlam ucuz kalır.
+    let currentFiles: Array<{ path: string; content: string }> = []
+    let excludedPaths: string[] = []
+    if (!isPlanTurn) {
+      const selection = selectContextFiles(trimmed, allFiles)
+      currentFiles = selection.included.map((f) => ({ path: f.path, content: f.content }))
+      excludedPaths = selection.excludedPaths
+      if (selection.trimmed) {
+        // Bilgi satırı, akan yanıt balonunun ÜSTÜNDE dursun.
+        const info: ChatMessage = {
+          id: nanoid(),
+          role: 'assistant',
+          content: `📎 Bağlam: ${selection.included.map((f) => f.path).join(', ')} (${selection.excludedPaths.length} dosya içerik gönderilmeden listelendi — @dosyaadı ile ekleyebilirsiniz)`
+        }
+        set((s) => ({
+          messages: [...s.messages.slice(0, -1), info, s.messages[s.messages.length - 1]]
+        }))
+      }
+    }
+    // Bekçi bağlamı: bu tur bir iterasyon mu, hangi dosyalar zaten vardı?
+    // preTurnPaths TÜM proje dosyalarını kapsar — bağlama girmeyen bir
+    // dosyanın körlemesine baştan yazılması da yasaktır.
+    updateTurn = !isPlanTurn && allFiles.length > 0
+    preTurnPaths = new Set(allFiles.map((f) => f.path))
 
     // "Düzelt" akışı: Çalıştır denetimi bir derleme hatası yakaladıysa ve
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
@@ -549,13 +1102,7 @@ ${visionAnalysis}
 === ANALİZ SONU ===
 Bu analizi tasarım rehberi olarak uygula. ÖNEMLİ: Kullanıcının isteğinde analizden farklı özel talimatlar varsa (renk/font/bölüm değişikliği gibi "ama/fakat/şöyle olsun" ifadeleri), KULLANICININ TALİMATI analizden ÜSTÜNDÜR — önce onu uygula, kalan her şeyde analize sadık kal.`
     }
-    const buildErr = get().lastBuildError
-    // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
-    // + genel "hata/error" göndermeleri. Yakalanmış hata varken bu kelimelerden
-    // biri geçiyorsa teşhis paketi modele otomatik iliştirilir.
-    const FIX_WORDS =
-      /d[üu]zelt|onar|tamir|gider|[çc][öo]z|hata|fix|repair|solve|correct|debug|error|arregl|corrig|repar|solucion|conserta|r[ée]par|beheb|korrigier|reparier|risolv|corregg|napraw|исправ|почин|herstel|verbeter/i
-    if (buildErr && FIX_WORDS.test(trimmed)) {
+    if (fixFlow && buildErr) {
       outgoing = `${trimmed}
 
 === BUILD ERROR (NexoraAI tarafından otomatik yakalandı) ===
@@ -565,10 +1112,51 @@ ${buildErr}
       pendingBuildVerify = true
     }
 
+    // Yanıt dili açık yazılır — "kullanıcının dili" talimatına 7B uymuyordu.
+    const answerLang = get().language === 'tr' ? 'TURKISH (yanıtı TÜRKÇE yaz)' : 'English'
+
+    if (isPlanTurn) {
+      planTurnActive = true
+      lastPlanRequest = trimmed
+      const pathList = allFiles.map((f) => f.path).join(', ')
+      outgoing = `=== PLAN MODE ===
+Do NOT write any code, files or edit blocks in this turn.
+Write a SHORT implementation plan for the request below: a numbered list (max 12 items) of sections/files/steps — one line each. No code fences, no prose paragraphs.
+LANGUAGE OF YOUR ANSWER: ${answerLang}.
+${pathList ? 'Existing project files: ' + pathList + '\n' : ''}User request: ${trimmed}`
+    }
+
+    if (isEnhanceTurn) {
+      enhanceTurnActive = true
+      updateTurn = false
+      outgoing = `=== PROMPT IMPROVEMENT MODE ===
+Do NOT build anything in this turn. The user is not technical — rewrite their casual description below as ONE professional, specific website brief: page sections in order, per-section layout, color palette (hex), typography, key interactions. Short bullet lines. No code, no questions, no options.
+LANGUAGE OF YOUR ANSWER: ${answerLang}.
+Output ONLY the improved brief text.
+User description: ${trimmed}`
+    }
+
+    // Proje kuralları (KURALLAR.md): kullanıcının kalıcı tercihleri her tura
+    // eklenir — plan turu dahil. Boşsa hiçbir şey eklenmez.
+    try {
+      const rules = (await window.nexora.rules.get(getProjectName())).content.trim()
+      if (rules) {
+        outgoing += `
+
+=== PROJECT RULES (user-defined, ALWAYS obey) ===
+${rules.slice(0, 1500)}
+=== END PROJECT RULES ===`
+      }
+    } catch {
+      /* kural okunamadıysa istek kuralsız gider */
+    }
+
+    lastOutgoingPrompt = outgoing
     try {
       const res = await window.nexora.chat.send({
         prompt: outgoing,
-        currentFiles: currentFiles.length > 0 ? currentFiles : undefined
+        currentFiles: currentFiles.length > 0 ? currentFiles : undefined,
+        otherPaths: excludedPaths.length > 0 ? excludedPaths : undefined
       })
       if (!res.ok) {
         set((s) => ({
@@ -579,6 +1167,7 @@ ${buildErr}
             m.id === asstId ? { ...m, streaming: false } : m
           )
         }))
+        scheduleSessionSave()
       }
     } catch (err) {
       set((s) => ({
@@ -589,6 +1178,7 @@ ${buildErr}
           m.id === asstId ? { ...m, streaming: false } : m
         )
       }))
+      scheduleSessionSave()
     }
   },
 
@@ -620,9 +1210,9 @@ ${buildErr}
       ? msgs.find((m) => m.id === messageId)
       : [...msgs].reverse().find((m) => m.role === 'assistant')
     if (target) {
-      const count = applyStreamingContent(target.content, true)
-      set({ generatedCount: count })
-      if (count > 0) useArtifactsStore.getState().finishStreaming()
+      const outcome = applyStreamingContent(target.content, true)
+      set({ generatedCount: outcome.fileCount })
+      if (outcome.fileCount > 0) useArtifactsStore.getState().finishStreaming()
     }
   }
 }))

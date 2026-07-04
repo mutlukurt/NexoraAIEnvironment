@@ -288,6 +288,32 @@ export function isEditBlock(lang: string, code: string): boolean {
   return lang === 'edit' || /^<{4,}[ \t]*SEARCH/m.test(code)
 }
 
+/** Bir SEARCH bloğu bu satır sayısını aşarsa model dosyayı baştan yazıyor demektir. */
+export const MAX_SEARCH_LINES = 20
+
+/**
+ * Akış sırasında bekçi: son açılan SEARCH bölümü (henüz ======= gelmeden)
+ * MAX_SEARCH_LINES'ı aştıysa true döner. Model komple bölüm/dosya kopyalamaya
+ * başladığında üretimi erken kesip küçük bloklar istemek için kullanılır.
+ */
+export function hasOversizedOpenSearch(content: string, maxLines = MAX_SEARCH_LINES): boolean {
+  const at = content.lastIndexOf('<<<<<<< SEARCH')
+  if (at === -1) return false
+  const lines = content.slice(at).split('\n').slice(1)
+  const sep = lines.findIndex((l) => /^={4,}[ \t]*$/.test(l.trim()))
+  const searchLines = sep === -1 ? lines.length : sep
+  return searchLines > maxLines
+}
+
+/** Akan bir edit bloğunun canlı durumu (sohbette gösterim için). */
+export function editStreamInfo(code: string): { blocks: number; phase: 'search' | 'replace' } {
+  const blocks = (code.match(/<{4,}[ \t]*SEARCH/g) || []).length
+  const at = code.lastIndexOf('<<<<<<< SEARCH')
+  const after = at === -1 ? '' : code.slice(at)
+  const phase = /^={4,}[ \t]*$/m.test(after) ? 'replace' : 'search'
+  return { blocks: Math.max(blocks, 1), phase }
+}
+
 interface EditSegment {
   search: string
   replace: string
@@ -395,9 +421,34 @@ export function applySearchReplace(original: string, block: string): EditApplyRe
       oLines.splice(dqMatch, sDq.length, ...rLines)
       content = oLines.join('\n')
       applied++
-    } else {
-      failed++
+      continue
     }
+
+    // 4. kademe: idempotenlik — SEARCH yok ama REPLACE içeriği zaten dosyada.
+    // Canlı uygulama (akış sırasında) bloğu çoktan işlemiştir; final geçişte
+    // aynı blok ikinci kez gelince bunu hata değil "zaten uygulanmış" say.
+    const rTrim = trimBlankEdges(seg.replace.split('\n')).map((l) => l.trim())
+    if (rTrim.length > 0) {
+      let already = false
+      for (let i = 0; i + rTrim.length <= oLines.length; i++) {
+        let ok = true
+        for (let j = 0; j < rTrim.length; j++) {
+          if (oLines[i + j].trim() !== rTrim[j]) {
+            ok = false
+            break
+          }
+        }
+        if (ok) {
+          already = true
+          break
+        }
+      }
+      if (already) {
+        applied++
+        continue
+      }
+    }
+    failed++
   }
 
   return { content, applied, failed }
