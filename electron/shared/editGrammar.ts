@@ -48,18 +48,52 @@ export function buildEditGrammar(existingPaths: string[]): string {
   //    açık listedir ("edit" yok) → "\`\`\`edit " sonrası SEARCH ZORUNLU.
   //  - answer satırları backtick ile başlayabilseydi 8 satırlık sahte-edit
   //    alanı doğardı; cevap satırı backtick ile başlayamaz.
+  // KRİTİK: son öğeden sonra newline ZORUNLU OLMAMALI — model kapanış
+  // fence'inin hemen ardından EOS basmak ister; EOS maskelenirse duramaz ve
+  // "[END_OF_TEXT]" metnini token limitine kadar kusar (canlıda görüldü).
+  // Bu yüzden öğeler arası ayraç newline'dır ama sondaki opsiyoneldir.
   return `root ::= answer | changes
 answer ::= "ANSWER: " ${rep('aline', 1, 7)}
 aline ::= [^\`\\n] [^\\n]* "\\n" | "\\n"
-changes ::= item+
+changes ::= item (ws item)* ws?
 item ::= edit | newfile | del | directive
-edit ::= "\`\`\`edit " epath "\\n<<<<<<< SEARCH\\n" ${searchLines} "=======\\n" ${replaceLines} ">>>>>>> REPLACE\\n\`\`\`" ws
-newfile ::= "\`\`\`" lang " " npath "\\n" cline+ "\`\`\`" ws
+edit ::= "\`\`\`edit " epath "\\n<<<<<<< SEARCH\\n" ${searchLines} "=======\\n" ${replaceLines} ">>>>>>> REPLACE\\n\`\`\`"
+newfile ::= "\`\`\`" lang " " npath "\\n" cline+ "\`\`\`"
 lang ::= "tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg" | "py" | "yaml" | "yml" | "toml" | "xml" | "txt"
-del ::= "[DELETE] " epath ws
-directive ::= "[" ("PKG" | "FONT" | "FETCH" | "RUN" | "DEV") "]" [^\\n]* ws
+del ::= "[DELETE] " epath
+directive ::= "[" ("PKG" | "FONT" | "FETCH" | "RUN" | "DEV") "]" [^\\n]*
 cline ::= [^\\n]* "\\n"
 epath ::= ${epath}
 npath ::= [A-Za-z0-9._@/-]+ "." ("tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg" | "py" | "yaml" | "yml" | "toml" | "xml" | "txt")
 ws ::= "\\n" [\\n]*`
+}
+
+/**
+ * Planlı üretimde TEK dosya turu (roadmap 2.2): çıktı, tam olarak istenen
+ * yola ait TEK fenced blok olmak zorunda. Model başka dosya yazamaz, gevezelik
+ * edemez, yolu değiştiremez.
+ */
+export function buildFileGrammar(path: string): string {
+  const p = safeLiteral(path)
+  // Sondaki newline opsiyonel: kapanış fence'inden hemen sonra EOS legal
+  // olmalı (zorunlu newline EOS'u maskeleyip [END_OF_TEXT] spiraline sokar).
+  return `root ::= "\`\`\`" lang " " "${p}" "\\n" cline+ "\`\`\`" ws?
+lang ::= "tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg" | "py" | "yaml" | "yml" | "toml" | "xml" | "txt"
+cline ::= [^\\n]* "\\n"
+ws ::= "\\n" [\\n]*`
+}
+
+/**
+ * Plan turu grameri (roadmap 2.2): her satır "N. yol — açıklama" biçiminde,
+ * 2-12 dosya. applyPlan bu listeyi deterministik ayrıştırıp dosya-dosya
+ * üretim döngüsünü başlatır. (Satır düzeyinde ?-zinciri güvenlidir; karakter
+ * düzeyindekiler llama.cpp gramer-durumunu patlatıyor — bkz. npath dersi.)
+ */
+export function buildPlanGrammar(): string {
+  const lines = rep('pline', 2, 10)
+  return `root ::= ${lines}
+pline ::= num ". " fpath sep [^\\n]+ "\\n"
+num ::= [1-9] | "1" [0-2]
+sep ::= " — " | " - " | " – " | ": "
+fpath ::= [A-Za-z0-9._@/-]+ "." ("tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg")`
 }

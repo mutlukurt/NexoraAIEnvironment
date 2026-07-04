@@ -36,6 +36,13 @@ export interface ChatStreamDone {
 export type ChatStreamEvent = ChatStreamChunk | ChatStreamDone
 
 export interface ChatSendInput {
+  /**
+   * Planlı üretim (roadmap 2.2): bu tur çıktısı TAM OLARAK bu yola ait tek
+   * fenced blok olmalı — ana süreç GBNF gramerini bundan kurar.
+   */
+  expectFile?: string
+  /** Plan turu: "N. yol — açıklama" satır formatı gramerle zorlanır. */
+  expectPlan?: boolean
   prompt: string
   currentFiles?: Array<{ path: string; content: string }>
   /** Bağlam diyeti: var olan ama içeriği gönderilmeyen proje dosyaları. */

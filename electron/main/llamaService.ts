@@ -24,7 +24,7 @@ import {
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
-import { buildEditGrammar } from '../shared/editGrammar'
+import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
 
 export type { LoadProgressCallback } from './engineTypes'
 
@@ -217,11 +217,19 @@ Rules:
     prompt += '\n\n' + AGENT_HINT
   }
 
-  // UPDATE turunda GBNF grameri (roadmap 2.1): cerrahi düzenleme formatı
-  // örnekleyici seviyesinde zorlanır — SEARCH ≤12 satır, hedef yol yalnızca
-  // gerçekten var olan dosyalar. Server motoru uygular; worker yok sayar.
+  // GBNF gramerleri (roadmap 2.1 + 2.2): format örnekleyici seviyesinde
+  // zorlanır. Server motoru uygular; worker yok sayar (watchdog orada korur).
+  //  - expectFile: planlı üretimde tek-dosya turu — çıktı tam o yola ait
+  //    TEK fenced blok olmak zorunda.
+  //  - expectPlan: plan turu — "N. yol — açıklama" satırları.
+  //  - UPDATE turu: cerrahi düzenleme; SEARCH ≤12 satır, hedef yol yalnızca
+  //    gerçekten var olan dosyalar.
   const options: PromptOptions = { ...(input.options ?? {}) }
-  if (input.currentFiles && input.currentFiles.length > 0) {
+  if (input.expectFile) {
+    options.grammar = buildFileGrammar(input.expectFile)
+  } else if (input.expectPlan) {
+    options.grammar = buildPlanGrammar()
+  } else if (input.currentFiles && input.currentFiles.length > 0) {
     const allPaths = [
       ...input.currentFiles.map((f) => f.path),
       ...(input.otherPaths ?? [])

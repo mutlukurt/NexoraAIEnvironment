@@ -104,7 +104,7 @@ interface AppState {
   loadModelPath: (path: string) => Promise<void>
   unloadModel: () => Promise<void>
   newSession: () => Promise<void>
-  sendMessage: (text: string) => Promise<void>
+  sendMessage: (text: string, opts?: { expectFile?: string }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
   setAutoApply: (v: boolean) => void
@@ -229,6 +229,95 @@ let preTurnPaths: Set<string> = new Set()
 let planTurnActive = false
 let planBypassNext = false
 let lastPlanRequest = ''
+
+// Planlı dosya-dosya üretim (roadmap 2.2): onaylı plan dosya listesine
+// ayrıştırılır ve her dosya taze, kısa bir prompt'la TEK TEK üretilir.
+// Küçük modeller tek dosyada tutarlıdır — bu, o içgörünün çok-dosyalı
+// projeye genellenmesidir. Aktifken her dosya turu otomatik uygulanır
+// (onay planın kendisiyle verildi; undo zaman çizelgesi her zaman açık).
+let plannedBuildActive = false
+let plannedBuildAbort = false
+
+/** Planlı üretimde kabul edilen dosya türleri — yalnızca metin/kod. */
+const PLAN_EXT_RE = /\.(tsx|ts|jsx|js|css|html|json|md|svg)$/i
+
+/**
+ * Plan satırlarından dosya listesi çıkar: "N. yol — açıklama".
+ * Akıl sağlığı filtreleri şart: küçük model plan satırının path'i içinde
+ * spirale girebiliyor ("logo.png/png/jpg/...asset14.png..." vakası) —
+ * uzunluk, klasör derinliği ve uzantı beyaz listesi bozuk satırı eler.
+ */
+function parsePlanFiles(planText: string): Array<{ path: string; desc: string }> {
+  const out: Array<{ path: string; desc: string }> = []
+  const seen = new Set<string>()
+  for (const line of planText.split('\n')) {
+    const m = line.match(/^\s*\d{1,2}[.)]\s*([\w@][\w@./-]*\.[a-z]{1,4})\s*(?:[—–:-]\s*)?(.*)$/i)
+    if (!m) continue
+    const path = m[1].replace(/^\.\//, '')
+    if (path.length > 64) continue
+    if ((path.match(/\//g) ?? []).length > 5) continue
+    if (!PLAN_EXT_RE.test(path)) continue
+    if (seen.has(path)) continue
+    seen.add(path)
+    out.push({ path, desc: (m[2] ?? '').trim() })
+  }
+  return out
+}
+
+/**
+ * Planlı üretimde tek dosyanın turu için prompt. Kısa ve dar kapsamlı:
+ * brief + plan manifesti + (varsa) temel sözleşme dosyalarının tam içeriği.
+ * Önceki dosyaların tamamı motorun sohbet geçmişinde zaten durur; sözleşme
+ * gömme, bağlam sıkıştırmasına karşı sigortadır.
+ */
+function buildPlannedFilePrompt(
+  request: string,
+  files: Array<{ path: string; desc: string }>,
+  idx: number
+): string {
+  const f = files[idx]
+  const store = useArtifactsStore.getState().files
+  let contracts = ''
+  for (const d of files.slice(0, idx)) {
+    if (!/lib\/|data\.|utils\.|types\.|\.css$/i.test(d.path)) continue
+    const c = store[d.path]?.content ?? ''
+    if (c && c.length < 4000) contracts += `\n--- ${d.path} (already generated — import from it, do NOT recreate) ---\n${c}\n`
+  }
+  const manifest = files
+    .map((x, n) => `${n + 1}. ${x.path}${x.desc ? ' — ' + x.desc : ''}${n < idx ? ' [DONE]' : n === idx ? '  ← WRITE THIS NOW' : ''}`)
+    .join('\n')
+  return `=== PLANNED BUILD — FILE ${idx + 1}/${files.length} ===
+Project brief: ${request}
+
+File plan:
+${manifest}
+${contracts}
+Write ONLY the COMPLETE content of: ${f.path}${f.desc ? ' — ' + f.desc : ''}
+
+Rules:
+- Output EXACTLY ONE fenced code block for ${f.path}. Nothing before or after it.
+- The file must be COMPLETE — never truncate.
+- Allowed imports: react, lucide-react, and ONLY the planned project files above (relative paths). Nothing else.
+- Everything you reference must be imported from a planned file or defined in this file.
+- Modern, premium Tailwind design; visible text in the user's language.`
+}
+
+/**
+ * Üretim sırası deterministik: önce veri/stil temelleri (lib, css), sonra
+ * ui parçaları, sonra bölümler, EN SON kompozisyon (App/entry) — böylece
+ * her dosya, bağımlı olduğu sözleşmeler üretildikten sonra yazılır.
+ */
+function orderPlanFiles(files: Array<{ path: string; desc: string }>): Array<{ path: string; desc: string }> {
+  const score = (p: string): number => {
+    if (/^(src\/)?(app|main)\.(tsx|jsx)$/i.test(p) || /^index\.html$/i.test(p)) return 5
+    if (/\.(css)$/i.test(p)) return 0
+    if (/lib\/|data\.|utils\.|types\./i.test(p)) return 1
+    if (/components\/ui\//i.test(p)) return 2
+    if (/components\//i.test(p)) return 3
+    return 4
+  }
+  return files.map((f, i) => ({ f, i })).sort((a, b) => score(a.f.path) - score(b.f.path) || a.i - b.i).map((x) => x.f)
+}
 
 // Prompt güçlendirme: teknik olmayan tarif önce profesyonel briefe çevrilir,
 // ardından (Önce Plan açıksa) plan turu o briefle koşar.
@@ -415,7 +504,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       }
 
       let outcome: ApplyOutcome = { fileCount: 0, edits: [], written: [] }
-      if (get().autoApply && full) {
+      // Planlı üretimde her dosya turu otomatik uygulanır: onay planın
+      // kendisiyle verildi, dosya başına ayrıca sorulmaz (undo hep açık).
+      if ((get().autoApply || plannedBuildActive) && full) {
         outcome = applyStreamingContent(full, true)
       }
       const count = outcome.fileCount
@@ -924,15 +1015,80 @@ export const useAppStore = create<AppState>((set, get) => ({
     const p = get().planPending
     if (!p || get().sending) return
     set({ planPending: null })
-    planBypassNext = true
-    await get().sendMessage(
-      `İstek: ${p.request}
+
+    // Roadmap 2.2: plan yapılandırılmış dosya listesi verdiyse dosya-dosya
+    // üretim. Küçük modeller tek dosyada tutarlıdır; her dosya taze ve dar
+    // kapsamlı bir turda, kendi yoluna GBNF ile kilitlenmiş olarak üretilir.
+    // Önceki dosyalar motorun geçmişinde durur (prompt cache — ucuz) ve
+    // temel sözleşmeler (lib/css) her prompt'a ayrıca gömülür.
+    const files = orderPlanFiles(parsePlanFiles(p.planText))
+    if (files.length < 2) {
+      // Liste çıkarılamadı (worker motoru / eski format): eski tek-atış akış.
+      planBypassNext = true
+      await get().sendMessage(
+        `İstek: ${p.request}
 
 Onaylanan plan:
 ${p.planText}
 
 Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
-    )
+      )
+      return
+    }
+
+    plannedBuildActive = true
+    plannedBuildAbort = false
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: `📋 Plan onaylandı — ${files.length} dosya sırayla, tek tek üretilecek:\n${files
+            .map((f, i) => `${i + 1}. ${f.path}`)
+            .join('\n')}`
+        }
+      ]
+    }))
+
+    let built = 0
+    const failedPaths: string[] = []
+    try {
+      for (let i = 0; i < files.length; i++) {
+        if (plannedBuildAbort) break
+        const f = files[i]
+        const filePrompt = buildPlannedFilePrompt(p.request, files, i)
+        await get().sendMessage(filePrompt, { expectFile: f.path })
+        // Dosya-bazlı retry: tur bu dosyayı üretmediyse bir kez daha dene.
+        let art = useArtifactsStore.getState().files[f.path]
+        if ((!art || art.content.trim().length < 30) && !plannedBuildAbort) {
+          await get().sendMessage(
+            filePrompt + '\n\n(The previous turn did not produce this file — write it COMPLETELY now.)',
+            { expectFile: f.path }
+          )
+          art = useArtifactsStore.getState().files[f.path]
+        }
+        if (art && art.content.trim().length >= 30) built++
+        else failedPaths.push(f.path)
+      }
+    } finally {
+      plannedBuildActive = false
+    }
+
+    const head = plannedBuildAbort ? '⏹ Planlı üretim durduruldu' : '✅ Planlı üretim tamamlandı'
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: `${head}: ${built}/${files.length} dosya üretildi${
+            failedPaths.length > 0 ? ` (üretilemeyen: ${failedPaths.join(', ')})` : ''
+          }. Çalıştır ile canlı görebilirsin; küçük düzeltmeleri sohbetten isteyebilirsin.`
+        }
+      ]
+    }))
+    scheduleSessionSave()
   },
 
   cancelPlan: () => set({ planPending: null }),
@@ -946,7 +1102,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     set({ enhancePrompts: v })
   },
 
-  sendMessage: async (text: string) => {
+  sendMessage: async (text: string, opts?: { expectFile?: string }) => {
     const trimmed = text.trim()
     if (!trimmed || get().sending) return
     if (!get().modelInfo) {
@@ -1039,7 +1195,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     useArtifactsStore.getState().snapshot()
 
     // Görsel akışında kullanıcı mesajı (🖼 adıyla) yukarıda zaten eklendi.
-    const userMsg: ChatMessage | null = visionAnalysis
+    // Planlı dosya turlarının teknik prompt'u sohbeti kirletmesin: kullanıcı
+    // balonu gösterilmez (görsel-analiz akışıyla aynı yaklaşım).
+    const userMsg: ChatMessage | null = visionAnalysis || opts?.expectFile
       ? null
       : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
@@ -1064,11 +1222,13 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !planBypassNext &&
       !visionAnalysis &&
       !fixFlow &&
+      !opts?.expectFile &&
       allFiles.length === 0
     enhanceBypassNext = false
     // Plan modu: "Önce Plan" açıkken normal istekler önce plana çevrilir.
     // Görsel akışı, düzelt akışı ve plan onayı (bypass) doğrudan koda gider.
-    const isPlanTurn = get().planFirst && !planBypassNext && !visionAnalysis && !fixFlow && !isEnhanceTurn
+    const isPlanTurn =
+      get().planFirst && !planBypassNext && !visionAnalysis && !fixFlow && !isEnhanceTurn && !opts?.expectFile
     planBypassNext = false
 
     // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
@@ -1076,7 +1236,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // içerik gitmez — plan için dosya LİSTESİ yeter, bağlam ucuz kalır.
     let currentFiles: Array<{ path: string; content: string }> = []
     let excludedPaths: string[] = []
-    if (!isPlanTurn) {
+    // Planlı dosya turunda bağlam gönderilmez: gerekli sözleşmeler prompt'un
+    // içinde, önceki dosyalar motorun sohbet geçmişinde (prompt cache ucuz).
+    if (!isPlanTurn && !opts?.expectFile) {
       const selection = selectContextFiles(trimmed, allFiles)
       currentFiles = selection.included.map((f) => ({ path: f.path, content: f.content }))
       excludedPaths = selection.excludedPaths
@@ -1095,7 +1257,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Bekçi bağlamı: bu tur bir iterasyon mu, hangi dosyalar zaten vardı?
     // preTurnPaths TÜM proje dosyalarını kapsar — bağlama girmeyen bir
     // dosyanın körlemesine baştan yazılması da yasaktır.
-    updateTurn = !isPlanTurn && allFiles.length > 0
+    updateTurn = !isPlanTurn && !opts?.expectFile && allFiles.length > 0
     preTurnPaths = new Set(allFiles.map((f) => f.path))
 
     // "Düzelt" akışı: Çalıştır denetimi bir derleme hatası yakaladıysa ve
@@ -1129,8 +1291,12 @@ ${buildErr}
       const pathList = allFiles.map((f) => f.path).join(', ')
       outgoing = `=== PLAN MODE ===
 Do NOT write any code, files or edit blocks in this turn.
-Write a SHORT implementation plan for the request below: a numbered list (max 12 items) of sections/files/steps — one line each. No code fences, no prose paragraphs.
-LANGUAGE OF YOUR ANSWER: ${answerLang}.
+Write the FILE PLAN for the request below: a numbered list (2-12 lines), EACH line EXACTLY in this format:
+N. <file path> — <one-line description>
+Example:
+1. src/lib/data.ts — typed content model: menu items, reviews, site copy
+2. src/components/Hero.tsx — hero section with headline and CTA
+Rules: real file paths with extensions; foundations first (css, lib/data), components in the middle, the entry file (src/App.tsx) LAST. Descriptions in ${answerLang}. Nothing else — no headings, no prose.
 ${pathList ? 'Existing project files: ' + pathList + '\n' : ''}User request: ${trimmed}`
     }
 
@@ -1162,12 +1328,15 @@ ${rules.slice(0, 1500)}
     // Faza göre örnekleme (roadmap 1.3): plan ve brief yazımı yaratıcılık
     // ister (0.7), kod üretimi determinizm (0.2), hata düzeltme en düşüğünü
     // (0.1 — cerrah eli titremez). Tek sıcaklık her faza aynı anda uymaz.
-    const sampling =
+    const sampling: { temperature: number; topP?: number; maxTokens?: number } =
       isPlanTurn || isEnhanceTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
           ? { temperature: 0.1 }
           : { temperature: 0.2 }
+    // Planlı dosya turu: tek dosya ~4k tokene sığmalı; sınır, kapanmayan
+    // fence içinde sonsuza dek gezinen üretime karşı güvenlik tavanı.
+    if (opts?.expectFile) sampling.maxTokens = 4096
 
     lastOutgoingPrompt = outgoing
     try {
@@ -1175,6 +1344,8 @@ ${rules.slice(0, 1500)}
         prompt: outgoing,
         currentFiles: currentFiles.length > 0 ? currentFiles : undefined,
         otherPaths: excludedPaths.length > 0 ? excludedPaths : undefined,
+        expectFile: opts?.expectFile,
+        expectPlan: isPlanTurn || undefined,
         options: sampling
       })
       if (!res.ok) {
@@ -1202,6 +1373,7 @@ ${rules.slice(0, 1500)}
   },
 
   abort: async () => {
+    plannedBuildAbort = true
     await window.nexora.chat.abort()
     cancelScheduledApply()
     set((s) => ({

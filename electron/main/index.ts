@@ -367,6 +367,37 @@ void app.whenReady().then(async () => {
       const t2 = Date.now()
       const full2 = await chat({ prompt: 'What is my favorite fruit? One word.', options: { maxTokens: 8, temperature: 0 } }, (t) => process.stdout.write(t))
       console.log(`\n[selftest] turn2 answer="${full2.trim()}" (${Date.now() - t2}ms)`)
+      // Planlı dosya-dosya üretim hattı (roadmap 2.2): plan grameri →
+      // liste ayrıştırma → her dosya kendi yoluna kilitli gramerle.
+      if (process.env['NEXORA_SELFTEST_PLANBUILD'] === '1') {
+        const tp = Date.now()
+        const planOut = await chat(
+          {
+            prompt:
+              '=== PLAN MODE ===\nDo NOT write any code. Write the FILE PLAN for the request below: a numbered list (2-12 lines), EACH line EXACTLY: N. <file path> — <one-line description>. Foundations first, entry file LAST.\nUser request: Bana modern bir kafe web sitesi yap (menü, hakkında, iletişim).',
+            expectPlan: true,
+            options: { maxTokens: 300, temperature: 0.7, topP: 0.95 }
+          },
+          () => {}
+        )
+        const planned = [...planOut.matchAll(/^\s*\d{1,2}[.)]\s*([\w@][\w@./-]*\.[a-z]{1,4})\s*(?:[—–:-]\s*)?(.*)$/gim)].map(
+          (m) => ({ path: m[1], desc: (m[2] ?? '').trim() })
+        )
+        console.log(`[selftest] plan: ${planned.length} dosya (${Date.now() - tp}ms):`, planned.map((p) => p.path).join(', '))
+        for (const f of planned.slice(0, 2)) {
+          const tf = Date.now()
+          const out = await chat(
+            {
+              prompt: `=== PLANNED BUILD ===\nProject brief: modern kafe sitesi.\nFile plan: ${planned.map((p) => p.path).join(', ')}\nWrite ONLY the COMPLETE content of: ${f.path}${f.desc ? ' — ' + f.desc : ''}\nOutput EXACTLY ONE fenced code block for ${f.path}.`,
+              expectFile: f.path,
+              options: { maxTokens: 3000, temperature: 0.2 }
+            },
+            () => {}
+          )
+          const fenceOk = new RegExp('^```[a-z]+ ' + f.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n[\\s\\S]+```\\s*$').test(out.trim())
+          console.log(`[selftest] file ${f.path}: singleBlock=${fenceOk} len=${out.length} (${Date.now() - tf}ms)`)
+        }
+      }
       // UPDATE turu: gramerli cerrahi düzenleme hattı (roadmap 2.1)
       if (process.env['NEXORA_SELFTEST_UPDATE'] === '1') {
         const demo = `export default function App() {\n  return (\n    <div>\n      <h1>Fırın Luna</h1>\n      <p>Taze ekmek</p>\n    </div>\n  )\n}\n`
