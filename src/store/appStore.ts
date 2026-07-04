@@ -14,6 +14,7 @@ import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifact
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
 import { selectContextFiles } from '@/lib/contextSelect'
+import { findSectionTemplate } from '@/lib/sectionTemplates'
 import { fixBrokenAssetRefs } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
@@ -392,12 +393,26 @@ function buildPlannedFilePrompt(
   const manifest = files
     .map((x, n) => `${n + 1}. ${x.path}${x.desc ? ' — ' + x.desc : ''}${n < idx ? ' [DONE]' : n === idx ? '  ← WRITE THIS NOW' : ''}`)
     .join('\n')
+  // Bolum sablon bankasi (roadmap 2.4): dosya turu taninirsa kanitlanmis
+  // premium iskelet prompt'a gomulur — kucuk model kural yerine ornege uyar.
+  const tpl = findSectionTemplate(f.path, f.desc)
+  const templateBlock = tpl
+    ? `
+A PROVEN premium skeleton for this section type ("${tpl.id}") is below. USE its structure, spacing and quality bar — but it is a FILL-IN SKELETON:
+- Every {{MARKER}} MUST be replaced with real content for THIS project brief, in the user's language. Your file must contain ZERO {{ }} markers.
+- ADAPT the color palette if the brief asks for a different theme.
+- You may add/remove array items (menu items, FAQ entries…) to fit the brief.
+- Keep it a single default-export component; imports stay react + lucide-react only.
+--- SKELETON ---
+${tpl.code}--- END SKELETON ---
+`
+    : ''
   return `=== PLANNED BUILD — FILE ${idx + 1}/${files.length} ===
 Project brief: ${request}
 
 File plan:
 ${manifest}
-${contracts}
+${contracts}${templateBlock}
 Write ONLY the COMPLETE content of: ${f.path}${f.desc ? ' — ' + f.desc : ''}
 
 Rules:
@@ -1176,12 +1191,16 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
         const filePrompt = buildPlannedFilePrompt(p.request, files, i)
         await get().sendMessage(filePrompt, { expectFile: f.path })
         // Dosya-bazlı retry: tur bu dosyayı üretmediyse bir kez daha dene.
+        // Dosya uretilmediyse YA DA sablon isaretleyicileri ({{...}}) dolmadan
+        // kaldiysa bir kez daha dene — kucuk model bosluklari doldurmali.
+        const incomplete = (a?: { content: string }) =>
+          !a || a.content.trim().length < 30 || /\{\{[A-Z0-9_]+\}\}/.test(a.content)
         let art = useArtifactsStore.getState().files[f.path]
-        if ((!art || art.content.trim().length < 30) && !plannedBuildAbort) {
-          await get().sendMessage(
-            filePrompt + '\n\n(The previous turn did not produce this file — write it COMPLETELY now.)',
-            { expectFile: f.path }
-          )
+        if (incomplete(art) && !plannedBuildAbort) {
+          const note = art && /\{\{[A-Z0-9_]+\}\}/.test(art.content)
+            ? '\n\n(Your previous output still contains unfilled {{MARKER}} placeholders — rewrite the file with EVERY marker replaced by real content for the brief.)'
+            : '\n\n(The previous turn did not produce this file — write it COMPLETELY now.)'
+          await get().sendMessage(filePrompt + note, { expectFile: f.path })
           art = useArtifactsStore.getState().files[f.path]
         }
         if (art && art.content.trim().length >= 30) built++
