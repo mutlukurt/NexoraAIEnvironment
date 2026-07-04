@@ -16,7 +16,7 @@ import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch
 import { selectContextFiles } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS } from '@/lib/sectionPlan'
-import { fixBrokenAssetRefs, stripStrayDirectiveLines } from '@/lib/assetFix'
+import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
@@ -725,7 +725,12 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           if (stripped.removed > 0) {
             useArtifactsStore.getState().updateFile(p, stripped.content)
           }
-          const r = fixBrokenAssetRefs(stripped.content, existingPaths, fetchTargets)
+          // Eksik React hook importlari (runtime beyaz-sayfa sinifi)
+          const hooked = injectMissingReactHooks(p, stripped.content)
+          if (hooked.injected.length > 0) {
+            useArtifactsStore.getState().updateFile(p, hooked.content)
+          }
+          const r = fixBrokenAssetRefs(hooked.content, existingPaths, fetchTargets)
           if (r.fixed > 0) {
             useArtifactsStore.getState().updateFile(p, r.content)
             fixedTotal += r.fixed

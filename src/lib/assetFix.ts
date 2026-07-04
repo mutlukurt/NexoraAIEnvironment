@@ -70,3 +70,33 @@ export function stripStrayDirectiveLines(path: string, content: string): { conte
   const kept = lines.filter((l) => !STRAY_DIRECTIVE_RE.test(l))
   return { content: kept.join('\n'), removed: lines.length - kept.length }
 }
+
+/**
+ * Kullanilan ama import edilmemis React hook'larini enjekte et (canli-test
+ * bulgusu: model, sablondaki "import { useState }" satirini dolgu sirasinda
+ * dusurdu; esbuild derlerken yakalamaz, sayfa calisma zamaninda beyaza
+ * duser — iki dogrulama katmanini da atlatan tek sinif buydu).
+ */
+const REACT_HOOKS = ['useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useContext', 'useReducer'] as const
+
+export function injectMissingReactHooks(path: string, content: string): { content: string; injected: string[] } {
+  if (!/\.(tsx|jsx)$/i.test(path)) return { content, injected: [] }
+  const used = REACT_HOOKS.filter((h) => new RegExp('\\b' + h + '\\s*\\(').test(content))
+  if (used.length === 0) return { content, injected: [] }
+  // Zaten import edilmis olanlari ele (named import ya da React.useX kullanimi)
+  const missing = used.filter(
+    (h) => !new RegExp("import\\s*\\{[^}]*\\b" + h + "\\b[^}]*\\}\\s*from\\s*['\"]react['\"]").test(content) &&
+           !new RegExp('React\\.' + h + '\\b').test(content.split(h + '(')[0] ?? '')
+  )
+  if (missing.length === 0) return { content, injected: [] }
+  const namedReact = content.match(/import\s*\{([^}]*)\}\s*from\s*['\"]react['\"]/)
+  let out: string
+  if (namedReact) {
+    const names = namedReact[1].split(',').map((x) => x.trim()).filter(Boolean)
+    for (const h of missing) if (!names.includes(h)) names.push(h)
+    out = content.replace(namedReact[0], `import { ${names.join(', ')} } from 'react'`)
+  } else {
+    out = `import { ${missing.join(', ')} } from 'react'\n` + content
+  }
+  return { content: out, injected: missing }
+}
