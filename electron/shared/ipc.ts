@@ -23,6 +23,11 @@ export interface ModelLoadedInfo {
   totalLayers: number
 }
 
+export interface AgentRuntimeErrorEvent {
+  message: string
+  stack: string
+}
+
 export interface ChatStreamChunk {
   token: string
   done: false
@@ -79,6 +84,7 @@ export const IPC = {
   AGENT_DEV_STOP: 'agent:dev-stop',
   AGENT_DEV_STATUS: 'agent:dev-status',
   AGENT_BUILD_ERROR: 'agent:build-error',
+  AGENT_RUNTIME_ERROR: 'agent:runtime-error',
   AGENT_BUILD_CHECK: 'agent:build-check',
   VISION_PICK_IMAGE: 'vision:pick-image',
   VISION_ANALYZE: 'vision:analyze',

@@ -352,6 +352,65 @@ async function postGenVerify(
   }
 }
 
+// Calisma zamani (runtime) hatalari — roadmap 3.2. Sayfadaki kanca yakalar,
+// toplayici iletir; burada OTOMATIK duzeltme baslar: kimse "duzelt" yazmaz.
+// Imza basina en cok 2 deneme (sayfa her yenilemede ayni hatayi raporlayabilir).
+let runtimeErrorUnsub: (() => void) | null = null
+const runtimeFixCounts = new Map<string, number>()
+
+function ensureRuntimeErrorSub(
+  get: () => AppState,
+  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
+): void {
+  if (runtimeErrorUnsub || !window.nexora?.agent?.onRuntimeError) return
+  runtimeErrorUnsub = window.nexora.agent.onRuntimeError((e: { message: string; stack: string }) => {
+    const sig = e.message.slice(0, 120)
+    const n = runtimeFixCounts.get(sig) ?? 0
+    // Mesgulken ya da proje yokken karisma; sayfa hatayi yeniden raporlar.
+    if (get().sending || get().generating) return
+    if (Object.keys(useArtifactsStore.getState().files).length === 0) return
+    if (!get().modelInfo) return
+    if (n >= 2) {
+      if (n === 2) {
+        runtimeFixCounts.set(sig, n + 1)
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: `⚠️ Canlı sayfadaki hata otomatik denemelere rağmen sürüyor:\n${sig}\nChat'ten tarif ederek yardımcı olabilirsiniz.`
+            }
+          ]
+        }))
+      }
+      return
+    }
+    runtimeFixCounts.set(sig, n + 1)
+    // Stack'teki vite URL'lerini proje-görece yola çevir (akıllı bağlam seçsin)
+    const cleanStack = e.stack.replace(/https?:\/\/localhost:\d+\//g, '').split('\n').slice(0, 6).join('\n')
+    const diagnosis = `RUNTIME ERROR — captured live from the running page (the project COMPILES but crashes in the browser):
+${e.message}
+${cleanStack}
+HINT: "X is not defined" usually means a missing import in the file shown in the stack. Fix the ROOT CAUSE in that file with a SMALL edit block.`
+    set((s) => ({
+      lastBuildError: diagnosis,
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: `🌐 Canlı sayfada hata yakalandı — otomatik düzeltiliyor (${n + 1}/2)…\n${sig}`
+        }
+      ]
+    }))
+    void get().sendMessage(
+      'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda. Stack\'teki dosyada kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.',
+      { hideUser: true }
+    )
+  })
+}
+
 /** "Çalıştır" derleme denetimi hata yakalarsa chat'e bildirim düşür. */
 function ensureBuildErrorSub(set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void): void {
   if (buildErrorUnsub || !window.nexora?.agent?.onBuildError) return
@@ -1096,6 +1155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ modelInfo: res.info, modelLoading: false, modelLoadProgress: null })
         ensureStream(get, set)
         ensureBuildErrorSub(set)
+        ensureRuntimeErrorSub(get, set)
         const modeText =
           res.info.gpuLayers > 0
             ? `GPU modunda (${res.info.gpuLayers}/${res.info.totalLayers} katman ekran kartında)`

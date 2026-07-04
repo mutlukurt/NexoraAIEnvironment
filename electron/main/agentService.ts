@@ -421,6 +421,67 @@ export default defineConfig({
 // Çalışma alanı senkronizasyonu
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Calisma zamani hata yakalama (roadmap 3.2): sayfaya gomulen minik kanca,
+// window.onerror / unhandledrejection'i yerel toplayiciya POST eder. Uygulama
+// derleme hatalarina ek olarak TARAYICIDA patlayan hatalari da gorur ve
+// otomatik duzeltme baslatabilir — insan mudahalesi gerekmez.
+// Kanca yalnizca DISKteki index.html'e sync sirasinda eklenir; kullanicinin
+// kod gorunumune (artifacts) hic girmez.
+// ---------------------------------------------------------------------------
+
+export const RUNTIME_ERROR_PORT = 8095
+
+const RUNTIME_HOOK = `<script>/* nexora-runtime */(function(){var s=new Set();function r(m,st){var k=String(m).slice(0,120);if(s.has(k))return;s.add(k);try{fetch('http://127.0.0.1:${'${RUNTIME_ERROR_PORT}'}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||'')})})}catch(e){}}window.addEventListener('error',function(e){r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')))});window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'')});})();</script>`
+
+function injectRuntimeHook(html: string): string {
+  if (html.includes('nexora-runtime')) return html
+  if (html.includes('</head>')) return html.replace('</head>', RUNTIME_HOOK + '\n</head>')
+  if (html.includes('<body')) return html.replace(/<body([^>]*)>/, '<body$1>' + RUNTIME_HOOK)
+  return RUNTIME_HOOK + '\n' + html
+}
+
+let runtimeSrv: import('http').Server | null = null
+let runtimeErrorCb: ((e: { message: string; stack: string }) => void) | null = null
+
+export function setRuntimeErrorCallback(cb: (e: { message: string; stack: string }) => void): void {
+  runtimeErrorCb = cb
+}
+
+export function startRuntimeCollector(): void {
+  if (runtimeSrv) return
+  void import('http').then((http) => {
+    if (runtimeSrv) return
+    const srv = http.createServer((req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Headers', '*')
+      if (req.method === 'POST') {
+        let b = ''
+        req.on('data', (c) => { b += c; if (b.length > 20000) req.destroy() })
+        req.on('end', () => {
+          try {
+            const j = JSON.parse(b) as { message?: unknown; stack?: unknown }
+            if (j && typeof j.message === 'string') {
+              runtimeErrorCb?.({ message: j.message.slice(0, 500), stack: String(j.stack ?? '').slice(0, 1500) })
+            }
+          } catch { /* bozuk govde — yok say */ }
+          res.end('ok')
+        })
+      } else {
+        res.end('ok')
+      }
+    })
+    srv.on('error', (err) => { console.warn('[agentService] runtime toplayici baslatilamadi:', (err as Error).message); runtimeSrv = null })
+    srv.listen(RUNTIME_ERROR_PORT, '127.0.0.1')
+    runtimeSrv = srv
+  })
+}
+
+export function stopRuntimeCollector(): void {
+  try { runtimeSrv?.close() } catch { /* ignore */ }
+  runtimeSrv = null
+}
+
 export async function syncWorkspace(projectName: string, files: ProjectFileInput[]): Promise<string> {
   const dir = workspaceDir(projectName)
   await mkdir(dir, { recursive: true })
@@ -428,7 +489,8 @@ export async function syncWorkspace(projectName: string, files: ProjectFileInput
   for (const f of scaffolded) {
     const full = safeJoin(dir, f.path)
     await mkdir(dirname(full), { recursive: true })
-    await writeFile(full, f.content, 'utf8')
+    const content = /(^|\/)index\.html$/.test(f.path) ? injectRuntimeHook(f.content) : f.content
+    await writeFile(full, content, 'utf8')
   }
   return dir
 }

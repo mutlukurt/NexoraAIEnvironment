@@ -100,6 +100,7 @@ export interface NexoraApi {
     buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string; skipped?: boolean }>
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
     onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
+    onRuntimeError: (cb: (event: { message: string; stack: string }) => void) => () => void
   }
   vision: {
     pickImage: () => Promise<{ path: string } | null>
@@ -184,6 +185,11 @@ const api: NexoraApi = {
       const handler = (_e: unknown, data: AgentBuildErrorEvent) => cb(data)
       ipcRenderer.on(IPC.AGENT_BUILD_ERROR, handler as never)
       return () => ipcRenderer.off(IPC.AGENT_BUILD_ERROR, handler as never)
+    },
+    onRuntimeError: (cb) => {
+      const handler = (_e: unknown, data: { message: string; stack: string }) => cb(data)
+      ipcRenderer.on(IPC.AGENT_RUNTIME_ERROR, handler as never)
+      return () => ipcRenderer.off(IPC.AGENT_RUNTIME_ERROR, handler as never)
     }
   },
   vision: {

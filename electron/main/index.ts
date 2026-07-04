@@ -26,7 +26,9 @@ import {
   stopDev,
   getDevUrl,
   exportProject,
-  buildCheck
+  buildCheck,
+  startRuntimeCollector,
+  setRuntimeErrorCallback
 } from './agentService'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware } from './advisorService'
@@ -259,6 +261,13 @@ function registerIpc(): void {
     await syncWorkspace(input.projectName, input.files)
     return addGoogleFont(input.projectName, input.family, input.baseDir)
   })
+
+  // Calisma zamani hata toplayicisi (roadmap 3.2): sayfadaki kanca buraya
+  // POST eder; olay renderer'a gecirilir ve otomatik duzeltme baslar.
+  setRuntimeErrorCallback((e) => {
+    mainWindow?.webContents.send(IPC.AGENT_RUNTIME_ERROR, e)
+  })
+  startRuntimeCollector()
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
     const res = await startDev(input.projectName, input.files, (msg) => {
