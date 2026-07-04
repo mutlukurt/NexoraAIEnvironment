@@ -1442,6 +1442,22 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     const allFiles = Object.values(useArtifactsStore.getState().files)
     const buildErr = get().lastBuildError
     const fixFlow = !!buildErr && FIX_WORDS.test(trimmed)
+    // Ciplak duzelt-kelimesi ama ortada ne hata ne dosya var: insaya donusmesin
+    // (canli test: bos oturuma "duzelt" yazilinca plan cikarip proje kurdu).
+    if (!fixFlow && FIX_WORDS.test(trimmed) && trimmed.length <= 24 && allFiles.length === 0) {
+      set((st) => ({
+        messages: [
+          ...st.messages,
+          { id: nanoid(), role: 'user', content: trimmed },
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: 'Düzeltilecek bir derleme hatası ya da proje dosyası görünmüyor. Önce bir proje üretin ya da Çalıştır ile hatayı yakalayalım — sonra "düzelt" yazmanız yeterli.'
+          }
+        ]
+      }))
+      return
+    }
     // Prompt güçlendirme: yeni projede (dosya yokken) gündelik tarif önce
     // profesyonel briefe çevrilir; brief otomatik yeniden gönderilir ve o
     // gönderim (bypass) normal akışa — Önce Plan açıksa plana — girer.
@@ -1534,6 +1550,15 @@ ${pathList ? 'Existing project files: ' + pathList + '\n' : ''}User request: ${t
       updateTurn = false
       outgoing = `=== PROMPT IMPROVEMENT MODE ===
 Do NOT build anything in this turn. The user is not technical — rewrite their casual description below as ONE professional, specific website brief: page sections in order, per-section layout, color palette (hex), typography, key interactions. Short bullet lines. No code, no questions, no options.
+HARD GROUNDING RULES:
+- Stay STRICTLY on the user's business/topic. Every section, service, FAQ item and review MUST be plausible for THIS exact business — inventing unrelated topics (exams, industrial safety, "rich customers") is FORBIDDEN.
+- If the user asked for a theme or colors (e.g. dark theme), the palette MUST follow it (dark theme = dark background hexes).
+- Concrete realistic values only — NEVER placeholders like "X TL" or generic letters. Invent plausible names and prices.
+- Compact: at most 15 bullet lines total.
+EXAMPLE (user said: "çiçekçim için basit bir site, buketler falan"):
+- Bölümler: Hero (sezon kampanyası sloganı + CTA), Buketler (6 ürün: "Kızıl Bahar" ₺450, "Beyaz Zarafet" ₺520…), Hakkımızda (aile hikâyesi), Teslimat SSS (3 soru), İletişim
+- Palet: yeşil #14532d, krem #fef9ef, toprak #a16207
+- Ton: sıcak, doğal; başlıklar bold, gövde 16px
 LANGUAGE OF YOUR ANSWER: ${answerLang}.
 Output ONLY the improved brief text.
 User description: ${trimmed}`
@@ -1558,7 +1583,9 @@ ${rules.slice(0, 1500)}
     // ister (0.7), kod üretimi determinizm (0.2), hata düzeltme en düşüğünü
     // (0.1 — cerrah eli titremez). Tek sıcaklık her faza aynı anda uymaz.
     const sampling: { temperature: number; topP?: number; maxTokens?: number } =
-      isPlanTurn || isEnhanceTurn
+      isEnhanceTurn
+        ? { temperature: 0.6, topP: 0.95 }
+        : isPlanTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
           ? { temperature: 0.1 }
