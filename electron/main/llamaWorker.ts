@@ -370,15 +370,36 @@ async function handleLoad(req: LoadRequest): Promise<void> {
 async function handlePrompt(req: PromptRequest): Promise<void> {
   if (!session) throw new Error('Model yüklenmemiş. Önce bir GGUF seç.')
 
-  // Bağlam sıkıştırma: pencere %75'i geçtiyse oturumu tazele. Sohbet geçmişi
-  // atılır ama proje dosyaları her UPDATE turunda yeniden gönderildiği için
-  // bilgi kaybı pratikte küçüktür; taşma sessiz kalite kaybından iyidir.
+  // Bağlam sıkıştırma: pencere %75'i geçtiyse oturumu tazele. Proje dosyaları
+  // her UPDATE turunda yeniden gönderilir; sohbet geçmişi ise atılmadan önce
+  // modele ÖZETLETİLİR ve özet yeni oturumun notuna gömülür — "kullanıcı neyi
+  // kabul etti / neleri reddetti" bilgisi sıfırlamadan sağ çıkar.
   let promptText = req.text
   try {
     const used =
       (session as unknown as { sequence?: { nextTokenIndex?: number } }).sequence?.nextTokenIndex ?? 0
     if (used > activeContextSize * 0.75) {
       console.log(`[llamaWorker] bağlam doldu (${used}/${activeContextSize}) — oturum tazeleniyor (sıkıştırma)`)
+      // Özet için pencerede yer kalmış olmalı: istem + ~250 token yanıt.
+      // (onTextChunk verilmez — özet üretimi kullanıcı arayüzüne akmaz.)
+      let summary = ''
+      if (used < activeContextSize - 600) {
+        try {
+          summary = await session.prompt(
+            'Context is nearly full. For your own memory, summarize this conversation in 3-5 short sentences: what project is being built, key design decisions, and what the user accepted, rejected or asked to change. Write in the language the user has been writing. Output ONLY the summary.',
+            {
+              maxTokens: 250,
+              temperature: 0.2,
+              tokenBias: CJK_RE.test(req.text) ? undefined : (cjkBias ?? undefined)
+            }
+          )
+          summary = summary.trim().slice(0, 1200)
+          if (summary) console.log('[llamaWorker] sıkıştırma özeti alındı (' + summary.length + ' karakter)')
+        } catch (err) {
+          console.warn('[llamaWorker] sıkıştırma özeti alınamadı:', (err as Error).message)
+          summary = ''
+        }
+      }
       try {
         session.dispose()
       } catch {
@@ -391,7 +412,9 @@ async function handlePrompt(req: PromptRequest): Promise<void> {
       }
       await buildSession(lastSystemPrompt)
       promptText =
-        '[NOTE: earlier conversation was compacted due to context limits; the current project files in this message are the source of truth.]\n\n' +
+        '[NOTE: earlier conversation was compacted due to context limits; the current project files in this message are the source of truth.' +
+        (summary ? ` Summary of the earlier conversation:\n${summary}` : '') +
+        ']\n\n' +
         req.text
     }
   } catch {
