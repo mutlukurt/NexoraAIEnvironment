@@ -10,7 +10,7 @@ The plan for going from **1 to 10**: first make the engine faster on the same ha
 
 Speed and context wins that benefit every user, on the exact same models.
 
-- [ ] **1.1 Flash attention + KV cache quantization** — enable `flashAttention` and a quantized KV cache in the inference worker; roughly doubles the usable context window in the same RAM. Cheapest win first.
+- [x] **1.1 Flash attention + KV cache quantization** — enable `flashAttention` and a quantized KV cache in the inference worker; roughly doubles the usable context window in the same RAM. Cheapest win first. *Shipped: the worker now tries flash attention + Q8_0 KV first (context tiers doubled) and falls back to the old F16 path per size on unsupported models/hardware. Verified live: a Qwen2.5-Coder-3B that previously got a 16k window now loads with its full 32k train context on the same 16 GB laptop.*
 - [ ] **1.2 Partial GPU offload** — a GPU-layer slider plus VRAM-aware auto-recommendation in the Hardware Advisor. Small VRAM cards (e.g. 4 GB RTX 2050) currently fall back to pure CPU; offloading half the layers can nearly double speed.
 - [ ] **1.3 Per-phase sampler presets** — plan/enhance = 0.7 temperature (creativity), code generation = 0.2, "düzelt" fix = 0.05–0.1 (surgeon's hand). Three-line change, measurable quality.
 - [ ] **1.4 Context compaction with summary** — before the 75% reset, have the model write a 3-sentence summary and carry it into the fresh session, so "what the user accepted/rejected" survives compaction.

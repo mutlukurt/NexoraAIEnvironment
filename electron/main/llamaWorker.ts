@@ -133,11 +133,42 @@ async function initLlama(enableGpu: boolean): Promise<void> {
  * Belleğe gerçekten sığan bir bağlam boyutu seç. Varsayılan (train context,
  * Qwen/Gemma'da 32k-131k) KV cache için gigabaytlarca bellek ister ve makine
  * takas alanına düşüp "sonsuza dek yükleniyor" görüntüsü verir.
+ *
+ * Q8_0 KV cache token başına belleği yarıya indirir; o modda kademeler iki
+ * katına çıkar (toplam KV belleği eskiyle aynı kalır, pencere 2× olur).
  */
-function pickContextSize(trainCtx: number): number {
+function pickContextSize(trainCtx: number, quantizedKv: boolean): number {
   const freeGb = freemem() / 1e9
-  const preferred = freeGb >= 10 ? 16384 : freeGb >= 5 ? 8192 : 4096
+  let preferred = freeGb >= 10 ? 16384 : freeGb >= 5 ? 8192 : 4096
+  if (quantizedKv) preferred *= 2
   return Math.min(preferred, trainCtx)
+}
+
+// Q8_0 KV cache node-llama-cpp'de deneysel: desteklenmeyen model/donanımda
+// bağlam kurulumu hata verir. İlk hatada bu süreç için kalıcı kapatılır —
+// düz F16 moda düşülür (bugüne kadarki davranış). Q8_0 daha AZ bellek
+// istediği için "kuantize başarısız ama düz başarılı" durumu bellek değil
+// destek sorunudur; düz modun çalışması yeterlidir.
+let kvQuantUsable = true
+
+async function tryCreateContext(ctxSize: number, quantized: boolean): Promise<LlamaContext | null> {
+  if (!model) return null
+  try {
+    return quantized
+      ? await model.createContext({
+          contextSize: ctxSize,
+          flashAttention: true, // kuantize V cache llama.cpp'de flash attention gerektirir
+          experimentalKvCacheKeyType: 'Q8_0',
+          experimentalKvCacheValueType: 'Q8_0'
+        })
+      : await model.createContext({ contextSize: ctxSize })
+  } catch (err) {
+    console.warn(
+      `[llamaWorker] context failed at ${ctxSize} (${quantized ? 'FA+Q8_0 KV' : 'plain'}) ->`,
+      (err as Error).message
+    )
+    return null
+  }
 }
 
 async function buildSession(systemPrompt: string): Promise<void> {
@@ -145,22 +176,31 @@ async function buildSession(systemPrompt: string): Promise<void> {
   const m = await getMod()
 
   const trainCtx = model.trainContextSize ?? 4096
-  let ctxSize = pickContextSize(trainCtx)
+  let ctxSize = pickContextSize(trainCtx, kvQuantUsable)
   context = null
-  let lastErr: Error | null = null
+  let usedQuant = false
   while (ctxSize >= 2048) {
-    try {
-      context = await model.createContext({ contextSize: ctxSize })
-      break
-    } catch (err) {
-      lastErr = err as Error
-      console.warn('[llamaWorker] context failed at', ctxSize, '->', lastErr.message)
-      ctxSize = Math.floor(ctxSize / 2)
+    if (kvQuantUsable) {
+      context = await tryCreateContext(ctxSize, true)
+      if (context) {
+        usedQuant = true
+        break
+      }
     }
+    context = await tryCreateContext(ctxSize, false)
+    if (context) {
+      // Düz mod aynı boyutta tuttuysa sorun destek eksikliğidir, bellek değil.
+      if (kvQuantUsable) kvQuantUsable = false
+      break
+    }
+    ctxSize = Math.floor(ctxSize / 2)
   }
   if (!context) {
-    throw new Error(`Bağlam (context) oluşturulamadı: ${lastErr?.message ?? 'bilinmeyen hata'}`)
+    throw new Error('Bağlam (context) oluşturulamadı: bellek yetersiz olabilir — daha küçük bir model deneyin')
   }
+  console.log(
+    `[llamaWorker] bağlam hazır: ${ctxSize} token (${usedQuant ? 'flash attention + Q8_0 KV cache' : 'F16 KV cache'})`
+  )
   activeContextSize = ctxSize
 
   const sequence: LlamaContextSequence = context.getSequence()
