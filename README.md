@@ -503,15 +503,38 @@ NexoraAIEnvironment/
 | Post-processing | Prettier 3 (standalone, lazy-loaded), deterministic scaffold & asset repair |
 | Generated projects | Vite 5, React 18, TypeScript, Tailwind (scaffolded deterministically) |
 
+## The v0.10 Engine Upgrade — Before / After
+
+One focused day of engineering (2026-07-04), every number measured on the same 16 GB dev laptop. The full story lives in [ROADMAP.md](ROADMAP.md); this is the honest scoreboard:
+
+| | v0.9.15 (before) | v0.10 (after) |
+|---|---|---|
+| **Inference engine** | node-llama-cpp session in the bundled Node worker | llama.cpp's official `llama-server` sidecar — the worker stays as an automatic fallback |
+| **Iteration re-prefill** (7.7k-token project prefix) | ~23.5 s, paid **every turn** | **0.14 s** (prompt cache + `--cache-reuse`, ~170×) |
+| **Context window** (same RAM) | 16k ceiling, 8k typical | **32k** (flash attention + Q8_0 KV cache) |
+| **7B on a 4 GB RTX 2050** | 4.2 tok/s — GPU was all-or-nothing, so it fell back to CPU | **7.2 tok/s (+71%)** with partial offload (16/29 layers), plus full-offload 3B at 37/37 |
+| **Surgical edit format** | prompt rules + a streaming watchdog + corrective retries | **GBNF grammar at the sampler** — a 13-line SEARCH block is not just forbidden, it is *unsamplable*; edit targets are enumerated from the real project paths |
+| **Multi-file projects on small models** | compact single-file strategy only | **plan → file-by-file build**: grammar-clean `N. path — description` plans, deterministic build order (foundations → sections → entry last), each file generated in its own grammar-locked turn |
+| **Design quality floor** | whatever the model improvises | **11 hand-crafted section skeletons** with `{{MARKER}}` fill-ins (hero, pricing, FAQ, menu grid…) — a 3B fills a proven premium structure instead of inventing one |
+| **Broken output reaching the user** | errors surfaced only at Run | **every generation is verified the moment it finishes** — instant Babel syntax check + full vite build when installed, up to 2 silent auto-fix rounds |
+| **Context compaction** | chat history silently dropped at 75% | a model-written summary **survives the reset** |
+| **Sampling** | one temperature for everything | per-phase presets: plan 0.7 · code 0.2 · fix 0.1 |
+
+**Verified live, end to end** — a real Qwen2.5-Coder-**3B** on CPU drove the whole new chain inside the shipping app: casual Turkish request → professional brief (Prompt Güçlendir) → a grammar-perfect 12-file plan → file-by-file build with live per-file cards → build error captured to chat → one-word fix flow. The same run surfaced and fixed two real bugs (a `[PKG]`-written `package.json` without scripts could reach Run unsanitized on interrupted builds; the plan announcement rendered as a file card).
+
+| Grammar-enforced plan | File-by-file build | Resulting workspace |
+|---|---|---|
+| ![v0.10 plan](docs/screenshots/19-v010-grammar-plan.png) | ![v0.10 build](docs/screenshots/20-v010-file-by-file.png) | ![v0.10 workspace](docs/screenshots/21-v010-workspace.png) |
+
 ## Roadmap
 
 Recently shipped (see the [Development Chronicle](#development-chronicle) for the full stories): hardware advisor · plan-first mode · prompt enhancement · smart context + `@` autocomplete · diff approval · permission system · persistent sessions · undo/redo timeline · project rules · custom commands · Prettier & asset repair post-passes · context compaction · dark/light theme system.
 
-Still ahead — the full phased plan now lives in **[ROADMAP.md](ROADMAP.md)**. In one breath:
+The full phased plan lives in **[ROADMAP.md](ROADMAP.md)**. Status in one breath:
 
-1. **Engine** (v0.10.x) — flash attention + KV cache quantization, partial GPU offload with a layer slider, per-phase sampler presets, and migrating inference to `llama-server` for prompt caching and speculative decoding.
-2. **Making small models masters** (v0.11.x) — grammar-enforced edit blocks, plan → file-by-file generation, auto-verify after every generation, a parametric section template bank.
-3. **An agent with eyes** (v0.12.x) — import existing projects, runtime error capture, visual self-review via the vision model, git-based history.
+1. **Engine** — ✅ shipped: flash attention + Q8_0 KV cache, partial GPU offload with a layer ladder + slider, per-phase sampler presets, compaction summaries, and inference migrated to `llama-server` (prompt caching, worker fallback).
+2. **Making small models masters** — ✅ shipped: grammar-enforced edit blocks, plan → file-by-file generation, silent auto-verify after every generation, the section template bank. Remaining: model-family prompt profiles.
+3. **An agent with eyes** — next: import existing projects, runtime error capture, visual self-review via the vision model, git-based history.
 4. **Productization** (v1.0) — hybrid API mode, Windows/macOS packaging, multi-project workspaces, local model benchmarking, stable-diffusion.cpp image generation.
 
 ## License

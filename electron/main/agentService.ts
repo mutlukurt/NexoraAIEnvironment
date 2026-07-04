@@ -248,6 +248,47 @@ export function cn(...inputs: ClassInput[]): string {
     devDeps['autoprefixer'] = '^10.4.19'
   }
 
+  // package.json (model YA DA [PKG] aksiyonu yazmis olabilir) KOSULSUZ
+  // dezenfekte edilir — proje siniflandirilamasa bile. Canli testte yakalandi:
+  // uretimi yarida kesilip entry dosyasi olmayan projede [PKG]'nin yazdigi
+  // script'siz minimal manifest diske ham gitti ve Calistir "Missing
+  // script: dev" ile dustu. Script uclusu proje turune gore secilir.
+  if (has('package.json')) {
+    try {
+      const pj = JSON.parse(map.get('package.json')!.content)
+      // Vite ile cakisan / gereksiz araclar hicbir listede kalamaz
+      const BANNED = ['react-scripts', 'postcss-cli', 'webpack', 'webpack-cli', 'parcel']
+      pj.dependencies = pj.dependencies ?? {}
+      pj.devDependencies = pj.devDependencies ?? {}
+      for (const b of BANNED) {
+        delete pj.dependencies[b]
+        delete pj.devDependencies[b]
+      }
+      // Derleme araclari dependencies'e degil devDependencies'e aittir;
+      // bizim bilinen-iyi surumlerimiz modelinkileri EZER.
+      for (const tool of Object.keys(devDeps)) delete pj.dependencies[tool]
+      pj.devDependencies = { ...pj.devDependencies, ...devDeps }
+      for (const [k, v] of Object.entries(deps)) if (!pj.dependencies[k]) pj.dependencies[k] = v
+      // Calistirma script'leri her zaman zorlanir; react-scripts referansli
+      // artik script'ler atilir.
+      const scripts: Record<string, string> = {}
+      for (const [k, v] of Object.entries((pj.scripts ?? {}) as Record<string, string>)) {
+        if (!/react-scripts/.test(v)) scripts[k] = v
+      }
+      pj.scripts = isNext
+        ? { ...scripts, dev: 'next dev', build: 'next build', start: 'next start' }
+        : { ...scripts, dev: 'vite', build: 'vite build', preview: 'vite preview' }
+      if (!pj.type && !isNext) pj.type = 'module'
+      delete pj.main
+      const rec = map.get('package.json')!
+      rec.content = JSON.stringify(pj, null, 2)
+      const idx = out.findIndex((f) => f.path === 'package.json')
+      if (idx >= 0) out[idx] = rec
+    } catch {
+      /* bozuk package.json'a dokunma */
+    }
+  }
+
   if (isNext) {
     deps['next'] = KNOWN_VERSIONS['next']
     add(
@@ -282,43 +323,6 @@ export function cn(...inputs: ClassInput[]): string {
         2
       )
     )
-    // package.json model tarafından yazıldıysa eksik dep'leri tamamla ve
-    // DEZENFEKTE ET: büyük modeller bile Vite projesine CRA kalıntıları
-    // (react-scripts) veya çakışan sürümler karıştırabiliyor (gerçek 14B
-    // testinde yakalandı: react-scripts@5 + typescript@5 → ERESOLVE).
-    if (has('package.json')) {
-      try {
-        const pj = JSON.parse(map.get('package.json')!.content)
-        // Vite ile çakışan / gereksiz araçlar hiçbir listede kalamaz
-        const BANNED = ['react-scripts', 'postcss-cli', 'webpack', 'webpack-cli', 'parcel']
-        pj.dependencies = pj.dependencies ?? {}
-        pj.devDependencies = pj.devDependencies ?? {}
-        for (const b of BANNED) {
-          delete pj.dependencies[b]
-          delete pj.devDependencies[b]
-        }
-        // Derleme araçları dependencies'e değil devDependencies'e aittir;
-        // bizim bilinen-iyi sürümlerimiz modelinkileri EZER.
-        for (const tool of Object.keys(devDeps)) delete pj.dependencies[tool]
-        pj.devDependencies = { ...pj.devDependencies, ...devDeps }
-        for (const [k, v] of Object.entries(deps)) if (!pj.dependencies[k]) pj.dependencies[k] = v
-        // Çalıştırma script'leri her zaman vite üçlüsü; react-scripts
-        // referanslı artık script'ler atılır.
-        const scripts: Record<string, string> = {}
-        for (const [k, v] of Object.entries((pj.scripts ?? {}) as Record<string, string>)) {
-          if (!/react-scripts/.test(v)) scripts[k] = v
-        }
-        pj.scripts = { ...scripts, dev: 'vite', build: 'vite build', preview: 'vite preview' }
-        if (!pj.type) pj.type = 'module'
-        delete pj.main
-        const rec = map.get('package.json')!
-        rec.content = JSON.stringify(pj, null, 2)
-        const idx = out.findIndex((f) => f.path === 'package.json')
-        if (idx >= 0) out[idx] = rec
-      } catch {
-        /* bozuk package.json'a dokunma */
-      }
-    }
 
     // Tailwind dosyaları main.tsx'ten ÖNCE eklenmeli — aksi halde index.css
     // import'u üretilmez ve stiller dev/export'ta hiç yüklenmez.

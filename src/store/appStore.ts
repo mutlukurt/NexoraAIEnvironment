@@ -1175,8 +1175,11 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
         {
           id: nanoid(),
           role: 'assistant',
+          // Satirlar "N. yol" bicimindeyse parser dosya karti sanip
+          // "olusturuldu" rozetleri ciziyordu (canli testte gorundu) —
+          // madde imi path-parser'i tetiklemez.
           content: `📋 Plan onaylandı — ${files.length} dosya sırayla, tek tek üretilecek:\n${files
-            .map((f, i) => `${i + 1}. ${f.path}`)
+            .map((f, i) => `• ${i + 1}) ${f.path}`)
             .join('\n')}`
         }
       ]
