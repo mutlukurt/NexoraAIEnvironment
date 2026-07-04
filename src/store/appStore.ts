@@ -14,7 +14,8 @@ import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifact
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
 import { selectContextFiles } from '@/lib/contextSelect'
-import { findSectionTemplate } from '@/lib/sectionTemplates'
+import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
+import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS } from '@/lib/sectionPlan'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
@@ -105,7 +106,7 @@ interface AppState {
   loadModelPath: (path: string) => Promise<void>
   unloadModel: () => Promise<void>
   newSession: () => Promise<void>
-  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean }) => Promise<void>
+  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
   setAutoApply: (v: boolean) => void
@@ -450,10 +451,13 @@ function buildPlannedFilePrompt(
     .join('\n')
   // Bolum sablon bankasi (roadmap 2.4): dosya turu taninirsa kanitlanmis
   // premium iskelet prompt'a gomulur — kucuk model kural yerine ornege uyar.
-  const tpl = findSectionTemplate(f.path, f.desc)
+  // Açık şablon etiketi ([şablon: id]) tahmini eşleşmeden ÖNCE gelir —
+  // deterministik plan hangi şablonu istediğini kendisi söyler.
+  const tagged = f.desc.match(/\[şablon:\s*(\w+)\]/i)?.[1]
+  const tpl = (tagged ? SECTION_TEMPLATES.find((t) => t.id === tagged) : null) ?? findSectionTemplate(f.path, f.desc)
   const templateBlock = tpl
     ? `
-A PROVEN premium skeleton for this section type ("${tpl.id}") is below. USE its structure, spacing and quality bar — but it is a FILL-IN SKELETON:
+A PROVEN premium skeleton for this section type ("${tpl.id}") is below. Your file MUST be this exact skeleton — same structure, same classes — with ONLY the {{MARKER}} contents (and array item counts) changed. Do NOT restructure, do NOT add other sections:
 - Every {{MARKER}} MUST be replaced with real content for THIS project brief, in the user's language. Your file must contain ZERO {{ }} markers.
 - ADAPT the color palette if the brief asks for a different theme.
 - You may add/remove array items (menu items, FAQ entries…) to fit the brief.
@@ -1253,6 +1257,21 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       return
     }
 
+    // Otomatik girdiler (App.tsx, index.css) model gormeden KOD tarafindan
+    // yazilir — kompozisyon deterministiktir, monolit-App sinifi olur.
+    const autoFiles = files.filter((f) => /\(otomatik\)/i.test(f.desc))
+    const genFiles = files.filter((f) => !/\(otomatik\)/i.test(f.desc))
+    const componentSections = genFiles
+      .filter((f) => f.path.startsWith('src/components/'))
+      .map((f) => ({ path: f.path, desc: f.desc, templateId: '' }))
+    for (const af of autoFiles) {
+      if (/App\.tsx$/.test(af.path) && componentSections.length > 0) {
+        useArtifactsStore.getState().upsertFile(af.path, composeAppTsx(componentSections), 'typescript')
+      } else if (/index\.css$/.test(af.path)) {
+        useArtifactsStore.getState().upsertFile(af.path, BASE_INDEX_CSS, 'css')
+      }
+    }
+
     plannedBuildActive = true
     plannedBuildAbort = false
     set((s) => ({
@@ -1271,14 +1290,14 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       ]
     }))
 
-    let built = 0
+    let built = autoFiles.length
     const failedPaths: string[] = []
     try {
-      for (let i = 0; i < files.length; i++) {
+      for (let i = 0; i < genFiles.length; i++) {
         if (plannedBuildAbort) break
-        const f = files[i]
-        const filePrompt = buildPlannedFilePrompt(p.request, files, i)
-        await get().sendMessage(filePrompt, { expectFile: f.path })
+        const f = genFiles[i]
+        const filePrompt = buildPlannedFilePrompt(p.request, genFiles, i)
+        await get().sendMessage(filePrompt, { expectFile: f.path, creative: /\[şablon:/.test(f.desc) || !!findSectionTemplate(f.path, f.desc) })
         // Dosya-bazlı retry: tur bu dosyayı üretmediyse bir kez daha dene.
         // Dosya uretilmediyse YA DA sablon isaretleyicileri ({{...}}) dolmadan
         // kaldiysa bir kez daha dene — kucuk model bosluklari doldurmali.
@@ -1306,7 +1325,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
         {
           id: nanoid(),
           role: 'assistant',
-          content: `${head}: ${built}/${files.length} dosya üretildi${
+          content: `${head}: ${built}/${autoFiles.length + genFiles.length} dosya üretildi${
             failedPaths.length > 0 ? ` (üretilemeyen: ${failedPaths.join(', ')})` : ''
           }. Çalıştır ile canlı görebilirsin; küçük düzeltmeleri sohbetten isteyebilirsin.`
         }
@@ -1331,7 +1350,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     set({ enhancePrompts: v })
   },
 
-  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean }) => {
+  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => {
     const trimmed = text.trim()
     if (!trimmed || get().sending) return
     if (!get().modelInfo) {
@@ -1531,6 +1550,24 @@ ${buildErr}
     const answerLang = get().language === 'tr' ? 'TURKISH (yanıtı TÜRKÇE yaz)' : 'English'
 
     if (isPlanTurn) {
+      // Deterministik plan (canli-test dersi): web isteklerinde bolum seti
+      // istekten anahtar kelimeyle cikarilir — model bolum uyduramaz
+      // ("Teknoloji" sayfasi vakasi). Model plani yalnizca yedektir.
+      const derived = deriveSectionPlan(trimmed)
+      if (derived) {
+        const txt = planText(derived)
+        lastPlanRequest = trimmed
+        set((st) => ({
+          sending: false,
+          generating: false,
+          planPending: { planText: txt, request: trimmed },
+          messages: st.messages.map((m) =>
+            m.streaming ? { ...m, content: txt, streaming: false } : m
+          )
+        }))
+        scheduleSessionSave()
+        return
+      }
       planTurnActive = true
       lastPlanRequest = trimmed
       const pathList = allFiles.map((f) => f.path).join(', ')
@@ -1592,7 +1629,12 @@ ${rules.slice(0, 1500)}
           : { temperature: 0.2 }
     // Planlı dosya turu: tek dosya ~4k tokene sığmalı; sınır, kapanmayan
     // fence içinde sonsuza dek gezinen üretime karşı güvenlik tavanı.
-    if (opts?.expectFile) sampling.maxTokens = 4096
+    // Şablon-dolgu turlarında içerik 0.55'te üretilir: 0.2 tekrar döngüsüne
+    // giriyor ("her SSS cevabı aynı cümle" vakası).
+    if (opts?.expectFile) {
+      sampling.maxTokens = 4096
+      if (opts.creative) sampling.temperature = 0.55
+    }
 
     lastOutgoingPrompt = outgoing
     try {
