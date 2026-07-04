@@ -31,7 +31,14 @@ interface WorkerResponse {
   stage?: 'model' | 'context'
   progress?: number
   full?: string
-  info?: { contextSize: number; trainContextSize: number; gpu: boolean; paramCount?: number | null }
+  info?: {
+    contextSize: number
+    trainContextSize: number
+    gpu: boolean
+    gpuLayers?: number
+    totalLayers?: number
+    paramCount?: number | null
+  }
 }
 
 let worker: ChildProcess | null = null
@@ -178,9 +185,10 @@ export function getLoadedInfo(): ModelLoadedInfo | null {
 export async function loadModel(
   modelPath: string,
   enableGpu?: boolean,
+  gpuLayers?: number | 'auto',
   onProgress?: LoadProgressCallback
 ): Promise<ModelLoadedInfo> {
-  console.log('[llamaService] loadModel path =', modelPath, 'enableGpu =', enableGpu)
+  console.log('[llamaService] loadModel path =', modelPath, 'enableGpu =', enableGpu, 'gpuLayers =', gpuLayers)
   const file = await stat(modelPath)
   // Sistem prompt'u model boyutuna göre seçilir — worker'a göndermeden ÖNCE.
   smallModel = file.size < 9e9
@@ -191,6 +199,7 @@ export async function loadModel(
       cmd: 'load',
       path: modelPath,
       gpu: !!enableGpu,
+      gpuLayers: gpuLayers ?? 'auto',
       systemPrompt: getFullSystemPrompt()
     })
     if (!res.ok || !res.info) {
@@ -218,7 +227,9 @@ export async function loadModel(
       path: modelPath,
       sizeBytes: file.size,
       contextSize: res.info.contextSize,
-      gpu: res.info.gpu
+      gpu: res.info.gpu,
+      gpuLayers: res.info.gpuLayers ?? 0,
+      totalLayers: res.info.totalLayers ?? 0
     }
     return loadedInfo
   } finally {

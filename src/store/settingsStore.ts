@@ -13,12 +13,15 @@ export interface CustomCommand {
 export interface Settings {
   customSystemPrompt: string
   enableGpu: boolean
+  /** GPU'ya offload edilecek katman sayısı; 0 = otomatik (VRAM'e sığan kadar). */
+  gpuLayers: number
   customCommands: CustomCommand[]
 }
 
 const DEFAULT_SETTINGS: Settings = {
   customSystemPrompt: '',
   enableGpu: false,
+  gpuLayers: 0,
   customCommands: []
 }
 
@@ -30,6 +33,7 @@ function loadSettings(): Settings {
     return {
       customSystemPrompt: parsed.customSystemPrompt ?? '',
       enableGpu: parsed.enableGpu ?? false,
+      gpuLayers: typeof parsed.gpuLayers === 'number' ? parsed.gpuLayers : 0,
       customCommands: Array.isArray(parsed.customCommands)
         ? parsed.customCommands.filter(
             (c: CustomCommand) => c && typeof c.label === 'string' && typeof c.prompt === 'string'
@@ -44,6 +48,7 @@ function loadSettings(): Settings {
 interface SettingsState extends Settings {
   setCustomSystemPrompt: (v: string) => void
   setEnableGpu: (v: boolean) => void
+  setGpuLayers: (v: number) => void
   addCommand: () => void
   updateCommand: (id: string, patch: Partial<Pick<CustomCommand, 'label' | 'prompt'>>) => void
   removeCommand: (id: string) => void
@@ -54,6 +59,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...loadSettings(),
   setCustomSystemPrompt: (v) => set({ customSystemPrompt: v }),
   setEnableGpu: (v) => set({ enableGpu: v }),
+  setGpuLayers: (v) => set({ gpuLayers: Math.max(0, Math.round(v)) }),
   addCommand: () =>
     set((s) => ({ customCommands: [...s.customCommands, { id: nanoid(), label: '', prompt: '' }] })),
   updateCommand: (id, patch) =>
@@ -69,6 +75,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         JSON.stringify({
           customSystemPrompt: get().customSystemPrompt,
           enableGpu: get().enableGpu,
+          gpuLayers: get().gpuLayers,
           // Boş satırlar (etiket ve prompt ikisi de boş) kaydedilmez.
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })

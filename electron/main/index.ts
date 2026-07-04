@@ -121,10 +121,10 @@ function registerIpc(): void {
     return { path: res.filePaths[0] }
   })
 
-  ipcMain.handle(IPC.MODEL_LOAD, async (_e, path: string, enableGpu?: boolean) => {
+  ipcMain.handle(IPC.MODEL_LOAD, async (_e, path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') => {
     try {
       let lastSent = 0
-      const info = await loadModel(path, enableGpu, (stage, progress) => {
+      const info = await loadModel(path, enableGpu, gpuLayers, (stage, progress) => {
         // ~60ms throttle: onLoadProgress fires per-tensor and would flood IPC.
         const now = Date.now()
         if (progress < 1 && now - lastSent < 60) return

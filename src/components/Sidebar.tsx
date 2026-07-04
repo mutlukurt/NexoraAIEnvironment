@@ -223,7 +223,11 @@ export default function Sidebar() {
                   {modelInfo.name.split('/').pop()}
                 </p>
                 <p className="text-[10px] font-bold text-ink-dim">
-                  {fmtBytes(modelInfo.sizeBytes)} · {modelInfo.gpu ? 'GPU' : 'CPU'} · {modelInfo.contextSize} ctx
+                  {fmtBytes(modelInfo.sizeBytes)} ·{' '}
+                  {modelInfo.gpuLayers > 0
+                    ? `GPU ${modelInfo.gpuLayers}/${modelInfo.totalLayers}`
+                    : 'CPU'}{' '}
+                  · {modelInfo.contextSize} ctx
                 </p>
               </div>
             </div>

@@ -17,6 +17,10 @@ export interface ModelLoadedInfo {
   sizeBytes: number
   contextSize: number
   gpu: boolean
+  /** GPU'ya offload edilen katman sayısı (0 = tamamen CPU'da). */
+  gpuLayers: number
+  /** Modelin toplam katman sayısı ("15/28 katman" göstergesi için). */
+  totalLayers: number
 }
 
 export interface ChatStreamChunk {

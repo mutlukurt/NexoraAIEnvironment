@@ -68,7 +68,7 @@ export interface NexoraApi {
   versions: { electron: string; chrome: string; node: string }
   model: {
     select: () => Promise<ModelSelectResponse>
-    load: (path: string, enableGpu?: boolean) => Promise<ModelLoadResponse>
+    load: (path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') => Promise<ModelLoadResponse>
     unload: () => Promise<{ ok: boolean }>
     status: () => Promise<{ loaded: false } | { loaded: true; info: ModelLoadedInfo }>
     setSystemPrompt: (prompt: string) => Promise<{ ok: boolean }>
@@ -132,7 +132,8 @@ const api: NexoraApi = {
   },
   model: {
     select: () => ipcRenderer.invoke(IPC.MODEL_SELECT),
-    load: (path: string, enableGpu?: boolean) => ipcRenderer.invoke(IPC.MODEL_LOAD, path, enableGpu),
+    load: (path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') =>
+      ipcRenderer.invoke(IPC.MODEL_LOAD, path, enableGpu, gpuLayers),
     unload: () => ipcRenderer.invoke(IPC.MODEL_UNLOAD),
     status: () => ipcRenderer.invoke(IPC.MODEL_STATUS),
     setSystemPrompt: (prompt: string) => ipcRenderer.invoke(IPC.MODEL_SET_SYSTEM_PROMPT, prompt),

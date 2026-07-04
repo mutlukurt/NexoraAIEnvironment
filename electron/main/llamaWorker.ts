@@ -29,6 +29,8 @@ interface LoadRequest {
   cmd: 'load'
   path: string
   gpu: boolean
+  /** GPU'ya verilecek katman sayısı; 'auto' = boş VRAM'e sığan kadar (kısmi offload). */
+  gpuLayers?: number | 'auto'
   systemPrompt: string
 }
 
@@ -235,11 +237,35 @@ async function unload(): Promise<void> {
   cjkBias = null
 }
 
-async function loadModelAndSession(req: LoadRequest, gpu: boolean): Promise<void> {
+/** GGUF metadata'sından toplam blok/katman sayısını oku (model yüklenmeden, ucuz). */
+async function readLayerCount(path: string): Promise<number | null> {
+  try {
+    const m = await getMod()
+    const info = await m.readGgufFileInfo(path)
+    const arch = info.metadata?.general?.architecture as string | undefined
+    const bc = arch
+      ? (info.metadata as unknown as Record<string, { block_count?: number }>)[arch]?.block_count
+      : undefined
+    return typeof bc === 'number' && bc > 0 ? bc : null
+  } catch {
+    return null
+  }
+}
+
+async function loadModelAndSession(
+  req: LoadRequest,
+  gpu: boolean,
+  gpuLayers?: number | 'auto'
+): Promise<void> {
   await initLlama(gpu)
   let lastSent = 0
+  // Kısmi offload: model VRAM'e tamamen sığmasa bile katmanların bir kısmı
+  // GPU'ya verilir (küçük kartlarda hepsi-ya-hiç yerine ciddi hızlanma).
+  // 'auto' = node-llama-cpp boş VRAM'i ölçüp sığan katman sayısını seçer.
+  const gpuActive = llama!.gpu !== false
   model = await llama!.loadModel({
     modelPath: req.path,
+    gpuLayers: gpuActive ? (gpuLayers ?? 'auto') : undefined,
     onLoadProgress: (p: number) => {
       const now = Date.now()
       if (p < 1 && now - lastSent < 60) return
@@ -255,24 +281,46 @@ async function loadModelAndSession(req: LoadRequest, gpu: boolean): Promise<void
 
 async function handleLoad(req: LoadRequest): Promise<void> {
   await unload()
-  try {
-    await loadModelAndSession(req, req.gpu)
-  } catch (err) {
-    await unload()
-    // GPU modunda hata (çoğunlukla VRAM yetmezliği): kullanıcıya hata
-    // döndürmeden önce bir kez saf CPU ile dene.
-    if (req.gpu) {
-      console.warn('[llamaWorker] GPU load failed, retrying on CPU:', (err as Error).message)
+  let loaded = false
+
+  if (req.gpu) {
+    // Katman merdiveni: Vulkan/CUDA boş VRAM'i iyimser ölçebiliyor ve 'auto'
+    // bile ağırlık yüklerken OOM olabiliyor (4GB kartta 7B ile canlı görüldü).
+    // Bağlam merdiveniyle aynı felsefe: istenen/auto → toplam katmanın
+    // %60/%40/%20'si → en son saf CPU. Hepsi-ya-hiç yerine kısmi hızlanma.
+    const tries: (number | 'auto')[] = [req.gpuLayers ?? 'auto']
+    const total = await readLayerCount(req.path)
+    if (total) {
+      const base = typeof req.gpuLayers === 'number' ? Math.min(req.gpuLayers, total) : total
+      for (const f of [0.6, 0.4, 0.2]) {
+        const n = Math.floor(base * f)
+        if (n >= 1 && !tries.includes(n)) tries.push(n)
+      }
+    }
+    for (const layers of tries) {
+      try {
+        await loadModelAndSession(req, true, layers)
+        loaded = true
+        break
+      } catch (err) {
+        console.warn(`[llamaWorker] GPU load failed (gpuLayers=${String(layers)}):`, (err as Error).message)
+        await unload()
+      }
+    }
+    if (!loaded) {
+      console.warn('[llamaWorker] tüm GPU denemeleri başarısız — saf CPU ile yükleniyor')
       try {
         await llama?.dispose()
       } catch {
         /* ignore */
       }
       llama = null
-      await loadModelAndSession(req, false)
-    } else {
-      throw err
+      llamaGpuMode = null
     }
+  }
+
+  if (!loaded) {
+    await loadModelAndSession(req, false)
   }
   // Parametre sayısı: dosya boyutundan daha doğru bir "model gücü" ölçüsü
   // (sıkı quantize edilmiş büyük model küçük dosya olabilir). Metadata'da
@@ -292,6 +340,19 @@ async function handleLoad(req: LoadRequest): Promise<void> {
     /* ignore */
   }
 
+  // Gerçek offload durumu: kaç katman GPU'da, model toplam kaç katman.
+  let gpuLayerCount = 0
+  let totalLayerCount = 0
+  try {
+    gpuLayerCount = model!.gpuLayers
+    totalLayerCount = model!.fileInsights.totalLayers
+  } catch {
+    /* ignore */
+  }
+  if (gpuLayerCount > 0) {
+    console.log(`[llamaWorker] GPU offload: ${gpuLayerCount}/${totalLayerCount} katman`)
+  }
+
   send({
     id: req.id,
     ok: true,
@@ -299,6 +360,8 @@ async function handleLoad(req: LoadRequest): Promise<void> {
       contextSize: activeContextSize,
       trainContextSize: model!.trainContextSize ?? 4096,
       gpu: llama!.gpu !== false,
+      gpuLayers: gpuLayerCount,
+      totalLayers: totalLayerCount,
       paramCount
     }
   })

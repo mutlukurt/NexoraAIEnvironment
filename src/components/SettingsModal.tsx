@@ -11,6 +11,8 @@ export default function SettingsModal() {
   const setCustom = useSettingsStore((s) => s.setCustomSystemPrompt)
   const enableGpu = useSettingsStore((s) => s.enableGpu)
   const setEnableGpu = useSettingsStore((s) => s.setEnableGpu)
+  const gpuLayers = useSettingsStore((s) => s.gpuLayers)
+  const setGpuLayers = useSettingsStore((s) => s.setGpuLayers)
   const save = useSettingsStore((s) => s.save)
   const customCommands = useSettingsStore((s) => s.customCommands)
   const addCommand = useSettingsStore((s) => s.addCommand)
@@ -96,6 +98,43 @@ export default function SettingsModal() {
               />
             </button>
           </div>
+
+          {/* GPU katman kaydırıcısı — yalnızca GPU açıkken. 0 = otomatik (VRAM'e sığan kadar). */}
+          {enableGpu && (
+            <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm -mt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+                  {language === 'tr' ? 'GPU Katmanları' : 'GPU Layers'}
+                </span>
+                <span className="rounded-lg bg-ink-hi px-2 py-0.5 text-[11px] font-bold text-ink-mut">
+                  {gpuLayers === 0
+                    ? language === 'tr'
+                      ? 'Otomatik'
+                      : 'Auto'
+                    : gpuLayers}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] font-medium text-ink-dim leading-normal">
+                {language === 'tr'
+                  ? 'Modelin kaç katmanı ekran kartına yüklensin? Otomatik: boş VRAM ölçülür, sığan kadar katman GPU’ya verilir — küçük kartlarda bile kısmi hızlanma sağlar. Yeni model yüklemesinde geçerli olur.'
+                  : 'How many model layers to offload to the GPU. Auto measures free VRAM and offloads as many layers as fit — partial speedup even on small cards. Takes effect on the next model load.'}
+              </p>
+              <input
+                type="range"
+                min={0}
+                max={64}
+                step={1}
+                value={gpuLayers}
+                onChange={(e) => setGpuLayers(Number(e.target.value))}
+                className="mt-3 w-full accent-brand-500"
+                aria-label="GPU layers"
+              />
+              <div className="mt-1 flex justify-between text-[10px] font-bold text-ink-dim">
+                <span>{language === 'tr' ? 'Otomatik' : 'Auto'}</span>
+                <span>64</span>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">

@@ -772,17 +772,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         await window.nexora.model.setSystemPrompt(customPrompt)
       }
       const enableGpu = useSettingsStore.getState().enableGpu
-      const res = await window.nexora.model.load(path, enableGpu)
+      // 0 = otomatik: node-llama-cpp boş VRAM'i ölçüp sığan katman sayısını seçer.
+      const layerSetting = useSettingsStore.getState().gpuLayers
+      const res = await window.nexora.model.load(path, enableGpu, layerSetting > 0 ? layerSetting : 'auto')
       if (res.ok && res.info) {
         set({ modelInfo: res.info, modelLoading: false, modelLoadProgress: null })
         ensureStream(get, set)
         ensureBuildErrorSub(set)
+        const modeText =
+          res.info.gpuLayers > 0
+            ? `GPU modunda (${res.info.gpuLayers}/${res.info.totalLayers} katman ekran kartında)`
+            : 'CPU modunda'
         set({
           messages: [
             {
               id: nanoid(),
               role: 'assistant',
-              content: `Model yüklendi: ${res.info.name} (${fmtBytes(res.info.sizeBytes)}). ${res.info.gpu ? 'GPU' : 'CPU'} modunda, ${res.info.contextSize} token bağlam ile çalışıyor.`
+              content: `Model yüklendi: ${res.info.name} (${fmtBytes(res.info.sizeBytes)}). ${modeText}, ${res.info.contextSize} token bağlam ile çalışıyor.`
             }
           ]
         })

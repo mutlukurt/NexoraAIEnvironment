@@ -30,7 +30,9 @@ if (typeof window !== 'undefined' && !window.nexora) {
             path: path,
             sizeBytes: 2.4 * 1024 * 1024 * 1024,
             contextSize: 4096,
-            gpu: !!enableGpu
+            gpu: !!enableGpu,
+            gpuLayers: enableGpu ? 20 : 0,
+            totalLayers: 36
           }
         };
       },
