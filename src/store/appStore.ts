@@ -1157,12 +1157,23 @@ ${rules.slice(0, 1500)}
       /* kural okunamadıysa istek kuralsız gider */
     }
 
+    // Faza göre örnekleme (roadmap 1.3): plan ve brief yazımı yaratıcılık
+    // ister (0.7), kod üretimi determinizm (0.2), hata düzeltme en düşüğünü
+    // (0.1 — cerrah eli titremez). Tek sıcaklık her faza aynı anda uymaz.
+    const sampling =
+      isPlanTurn || isEnhanceTurn
+        ? { temperature: 0.7, topP: 0.95 }
+        : fixFlow
+          ? { temperature: 0.1 }
+          : { temperature: 0.2 }
+
     lastOutgoingPrompt = outgoing
     try {
       const res = await window.nexora.chat.send({
         prompt: outgoing,
         currentFiles: currentFiles.length > 0 ? currentFiles : undefined,
-        otherPaths: excludedPaths.length > 0 ? excludedPaths : undefined
+        otherPaths: excludedPaths.length > 0 ? excludedPaths : undefined,
+        options: sampling
       })
       if (!res.ok) {
         set((s) => ({
