@@ -16,7 +16,8 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
-3. [Feature Overview](#feature-overview)
+3. [One Night, One League — the v0.10 Live-Test Marathon](#one-night-one-league--the-v010-live-test-marathon)
+4. [Feature Overview](#feature-overview)
 4. [Screenshots](#screenshots)
 5. [Getting Started](#getting-started)
 6. [Usage Guide](#usage-guide)
@@ -51,6 +52,37 @@ Cloud AI builders (Bolt, Lovable, v0) are excellent, but they have three structu
 
 NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B model with a strategy tuned for small models; plug a 32B+ model on a workstation and the *same app* automatically switches to full professional multi-file project generation. The tool's value grows every time the open-model ecosystem improves, with zero code changes.
 
+## One Night, One League — the v0.10 Live-Test Marathon
+
+On 2026-07-04/05 the entire pipeline was rebuilt and then battle-tested **live, end to end, with zero human coaching**: a real Qwen2.5-Coder-**3B** received a casual Turkish request ("build a dark-themed promo site for the *Atlas Barber* barbershop…"), planned it, built it file by file, caught its own errors and repaired them. The full phased log lives in [ROADMAP.md](ROADMAP.md); the marathon surfaced **11 real bugs** (every one fixed the same night) and ended with an architecture shift. This is the honest scoreboard:
+
+| | What was missing (v0.9.15) | What we built (v0.10) |
+|---|---|---|
+| **Inference engine** | node-llama-cpp session in a bundled Node worker | llama.cpp's official **`llama-server`** sidecar (prompt cache, parallel slots); the worker survives as an automatic fallback |
+| **Iteration cost** | a 7.7k-token project prefix re-prefilled **every turn** (~23.5 s on CPU) | prompt cache + `--cache-reuse`: the same prefix re-processes in **0.14 s (~170×)** |
+| **Context window** | 16k ceiling, 8k typical | **32k** in the same RAM (flash attention + Q8_0 KV cache) |
+| **Small-VRAM GPUs** | all-or-nothing → 4 GB RTX 2050 fell back to CPU | partial offload with a step-down ladder: 7B at **+71%** (4.2 → 7.2 tok/s), 3B fully offloaded |
+| **Edit format** | prompt rules + a streaming watchdog + retries | **GBNF grammar at the sampler** — a 13-line SEARCH block is *unsamplable*; edit targets enumerated from real project paths |
+| **The plan** | model-generated (invented a "Technology" page for a barbershop) | **derived by code** from the request keywords — instant, canonical sections, cannot hallucinate |
+| **Composition (App.tsx)** | model-written (monoliths, missing function headers) | **written by code** — imports + ordered render, error class extinct |
+| **Section quality** | whatever the model improvised | **11 hand-crafted skeletons** with `{{MARKER}}` fill-ins — the model only supplies content, at 0.55 temp |
+| **Multi-file builds** | single-file compact strategy only (small models) | plan → **file-by-file**, each turn grammar-locked to exactly one file; 12-file site in **3 minutes** on GPU |
+| **Broken output reaching you** | discovered at Run, if ever | every generation instantly syntax-checked (Babel) + full build check when installed; silent auto-fix rounds; escalation **regenerates** a file that resists surgical fixes |
+| **Runtime errors (white page)** | invisible to the app — a human had to notice | **zero-touch auto-heal**: a hook in the served page reports browser errors to the app, which starts a hidden fix turn by itself (verified: synthetic error → capture → automatic fix turn in 4 s) |
+| **Context compaction** | history silently dropped at 75% | a model-written summary survives the reset; pre-flight estimate prevents mid-turn overflows |
+| **Sampling** | one temperature for everything | per-phase presets: plan 0.7 · content-fill 0.55 · code 0.2 · fix 0.1 |
+| **Hardening along the way** | — | profile locked during iterations (a build-error word once flipped the session to React Native), unconditional `package.json` sanitize, stray-directive stripper, missing React-hook import injector, spiral-proof plan grammar, grounded brief enhancement |
+
+**The result, built by a 3B with no human help** — planned in 10 seconds, generated in 3 minutes, one compile error self-healed, one runtime error class closed forever the same night:
+
+| Atlas Barber — hero | Full page |
+|---|---|
+| ![Atlas Barber hero](docs/screenshots/22-atlas-barber-hero.png) | ![Atlas Barber full](docs/screenshots/23-atlas-barber-full.png) |
+
+| Grammar-enforced plan | File-by-file build | Resulting workspace |
+|---|---|---|
+| ![v0.10 plan](docs/screenshots/19-v010-grammar-plan.png) | ![v0.10 build](docs/screenshots/20-v010-file-by-file.png) | ![v0.10 workspace](docs/screenshots/21-v010-workspace.png) |
+
 ## Feature Overview
 
 - 🧠 **Local GGUF inference** — load any `.gguf` model (Qwen, Gemma, Llama…); CPU by default, GPU offload optional with automatic CPU fallback.
@@ -63,7 +95,7 @@ NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B m
 - 🩺 **Say "düzelt" and it fixes itself** — after Run, the app compiles the project in the background; any build error is captured with its code frame, enriched with a *suspicious-line scan* (e.g. unclosed-quote detection), and posted to the chat. You type just **"düzelt"** — or **"fix"**, **"repair"**, "arregla", "répare", "behebe", "napraw", "исправь"… any common fix-word in ~10 languages — the full diagnosis is attached to the model automatically, the resulting edit is applied, the build is re-verified, and the app auto-retries up to two more rounds if needed. No technical bug reports required from the user.
 - 📦 **Professional export** — one click produces `<your-folder>/<project-name>/` with every missing standard file scaffolded (package.json with auto-detected dependencies, `index.html`, `src/main.tsx`, `vite.config.ts`, `tsconfig.json`, Tailwind/PostCSS configs, `.gitignore`, `README.md`) so `npm install && npm run dev` just works.
 - 🎚️ **Model-size-adaptive prompting** — reads the model's true parameter count from GGUF metadata: <13B gets a compact single-file strategy it can actually execute; ≥13B gets the full professional multi-file architecture prompt.
-- 🈲 **CJK drift protection** — Qwen-family models love sliding into Chinese mid-generation; NexoraAI scans the vocabulary at load time and bans ~30k CJK tokens from sampling (automatically lifted if *you* write in a CJK language).
+- 🈲 **CJK drift protection** — Qwen-family models love sliding into Chinese mid-generation; NexoraAI bans ~30k CJK tokens from sampling — via TokenBias on the worker engine, or a cached per-request logit bias on the llama-server engine (automatically lifted if *you* write in a CJK language).
 - 🔎 **HuggingFace model browser** — search, download (with progress), and load GGUF models without leaving the app.
 
 ### The assistant around the model *(new — v0.9 series)*
@@ -252,10 +284,11 @@ npm run dist
 └───────────────┬────────────────────────────────────────────────────┘
                 │ child_process IPC (JSON messages)
 ┌───────────────▼───────────────┐      ┌──────────────────────────────┐
-│  Inference worker             │      │  ~/NexoraAI/Projects/<slug>/ │
-│  plain Node.js (bundled)      │      │  real on-disk workspace:     │
-│  └── node-llama-cpp           │      │  npm install • vite dev      │
-│      llama.cpp (CPU/GPU)      │      │  fonts • fetched assets      │
+│  Inference engine (v0.10)     │      │  ~/NexoraAI/Projects/<slug>/ │
+│  llama.cpp llama-server       │      │  real on-disk workspace:     │
+│  (prompt cache, GBNF, GPU)    │      │  npm install • vite dev      │
+│  fallback: node-llama-cpp     │      │  fonts • fetched assets      │
+│  worker on bundled Node       │      │  runtime-error hook → app    │
 └───────────────────────────────┘      └──────────────────────────────┘
 ┌───────────────────────────────┐
 │  Vision sidecar (on demand)   │  ← attached images: llama.cpp's
@@ -274,6 +307,8 @@ Each decision below was forced by a real failure — see the [Development Chroni
 Electron compiles V8 with the *memory cage* (pointer compression): any GGUF larger than 4 GB crashes the process with an uncatchable `SIGILL` — on every Electron version we tested (31 → 43). The same file loads in 1.7 s under plain Node. So NexoraAI ships its own Node binary and runs `node-llama-cpp` in a child process, talking to it over structured IPC. Bonus: a dying model can no longer take the app down with it.
 
 *Plain-language version:* the AI engine runs in its own little program next to the app. Big models stopped crashing, and even if the engine chokes, the app keeps running and tells you what happened.
+
+*v0.10 update:* inference now runs through llama.cpp's official `llama-server` sidecar (same isolation, plus prompt caching, GBNF grammars and server-side GPU fitting); the plain-Node worker remains as the automatic fallback engine.
 
 ### 2. Context size is chosen by available RAM, never by the model's maximum
 Modern models advertise 32k–131k token context windows. Actually allocating that KV cache on a 16 GB laptop sends the machine into swap and looks exactly like "the app froze forever". NexoraAI picks 16k/8k/4k based on free memory and steps down automatically if allocation fails.
@@ -356,6 +391,8 @@ An honest, chronological log of how this project actually happened — including
 
 **Phase 20 — The polish sweep (v0.9.13 → v0.9.15).** Everything left on the board, cleared in one day. **Prompt enhancement** (the owner's feature idea): with *"Prompt Güçlendir"* on — and it's on by default — a non-technical user's casual description is first rewritten by the model into a professional design brief, which then flows into plan mode and generation automatically; skipped for iterations, image flows and fixes where it would get in the way. **Plan language fixed:** "answer in the user's language" was ignored by the 7B; wrappers now state `LANGUAGE OF YOUR ANSWER: TURKISH (yanıtı TÜRKÇE yaz)` outright. **`@` autocomplete:** typing `@` in either input pops matching project filenames; Enter picks, Esc closes. **Context compaction:** past 75 % window usage the worker quietly rebuilds its session with a summary note instead of degrading. **Vision post-mortem:** the infamous "663-character analysis cap" turned out to be a *misdiagnosis* — only the chat preview was sliced at 600 chars, the model always received the full analysis (preview now 1500 chars and says so); the recurring hallucinated `#007BFF` accent got a hard extraction rule — *colors may only be read from the image, template colors are forbidden, write "belirsiz" if unsure.* And the final open wound closed: models referencing non-existent `/assets/…` images. Two layers: a prompt rule (photos = seeded picsum URLs, icons = lucide, logos = styled text — and the old rule that *encouraged* mock asset folders was removed), plus a deterministic post-pass that rewrites any remaining broken reference to a placeholder while respecting files that actually exist or arrive via `[FETCH]`.
 
+
+**Phase 21 — The live-test marathon (v0.10).** One night, zero-intervention testing with a real 3B: 11 bugs surfaced and fixed (context-overflow pre-flight, unconditional manifest sanitize, stray-directive stripper, file-regeneration escalation, spiral-proof plan grammar, iteration profile lock, grounded brief enhancement, bare fix-word guard, GBNF trailing-newline EOS trap, plan-card rendering, missing hook-import injector), one architecture shift ("deterministic skeleton, model-only fill": code derives the plan and writes App.tsx; the model only fills template markers), and one new sense: runtime errors from the running page now reach the app and trigger an automatic fix — no human input. The Atlas Barber site at the top of this README is that night's closing artifact.
 
 ## Large-Model Verification
 
@@ -503,29 +540,6 @@ NexoraAIEnvironment/
 | Post-processing | Prettier 3 (standalone, lazy-loaded), deterministic scaffold & asset repair |
 | Generated projects | Vite 5, React 18, TypeScript, Tailwind (scaffolded deterministically) |
 
-## The v0.10 Engine Upgrade — Before / After
-
-One focused day of engineering (2026-07-04), every number measured on the same 16 GB dev laptop. The full story lives in [ROADMAP.md](ROADMAP.md); this is the honest scoreboard:
-
-| | v0.9.15 (before) | v0.10 (after) |
-|---|---|---|
-| **Inference engine** | node-llama-cpp session in the bundled Node worker | llama.cpp's official `llama-server` sidecar — the worker stays as an automatic fallback |
-| **Iteration re-prefill** (7.7k-token project prefix) | ~23.5 s, paid **every turn** | **0.14 s** (prompt cache + `--cache-reuse`, ~170×) |
-| **Context window** (same RAM) | 16k ceiling, 8k typical | **32k** (flash attention + Q8_0 KV cache) |
-| **7B on a 4 GB RTX 2050** | 4.2 tok/s — GPU was all-or-nothing, so it fell back to CPU | **7.2 tok/s (+71%)** with partial offload (16/29 layers), plus full-offload 3B at 37/37 |
-| **Surgical edit format** | prompt rules + a streaming watchdog + corrective retries | **GBNF grammar at the sampler** — a 13-line SEARCH block is not just forbidden, it is *unsamplable*; edit targets are enumerated from the real project paths |
-| **Multi-file projects on small models** | compact single-file strategy only | **plan → file-by-file build**: grammar-clean `N. path — description` plans, deterministic build order (foundations → sections → entry last), each file generated in its own grammar-locked turn |
-| **Design quality floor** | whatever the model improvises | **11 hand-crafted section skeletons** with `{{MARKER}}` fill-ins (hero, pricing, FAQ, menu grid…) — a 3B fills a proven premium structure instead of inventing one |
-| **Broken output reaching the user** | errors surfaced only at Run | **every generation is verified the moment it finishes** — instant Babel syntax check + full vite build when installed, up to 2 silent auto-fix rounds |
-| **Context compaction** | chat history silently dropped at 75% | a model-written summary **survives the reset** |
-| **Sampling** | one temperature for everything | per-phase presets: plan 0.7 · code 0.2 · fix 0.1 |
-
-**Verified live, end to end** — a real Qwen2.5-Coder-**3B** on CPU drove the whole new chain inside the shipping app: casual Turkish request → professional brief (Prompt Güçlendir) → a grammar-perfect 12-file plan → file-by-file build with live per-file cards → build error captured to chat → one-word fix flow. The same run surfaced and fixed two real bugs (a `[PKG]`-written `package.json` without scripts could reach Run unsanitized on interrupted builds; the plan announcement rendered as a file card).
-
-| Grammar-enforced plan | File-by-file build | Resulting workspace |
-|---|---|---|
-| ![v0.10 plan](docs/screenshots/19-v010-grammar-plan.png) | ![v0.10 build](docs/screenshots/20-v010-file-by-file.png) | ![v0.10 workspace](docs/screenshots/21-v010-workspace.png) |
-
 ## Roadmap
 
 Recently shipped (see the [Development Chronicle](#development-chronicle) for the full stories): hardware advisor · plan-first mode · prompt enhancement · smart context + `@` autocomplete · diff approval · permission system · persistent sessions · undo/redo timeline · project rules · custom commands · Prettier & asset repair post-passes · context compaction · dark/light theme system.
@@ -534,7 +548,7 @@ The full phased plan lives in **[ROADMAP.md](ROADMAP.md)**. Status in one breath
 
 1. **Engine** — ✅ shipped: flash attention + Q8_0 KV cache, partial GPU offload with a layer ladder + slider, per-phase sampler presets, compaction summaries, and inference migrated to `llama-server` (prompt caching, worker fallback).
 2. **Making small models masters** — ✅ shipped: grammar-enforced edit blocks, plan → file-by-file generation, silent auto-verify after every generation, the section template bank. Remaining: model-family prompt profiles.
-3. **An agent with eyes** — next: import existing projects, runtime error capture, visual self-review via the vision model, git-based history.
+3. **An agent with eyes** — ✅ runtime error capture shipped (zero-touch auto-heal). Next: import existing projects, visual self-review via the vision model, git-based history.
 4. **Productization** (v1.0) — hybrid API mode, Windows/macOS packaging, multi-project workspaces, local model benchmarking, stable-diffusion.cpp image generation.
 
 ## License
