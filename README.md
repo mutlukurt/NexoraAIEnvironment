@@ -65,17 +65,45 @@ NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B m
 - 🎚️ **Model-size-adaptive prompting** — reads the model's true parameter count from GGUF metadata: <13B gets a compact single-file strategy it can actually execute; ≥13B gets the full professional multi-file architecture prompt.
 - 🈲 **CJK drift protection** — Qwen-family models love sliding into Chinese mid-generation; NexoraAI scans the vocabulary at load time and bans ~30k CJK tokens from sampling (automatically lifted if *you* write in a CJK language).
 - 🔎 **HuggingFace model browser** — search, download (with progress), and load GGUF models without leaving the app.
-- 🌗 **Turkish / English UI**, custom system-prompt support, per-response accept/reject of changes.
+
+### The assistant around the model *(new — v0.9 series)*
+
+- 🩻 **Hardware Advisor** — at launch the app measures your CPU, RAM and GPU and shows which models will run *ultra fast / fast / slow* on **your** machine, across six model families (Qwen, DeepSeek, Mistral, Microsoft, Google, Meta — every download link verified). One click downloads, loads and drops you into chat. MoE models are graded by their *active* parameters, so DeepSeek-V2-Lite is honestly labeled "fast" despite its 10 GB size.
+- 🗺️ **Plan-first mode** — flip *"Önce Plan"* and the model writes a short numbered plan (in your language) before touching code; you approve with one click, then generation starts. Cheap to produce, dramatically better structure from small models.
+- ✨ **Prompt enhancement** — flip *"Prompt Güçlendir"* and casual descriptions (*"kafem için basit bir site olsun işte, menü falan"*) are first rewritten by the model into a professional design brief — sections, palette, typography — then that brief flows into planning and generation. Built for non-technical users; on by default.
+- 🧭 **Smart context** — iterations no longer send the whole project into the model's tiny window: a deterministic selector ranks files by `@mentions` > filename-in-request > keyword hits > recency, sends only what fits a token budget (files are never truncated — that would break surgical edits) and tells the model which other files *exist* so it never recreates them. Type `@` in the input for filename autocomplete.
+- 🔍 **Diff approval** — before accepting a generation you can open a line-level diff of every pending change: red strikethrough for removed lines, green for added, unchanged runs folded. You finally *see* what you're accepting.
+- ✂️ **No-rewrite iteration, enforced** — a streaming watchdog watches the model as it types: if it starts copying a whole section into a `SEARCH` block (i.e. rewriting instead of editing), generation is cut mid-stream, the model gets one corrective retry, and a second violation hard-stops the turn. Full-file rewrites of existing files are *never* applied. After every iteration a chat report says exactly which file got how many point-fixes.
+- 💾 **Persistent sessions** — every chat (messages + project files) is auto-saved to `~/NexoraAI/Sessions/` and listed in the sidebar; close the app, come back tomorrow, click, continue. "New Chat" opens a genuinely clean page.
+- ⏪ **Undo / Redo timeline** — step back and forth through the last 20 generation states of your workspace, far beyond the single accept/reject.
+- 🔐 **Permission system** — before the model's `[RUN]` shell commands or `[FETCH]` downloads execute, a prompt lists exactly what wants to run; allow once, always for this project, or deny (safe actions still proceed).
+- 📐 **Project rules** — write persistent preferences once (*"always dark theme, Turkish comments, primary #7c3aed"*) into a per-project `KURALLAR.md` (editable in-app or with any editor); they're attached to every request automatically.
+- ⚡ **Custom quick commands** — save your frequent prompts as labeled buttons that appear next to the built-in template pills.
+- 🎨 **Deterministic post-processing** — every generated/edited file is formatted with Prettier after generation (broken files are left untouched rather than corrupted), and references to *non-existent* local images (`/assets/hero.jpg`…) are automatically rewritten to seeded placeholder URLs — [FETCH]-downloaded and real files are respected.
+- 🧹 **Context compaction** — when the model's context window passes 75 %, the session is silently refreshed with a summary note instead of degrading into overflow garbage.
+- 🌗 **Dark & light themes** — a soft, VS Code-grade dark (not pitch black) and a clean light theme, switchable with one click, applied before first paint (no flash), with the entire palette running through CSS variables. Turkish / English UI, custom system prompt, and the user's own logo throughout — icons, splash screen and launcher included, all assets local (embedded Inter font, no CDN).
 
 ## Screenshots
 
-| Chat & templates | Code workspace |
+| Chat & templates (dark) | Chat & templates (light) |
 |---|---|
-| ![Chat](docs/screenshots/01-chat-welcome.png) | ![Workspace](docs/screenshots/02-workspace.png) |
+| ![Chat dark](docs/screenshots/01-chat-welcome.png) | ![Chat light](docs/screenshots/07-chat-light.png) |
 
-| Model browser (HuggingFace) | Settings |
+| Hardware Advisor — your device, measured | Code workspace (file tree, editor, undo/redo) |
 |---|---|
-| ![Model browser](docs/screenshots/03-model-browser.png) | ![Settings](docs/screenshots/04-settings.png) |
+| ![Device advisor](docs/screenshots/08-device-advisor.png) | ![Workspace](docs/screenshots/02-workspace.png) |
+
+| Plan-first mode — approve before code | Diff approval — see what you accept |
+|---|---|
+| ![Plan mode](docs/screenshots/10-plan-mode.png) | ![Diff approval](docs/screenshots/09-diff-approval.png) |
+
+| Permission prompt for agent actions | Settings — project rules & custom commands |
+|---|---|
+| ![Permission](docs/screenshots/11-permission.png) | ![Settings](docs/screenshots/04-settings.png) |
+
+| Model browser (HuggingFace + local models) |
+|---|
+| ![Model browser](docs/screenshots/03-model-browser.png) |
 
 **Example output** — a complete restaurant site (17-file professional structure: section components, `ui/` primitives, a typed data layer, 9 priced menu items, 6 starred customer reviews) generated by a **real Qwen2.5-Coder-14B** running locally through NexoraAI from a detailed client-style brief, then refined through the app's own surgical-edit iteration loop — exactly as rendered:
 
@@ -114,14 +142,14 @@ Running from source gives the complete experience — inference worker, agent ac
 Download the latest `.deb` from the [**Releases page**](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest), then:
 
 ```bash
-sudo dpkg -i nexora-ai_0.8.4_amd64.deb
+sudo dpkg -i nexora-ai_0.9.15_amd64.deb
 ```
 
 Or as a single copy-paste:
 
 ```bash
-wget https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest/download/nexora-ai_0.8.4_amd64.deb
-sudo dpkg -i nexora-ai_0.8.4_amd64.deb
+wget https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest/download/nexora-ai_0.9.15_amd64.deb
+sudo dpkg -i nexora-ai_0.9.15_amd64.deb
 ```
 
 ### Build from source
@@ -143,9 +171,9 @@ npm run dist
 
 ## Usage Guide
 
-1. **Load a model** — sidebar → *GGUF seç* (or *Model Tarayıcı* to search & download from HuggingFace). Loading shows a live percentage; context size is chosen automatically based on free RAM.
-2. **Describe your project** — e.g. *"Bana modern bir portfolio sitesi yap"*. Watch per-file progress right in the chat.
-3. **Iterate** — *"Hakkımda kısmını daha detaylı yaz"*, *"projeler bölümüne 3 kart ekle"*. Small requests become surgical edits (marked *updated* in the file card).
+1. **Let the Hardware Advisor pick your model** — every launch opens with *"Cihazınız Ölçüldü"*: your CPU/RAM/GPU, and a catalog of models across six families with honest speed grades *for your machine*. One click downloads + loads + starts. (Skip it and use *GGUF seç* / *Model Tarayıcı* if you know what you want.)
+2. **Describe your project** — e.g. *"Bana modern bir portfolio sitesi yap"*, or with **Prompt Güçlendir** on, describe it however you naturally speak — the model first turns it into a professional brief. With **Önce Plan** on, you get a numbered plan to approve before any code is written. Watch per-file progress right in the chat.
+3. **Iterate** — *"Hakkımda kısmını daha detaylı yaz"*, *"@Hero.tsx başlığı büyüt"* (type `@` for filename autocomplete). Small requests become surgical edits; a 🔧 report in the chat tells you exactly which file got how many point-fixes, **⇄ Farkı gör** opens a line-level diff before you accept, and ↶/↷ in the workspace steps through the last 20 generation states.
 4. **Run it** — the green **Çalıştır** button installs dependencies and opens the real site at `localhost` in your browser. Press again to stop.
 
    **When something breaks — the exact timeline:**
@@ -173,15 +201,23 @@ npm run dist
 ┌───────────────────────────── Electron ─────────────────────────────┐
 │                                                                    │
 │  Renderer (React 18 + TypeScript + Tailwind + Zustand)             │
-│  ├── ChatPanel        streaming chat, per-file progress cards      │
-│  ├── ArtifactsPanel   file tree + CodeMirror editor (Kod / Ağaç)   │
+│  ├── ChatPanel        streaming chat, per-file cards, plan/enhance │
+│  │                    approval, @mention autocomplete              │
+│  ├── ArtifactsPanel   file tree + CodeMirror editor, undo/redo     │
 │  ├── ModelBrowser     HuggingFace search + downloads               │
-│  └── stores           appStore / artifactsStore / settingsStore    │
+│  ├── WelcomeSetup     hardware advisor (launch screen)             │
+│  ├── DiffModal / PermissionModal / SettingsModal                   │
+│  ├── stores           appStore / artifactsStore / settings / hf    │
+│  └── lib              parseCode, contextSelect, diff, assetFix,    │
+│                       formatCode (Prettier), agentActions          │
 │           │  contextBridge (typed, contextIsolation: true)         │
 │  Main process                                                      │
 │  ├── llamaService     worker lifecycle, IPC-RPC, prompt assembly   │
 │  ├── agentService     workspace sync, shell, fetch, fonts,         │
 │  │                    Vite dev server, scaffolding, export         │
+│  ├── sessionsService  persistent chats (~/NexoraAI/Sessions)       │
+│  ├── rulesService     per-project KURALLAR.md                      │
+│  ├── advisorService   CPU/RAM/GPU detection for the advisor        │
 │  └── hfService        HuggingFace API + GGUF downloads             │
 └───────────────┬────────────────────────────────────────────────────┘
                 │ child_process IPC (JSON messages)
@@ -232,6 +268,20 @@ An earlier in-app preview (Babel-in-iframe) fought endless battles: TypeScript t
 ### 8. Agent instructions are injected only when needed
 Keeping tool-use instructions permanently in the system prompt made small models copy the templates verbatim into their output ("`[FETCH] <url> -> <relative/path>`" as a file!). The agent hint is now appended per-message, only when intent-detection sees words like *install / font / indir / çalıştır*, and uses real example values. Placeholder-looking values are refused at execution time as a second line of defense.
 
+### 9. Iteration rules are enforced, not requested
+Telling a 7B model "prefer small edit blocks" produced a 17-minute turn where it copied an entire component into one giant `SEARCH` block — a full rewrite in disguise. Prompts alone don't govern small models. Now a **streaming watchdog** counts the lines of every open `SEARCH` section as tokens arrive: past 20 lines, generation is aborted mid-stream, completed small blocks are kept, and the model gets exactly one automatic corrective retry; a second violation hard-stops the turn. Full-file output for an existing path is never applied at all.
+
+*Plain-language version:* the model isn't trusted to follow the "only fix the broken spot" rule — the app physically stops it the moment it starts rewriting.
+
+### 10. The context window is a budget, not a suggestion
+An 8k-token window dies fast when every iteration re-sends every file. Three layers keep it alive: a deterministic **file selector** sends only request-relevant files (mention > filename > keyword > recency) with a hard char budget and a "these other files exist, don't recreate them" manifest; the **worker compacts** its own history when the window passes 75 % (fresh session + summary note); and files are **never truncated** — a half-file would silently break `SEARCH/REPLACE` matching, so a file either ships whole or ships as a name.
+
+### 11. Determinism after the model, every time
+Whatever the model produces gets post-processed by plain code: Prettier formats every touched file (parse failures leave the file untouched — formatting can never destroy work), broken references to non-existent local images are rewritten to seeded placeholders (while `[FETCH]`-downloaded assets are respected), and both steps run only after generation fully completes — running them mid-stream would corrupt the very text the model's next edit block needs to match.
+
+### 12. The UI theme is a variable set, not two codebases
+The redesign (from the owner's Stitch mock) runs every surface color through CSS custom properties exposed as Tailwind tokens (`ink-bg/panel/card/hi/line/text/mut/dim` as `rgb(var(--…) / <alpha-value>)`, so opacity modifiers keep working), with accent colors as `dark:` dual classes. Soft dark (#1b1b1f, VS Code-grade — deliberately not pitch black) and light are ~40 lines of variables apart; the theme applies in `<head>` before first paint, so there is no flash, and even the pre-React splash screen respects it. Everything ships local: the Inter font is embedded (latin + latin-ext for Turkish), no CDN anywhere.
+
 ## Development Chronicle
 
 An honest, chronological log of how this project actually happened — including the dead ends.
@@ -261,6 +311,21 @@ An honest, chronological log of how this project actually happened — including
 **Phase 12 — Eyes for the agent (v0.8.0 → v0.8.2).** node-llama-cpp has no multimodal API, so vision runs through llama.cpp's official `llama-server` (libmtmd) as an on-demand sidecar: a small Qwen2.5-VL model (auto-downloaded with the platform server binary on first use) analyzes attached images. *"Make me a site like this"* extracts a structured design system and pipes it to the coding model; a plain question gets answered directly. Feasibility was proven live on the CPU-only dev laptop (35 s per analysis) — after two real lessons: large screenshots overflow the vision context (fixed with automatic 1024 px downscaling + 8 k context), and the first intent classifier mistook the Turkish question *"ne YAPıyor?"* for a build command because of the embedded stem *yap* (fixed with a noun+verb combination rule, verified by a 19-case battery). v0.8.2 added explicit-override priority: the user's *"…but make the hero fonts red"* always beats the extracted analysis.
 
 **Phase 13 — Reality check: cloning a real design (v0.8.3 → v0.8.4).** The owner attached a sophisticated agency design (cream page inside a mustard frame, black hero card, stat badges) and asked the 14B to clone it — the result was a flat yellow page. The post-mortem exposed the whole chain: the coding model is *blind* (it only reads the vision model's text description), the 3B eyes had collapsed a layered design into "yellow background", the generic extraction prompt let it, and the agent log showed two real bugs (the model invented `https://example.com/logo.svg` → 404, and ran `npm run build` before any install → `vite: not found`). Every link got fixed: placeholder domains are rejected at execution, npm/vite commands auto-install dependencies first, the extraction prompt now demands region-by-region measurable detail, and v0.8.4 made the eyes upgradeable — the app automatically uses the best VL pair in the models folder that fits current free RAM. Verified live: 7B eyes produce frame/section/component breakdowns (162 s) where 3B saw one color (35 s).
+
+**Phase 14 — The Hardware Advisor (v0.8.5 → v0.8.6).** "Which model should *I* download?" is the first question every non-technical user asks — so the app now answers it before they can ask. At launch, CPU/RAM/GPU are measured and a catalog is rendered with honest speed grades (*ultra fast / fast / medium / slow-but-worth-it*) computed for *that* machine; one click downloads, loads and starts chatting. v0.8.6 grew the catalog from Qwen-only to six families — DeepSeek-Coder-V2-Lite (MoE, speed-graded by its 2.4B *active* params, not its 10 GB file), Codestral-22B, Phi-4, Gemma-2-9B, Llama-3.1/3.2 — with every HuggingFace download URL live-verified before shipping, and honest notes ("general-purpose — not as strong at code as Qwen-Coder") instead of marketing.
+
+**Phase 15 — Enforcing surgical edits (v0.8.7 → v0.8.9).** A live experiment (reference-image → site → "fix these 5 things") exposed an ugly truth: told to make surgical edits, the real 7B copied an *entire component* into one giant `SEARCH` block — a 17-minute full rewrite wearing an edit block's clothes. The owner's verdict was categorical: *in iteration, the model may only write the broken spot — never rewrite.* Three releases made that law: example-driven prompt rules (small models follow examples, not rules), a **streaming watchdog** that aborts generation the moment an open `SEARCH` passes 20 lines (one corrective auto-retry, then hard stop), an absolute never-apply rule for full-file rewrites of existing files, a live status line in the chat card (*"✂️ 2nd change — marking the spot"*) replacing the opaque "generating…", and a 🔧 per-file fix report. The report itself shipped a bug worth recording: edit blocks apply *live* during streaming, then the final pass re-applied them, found the text already changed, and reported "0 fixed" for a perfectly successful edit — fixed with an idempotency tier in the applier ("SEARCH not found but REPLACE already present = already applied"). Verified end-to-end: two 3-5-line surgical blocks, 16 changed lines in a 102-line file, ~90 seconds, correct report.
+
+**Phase 16 — Learning from opencode, part 1: trust (v0.9.0 → v0.9.2).** The owner's insight: opencode (MIT) already solved several problems we had — adapt the *ideas*, rewrite the code for our stack. First batch, the trust layer: a **line-level diff approval screen** (dependency-free LCS with common prefix/suffix trimming and folded context) reachable from both the chat and the workspace's pending-changes bar; **persistent sessions** — every chat plus its project files auto-saved (debounced, atomic writes) to visible JSON under `~/NexoraAI/Sessions/`, restored from the sidebar across restarts, with "New Chat" finally meaning a clean page; and a **permission system** — `[RUN]` and `[FETCH]` directives now show exactly what wants to execute before it does (allow once / always for this project / deny), so a 7B's hallucinated shell command can never run itself.
+
+**Phase 17 — Learning from opencode, part 2: quality (v0.9.3 → v0.9.5).** Three features aimed straight at the 8k-context reality of local models. **Smart context:** a deterministic selector (no model calls — CPU cycles are precious) ranks project files by @mention > filename-in-request > keyword hits > recency, ships only what fits an ~11k-char budget, never truncates a file (that would silently break edit matching), and hands the model a "these files exist, do not recreate them" manifest; the chat shows a 📎 line whenever trimming happened. **Plan-first mode:** a sidebar toggle that turns requests into a cheap numbered plan (file *list* only — no contents) with approve/dismiss buttons; the approved plan is auto-sent as the build brief. Confirmed working live by the owner on real hardware. **Prettier:** every touched file formatted after generation via `prettier/standalone` in a lazy-loaded chunk; parse-failing files are left untouched, and formatting deliberately never runs mid-stream (it would corrupt the text the next `SEARCH` block must match).
+
+**Phase 18 — The redesign (v0.9.6 → v0.9.8, refined in v0.9.12/v0.9.14).** The owner designed a new identity in Stitch — dark, violet, glass — and the app was rebuilt to match it *without* betraying its principles: Google-hosted fonts and Material icons were replaced by an **embedded Inter** (latin + latin-ext with unicode-range, for Turkish) and the existing lucide set, because a local-first app doesn't phone a CDN for its own face. The icon rail + sidebar merged into one; the hero gained a time-of-day greeting and a glass input; "Recent projects" became real session shortcuts instead of a decorative box. v0.9.8 answered three pieces of direct feedback: full pill shapes were rejected ("Apple-oval like the cards" = soft rounded rectangles — now a design rule), pitch black was rejected (dark is now a soft VS Code-grade #1b1b1f), and a **light theme** arrived — the entire palette moved into CSS variables exposed as Tailwind `ink-*` tokens, switched by one button, applied pre-paint (no flash), with CodeMirror following along. The owner's logo (three iterations of it) was processed to transparency with PIL flood-fill and wired everywhere: sidebar, hero, splash screen, window and launcher icons — which uncovered that the renderer's `publicDir` had never been wired and the window icon had been silently broken since day one.
+
+**Phase 19 — Learning from opencode, part 3: power (v0.9.9 → v0.9.11).** **Project rules:** persistent per-project preferences in a real `KURALLAR.md` file (editable in Settings or any editor; empty save deletes it) attached to every request — "always dark theme, Turkish comments" is now said once, ever. Testing it surfaced a lesson for the notebook: `contextBridge` objects are frozen, so renderer tests can't monkeypatch `window.nexora` — the app now exposes the last outgoing prompt through its debug hook instead. **Undo/redo timeline:** the workspace keeps the last 20 generation states (deduplicated; a rejected turn leaves no ghost step) with ↶/↷ buttons — far beyond the single accept/reject. **Custom quick commands:** user-defined labeled prompts managed in Settings, rendered as violet pills beside the built-in templates and above the mid-chat input.
+
+**Phase 20 — The polish sweep (v0.9.13 → v0.9.15).** Everything left on the board, cleared in one day. **Prompt enhancement** (the owner's feature idea): with *"Prompt Güçlendir"* on — and it's on by default — a non-technical user's casual description is first rewritten by the model into a professional design brief, which then flows into plan mode and generation automatically; skipped for iterations, image flows and fixes where it would get in the way. **Plan language fixed:** "answer in the user's language" was ignored by the 7B; wrappers now state `LANGUAGE OF YOUR ANSWER: TURKISH (yanıtı TÜRKÇE yaz)` outright. **`@` autocomplete:** typing `@` in either input pops matching project filenames; Enter picks, Esc closes. **Context compaction:** past 75 % window usage the worker quietly rebuilds its session with a summary note instead of degrading. **Vision post-mortem:** the infamous "663-character analysis cap" turned out to be a *misdiagnosis* — only the chat preview was sliced at 600 chars, the model always received the full analysis (preview now 1500 chars and says so); the recurring hallucinated `#007BFF` accent got a hard extraction rule — *colors may only be read from the image, template colors are forbidden, write "belirsiz" if unsure.* And the final open wound closed: models referencing non-existent `/assets/…` images. Two layers: a prompt rule (photos = seeded picsum URLs, icons = lucide, logos = styled text — and the old rule that *encouraged* mock asset folders was removed), plus a deterministic post-pass that rewrites any remaining broken reference to a placeholder while respecting files that actually exist or arrive via `[FETCH]`.
+
 
 ## Large-Model Verification
 
@@ -364,18 +429,31 @@ NexoraAIEnvironment/
 │   │   ├── index.ts          # app lifecycle, window, IPC registry
 │   │   ├── llamaService.ts   # inference-worker client (RPC over child-process IPC)
 │   │   ├── llamaWorker.ts    # ⭐ plain-Node inference worker (runs OUTSIDE Electron)
+│   │   │                     #    + context compaction at 75% window usage
 │   │   ├── agentService.ts   # workspace, shell, fetch, fonts, dev server, scaffold, export
 │   │   ├── visionService.ts  # vision sidecar: llama-server lifecycle, image analysis
+│   │   ├── sessionsService.ts# persistent chats (~/NexoraAI/Sessions/<id>.json)
+│   │   ├── rulesService.ts   # per-project KURALLAR.md read/write
+│   │   ├── advisorService.ts # CPU/RAM/GPU detection for the Hardware Advisor
 │   │   └── hfService.ts      # HuggingFace search + GGUF downloads
 │   ├── preload/index.ts      # typed contextBridge API (window.nexora)
 │   └── shared/
 │       ├── ipc.ts            # channel names + shared types
-│       └── prompts.ts        # profiles, compact/full prompts, agent hint, intent detection
+│       ├── prompts.ts        # profiles, compact/full prompts, agent hint, intent detection
+│       └── advisor.ts        # model catalog + RAM-tiered recommendation logic
 ├── src/
-│   ├── components/           # ChatPanel, ArtifactsPanel, FileTree, CodeEditor, ModelBrowser…
+│   ├── components/           # ChatPanel, ArtifactsPanel, Sidebar, FileTree, CodeEditor,
+│   │                         # ModelBrowser, WelcomeSetup (advisor), DiffModal,
+│   │                         # PermissionModal, SettingsModal
 │   ├── store/                # zustand stores (app / artifacts / settings / hf)
+│   ├── assets/appfont/       # embedded Inter (woff2, latin + latin-ext) — no CDN
 │   └── lib/
 │       ├── parseCode.ts      # streaming fence parser + SEARCH/REPLACE applier
+│       │                     #    + oversized-SEARCH watchdog + idempotent re-apply
+│       ├── contextSelect.ts  # smart-context file selector (mention/keyword/recency)
+│       ├── diff.ts           # dependency-free LCS line diff for the approval screen
+│       ├── assetFix.ts       # broken /assets reference → placeholder repair
+│       ├── formatCode.ts     # Prettier post-pass (lazy chunk)
 │       ├── agentActions.ts   # directive parsing + execution pipeline
 │       ├── visionIntent.ts   # build-vs-question classifier for attached images
 │       └── codeFixer.ts      # post-generation code fixes
@@ -389,16 +467,20 @@ NexoraAIEnvironment/
 | Layer | Technology |
 |---|---|
 | Shell | Electron 43, electron-vite, electron-builder (`.deb`) |
-| UI | React 18, TypeScript, Tailwind CSS, Zustand, CodeMirror 6, lucide icons |
-| Inference | node-llama-cpp 3 (llama.cpp), bundled Node 22 runtime, TokenBias sampling control |
-| Vision | llama.cpp `llama-server` + libmtmd sidecar, Qwen2.5-VL (auto-downloaded GGUF + mmproj) |
+| UI | React 18, TypeScript, Tailwind CSS (CSS-variable theme tokens, dark/light), Zustand, CodeMirror 6, lucide icons, embedded Inter font |
+| Inference | node-llama-cpp 3 (llama.cpp), bundled Node 22 runtime, TokenBias sampling control, context compaction |
+| Vision | llama.cpp `llama-server` + libmtmd sidecar, Qwen2.5-VL (auto-downloaded GGUF + mmproj, RAM-aware auto-upgrade) |
+| Post-processing | Prettier 3 (standalone, lazy-loaded), deterministic scaffold & asset repair |
 | Generated projects | Vite 5, React 18, TypeScript, Tailwind (scaffolded deterministically) |
 
 ## Roadmap
 
+Recently shipped (see the [Development Chronicle](#development-chronicle) for the full stories): hardware advisor · plan-first mode · prompt enhancement · smart context + `@` autocomplete · diff approval · permission system · persistent sessions · undo/redo timeline · project rules · custom commands · Prettier & asset repair post-passes · context compaction · dark/light theme system.
+
+Still ahead:
+
 - **Local image generation** — GGUF language models cannot generate images; a stable-diffusion.cpp integration could add fully-local asset generation for stronger machines.
 - **Hybrid API mode** — optional OpenAI-compatible / Anthropic endpoint support, so weak hardware can opt into cloud quality while keeping the local pipeline as default.
-- Session persistence (chat history + workspace across restarts).
 - GPU offload UX (layer slider, VRAM telemetry).
 - Windows/macOS packaging.
 - Multi-project management with named workspaces.
