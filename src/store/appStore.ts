@@ -104,7 +104,7 @@ interface AppState {
   loadModelPath: (path: string) => Promise<void>
   unloadModel: () => Promise<void>
   newSession: () => Promise<void>
-  sendMessage: (text: string, opts?: { expectFile?: string }) => Promise<void>
+  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
   setAutoApply: (v: boolean) => void
@@ -188,6 +188,112 @@ export function scheduleSessionSave(): void {
 }
 /** Otomatik yeniden deneme sayacı (en fazla 2; yeni hata olayında sıfırlanır). */
 let autoFixRounds = 0
+
+// Üretim-sonrası otomatik doğrulama (roadmap 2.3): her üretimden sonra
+// dokunulan dosyalar ANINDA denetlenir — katman 1 Babel sözdizimi (ms,
+// node_modules gerekmez), katman 2 tam vite derlemesi (yalnızca node_modules
+// kuruluysa; ilk üretimde arka planda dakikalarca npm install BAŞLATILMAZ).
+// Hata bulunursa en fazla 2 sessiz düzeltme turu döner; kullanıcı bir şey
+// yazmaz, teknik prompt görmez. Temizse sessiz kalınır.
+let postVerifyActive = false
+
+async function postGenVerify(
+  get: () => AppState,
+  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
+): Promise<void> {
+  if (postVerifyActive) return
+  postVerifyActive = true
+  try {
+    for (let round = 0; round < 3; round++) {
+      const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
+        path: f.path,
+        content: f.content
+      }))
+      if (all.length === 0) return
+
+      // Katman 1: anlık sözdizimi denetimi (hataların ezici çoğunluğu burada)
+      const { syntaxCheckFiles } = await import('@/lib/verifyCode')
+      const issues = await syntaxCheckFiles(all)
+      let diagnosis = ''
+      if (issues.length > 0) {
+        diagnosis =
+          'SYNTAX ERROR(S) — caught by the post-generation check, the project will not compile:\n\n' +
+          issues.map((i) => `File: ${i.path}\n${i.message}`).join('\n\n')
+      } else {
+        // Katman 2: tam derleme — yalnızca proje daha önce kurulduysa
+        try {
+          const { getProjectName } = await import('@/lib/agentActions')
+          const check = await window.nexora.agent.buildCheck({
+            projectName: getProjectName(),
+            files: all,
+            onlyIfInstalled: true
+          })
+          if (!check.ok && check.error) diagnosis = check.error
+        } catch {
+          /* denetim koşamadıysa sessizce geç — Çalıştır'daki denetim her zaman var */
+        }
+      }
+
+      if (!diagnosis) {
+        if (round > 0) {
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: '🩹 Üretim sonrası yakalanan hata otomatik giderildi — çıktı doğrulandı.'
+              }
+            ]
+          }))
+        }
+        return
+      }
+      if (round === 2) {
+        set((s) => ({
+          lastBuildError: diagnosis,
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: `⚠️ Üretim sonrası denetim: hata otomatik giderilemedi:\n${diagnosis
+                .split('\n')
+                .slice(0, 6)
+                .join('\n')}\n\n"düzelt" yazarak tekrar deneyebilir ya da Kod sekmesinden bakabilirsiniz.`
+            }
+          ]
+        }))
+        return
+      }
+      // Kullanıcı bu arada yeni bir tur başlattıysa araya girme.
+      if (get().sending) return
+      set((s) => ({
+        lastBuildError: diagnosis,
+        messages: [
+          ...s.messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: `🧪 Üretim sonrası denetim hata yakaladı — sessizce düzeltiliyor (${round + 1}/2)…`
+          }
+        ]
+      }))
+      await get().sendMessage(
+        'düzelt — üretimden hemen sonra yapılan otomatik denetim yukarıdaki hatayı yakaladı. Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.',
+        { hideUser: true }
+      )
+      // chat.send cozuldugunde done-handler'in uygulamasi bitmemis olabilir
+      // (IPC olay sirasi) — akis tamamen otursun, sonra yeniden denetle.
+      for (let w = 0; w < 50 && (get().sending || get().generating); w++) {
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      await new Promise((r) => setTimeout(r, 400))
+    }
+  } finally {
+    postVerifyActive = false
+  }
+}
 
 /** "Çalıştır" derleme denetimi hata yakalarsa chat'e bildirim düşür. */
 function ensureBuildErrorSub(set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void): void {
@@ -563,6 +669,10 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       // formatla (dinamik import — ana pakete binmez). Bozuk dosya olduğu
       // gibi kalır; SEARCH eşleşmeleri etkilenmez çünkü akış çoktan bitti.
       if (touchedPaths.length > 0) {
+        // Bu tur bir "düzelt" doğrulama turu mu? (pendingBuildVerify aşağıda
+        // tüketilmeden önce, senkron pasajda yakala — o akış kendi denetimini
+        // yapar, üretim-sonrası denetim ikinci kez koşmasın.)
+        const fixTurnVerify = pendingBuildVerify
         void (async () => {
           const { formatFileContent } = await import('@/lib/formatCode')
           for (const p of touchedPaths) {
@@ -572,6 +682,12 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             if (formatted) useArtifactsStore.getState().updateFile(p, formatted)
           }
           scheduleSessionSave()
+          // Üretim-sonrası otomatik doğrulama (roadmap 2.3): Prettier bittikten
+          // SONRA — düzeltme turu, formatlanmış içerikle yarışmasın. Planlı
+          // üretimde dosya başına değil, dizinin sonunda bir kez koşar.
+          if (!fixTurnVerify && !postVerifyActive && !plannedBuildActive) {
+            void postGenVerify(get, set)
+          }
         })()
       }
 
@@ -1089,6 +1205,11 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       ]
     }))
     scheduleSessionSave()
+    // Roadmap 2.3: dosya basina degil, dizinin SONUNDA bir dogrulama gecisi —
+    // dosyalar arasi tutarsizliklar da (eksik import vb.) burada yakalanir.
+    if (!plannedBuildAbort && built > 0) {
+      void postGenVerify(get, set)
+    }
   },
 
   cancelPlan: () => set({ planPending: null }),
@@ -1102,7 +1223,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     set({ enhancePrompts: v })
   },
 
-  sendMessage: async (text: string, opts?: { expectFile?: string }) => {
+  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean }) => {
     const trimmed = text.trim()
     if (!trimmed || get().sending) return
     if (!get().modelInfo) {
@@ -1197,7 +1318,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Görsel akışında kullanıcı mesajı (🖼 adıyla) yukarıda zaten eklendi.
     // Planlı dosya turlarının teknik prompt'u sohbeti kirletmesin: kullanıcı
     // balonu gösterilmez (görsel-analiz akışıyla aynı yaklaşım).
-    const userMsg: ChatMessage | null = visionAnalysis || opts?.expectFile
+    const userMsg: ChatMessage | null = visionAnalysis || opts?.expectFile || opts?.hideUser
       ? null
       : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
@@ -1279,7 +1400,7 @@ Bu analizi tasarım rehberi olarak uygula. ÖNEMLİ: Kullanıcının isteğinde 
 ${buildErr}
 === END BUILD ERROR ===`
       set({ lastBuildError: null })
-      pendingBuildVerify = true
+      if (!postVerifyActive) pendingBuildVerify = true
     }
 
     // Yanıt dili açık yazılır — "kullanıcının dili" talimatına 7B uymuyordu.

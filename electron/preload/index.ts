@@ -97,7 +97,7 @@ export interface NexoraApi {
     font: (input: AgentFontInput) => Promise<AgentFontResult>
     devStart: (input: AgentDevInput) => Promise<AgentDevResult>
     devStop: () => Promise<{ ok: boolean }>
-    buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string }>
+    buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string; skipped?: boolean }>
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
     onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
   }

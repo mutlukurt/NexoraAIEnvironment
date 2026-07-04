@@ -713,11 +713,20 @@ export function getDevUrl(): string | null {
 export interface BuildCheckResult {
   ok: boolean
   error?: string
+  /** node_modules kurulu olmadığı için tam derleme atlandı (onlyIfInstalled). */
+  skipped?: boolean
 }
 
-export async function buildCheck(projectName: string): Promise<BuildCheckResult> {
+export async function buildCheck(projectName: string, onlyIfInstalled?: boolean): Promise<BuildCheckResult> {
   const dir = workspaceDir(projectName)
   if (!existsSync(join(dir, 'package.json'))) return { ok: true } // statik proje: derleme yok
+
+  // Üretim-sonrası sessiz denetim (roadmap 2.3): node_modules kurulu değilse
+  // arka planda dakikalarca npm install BAŞLATMA — hızlı sözdizimi katmanı
+  // (renderer, Babel) zaten koştu; tam derleme ilk Çalıştır'a kalır.
+  if (onlyIfInstalled && !existsSync(join(dir, 'node_modules'))) {
+    return { ok: true, skipped: true }
+  }
 
   const res = await runCommand(projectName, 'npx vite build --logLevel error', 240_000)
   if (res.ok) return { ok: true }

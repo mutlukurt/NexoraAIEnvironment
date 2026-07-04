@@ -282,7 +282,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.AGENT_BUILD_CHECK, async (_e, input: AgentDevInput) => {
     // "düzelt" turundan sonra doğrulama: güncel dosyaları senkronla ve derle
     await syncWorkspace(input.projectName, input.files)
-    return buildCheck(input.projectName)
+    return buildCheck(input.projectName, input.onlyIfInstalled)
   })
 
   ipcMain.handle(IPC.AGENT_DEV_STOP, async () => {

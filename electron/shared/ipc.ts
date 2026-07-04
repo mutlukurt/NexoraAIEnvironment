@@ -218,6 +218,8 @@ export interface AgentFontResult {
 export interface AgentDevInput {
   projectName: string
   files: Array<{ path: string; content: string }>
+  /** buildCheck için: node_modules kurulu değilse tam derlemeyi atla (2.3). */
+  onlyIfInstalled?: boolean
 }
 
 export interface AgentDevResult {
