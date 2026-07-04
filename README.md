@@ -507,13 +507,12 @@ NexoraAIEnvironment/
 
 Recently shipped (see the [Development Chronicle](#development-chronicle) for the full stories): hardware advisor · plan-first mode · prompt enhancement · smart context + `@` autocomplete · diff approval · permission system · persistent sessions · undo/redo timeline · project rules · custom commands · Prettier & asset repair post-passes · context compaction · dark/light theme system.
 
-Still ahead:
+Still ahead — the full phased plan now lives in **[ROADMAP.md](ROADMAP.md)**. In one breath:
 
-- **Local image generation** — GGUF language models cannot generate images; a stable-diffusion.cpp integration could add fully-local asset generation for stronger machines.
-- **Hybrid API mode** — optional OpenAI-compatible / Anthropic endpoint support, so weak hardware can opt into cloud quality while keeping the local pipeline as default.
-- GPU offload UX (layer slider, VRAM telemetry).
-- Windows/macOS packaging.
-- Multi-project management with named workspaces.
+1. **Engine** (v0.10.x) — flash attention + KV cache quantization, partial GPU offload with a layer slider, per-phase sampler presets, and migrating inference to `llama-server` for prompt caching and speculative decoding.
+2. **Making small models masters** (v0.11.x) — grammar-enforced edit blocks, plan → file-by-file generation, auto-verify after every generation, a parametric section template bank.
+3. **An agent with eyes** (v0.12.x) — import existing projects, runtime error capture, visual self-review via the vision model, git-based history.
+4. **Productization** (v1.0) — hybrid API mode, Windows/macOS packaging, multi-project workspaces, local model benchmarking, stable-diffusion.cpp image generation.
 
 ## License
 
