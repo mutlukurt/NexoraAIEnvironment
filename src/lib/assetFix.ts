@@ -53,3 +53,20 @@ export function fixBrokenAssetRefs(
   })
   return { content: out, fixed }
 }
+
+/**
+ * Kod dosyasina sizan agent-direktifi satirlarini SIL (roadmap canli-test
+ * bulgusu): model "[FONT] import ..." gibi satirlari dosya icine yazabiliyor;
+ * duzeltme turlari bunlari yorumlayip duruyor (her turda bir "// " daha) ve
+ * dosya asla derlenmiyor. Direktifler zaten uretimin tam metninden ayristirilip
+ * YURUTULUYOR — dosyada isleri yok. Yorumlanmis kopyalari da temizler.
+ */
+const STRAY_DIRECTIVE_RE = /^\s*(?:\/\/\s*)*\[(?:PKG|FONT|FETCH|RUN|DEV)\]/
+const CODE_EXT_RE = /\.(tsx|ts|jsx|js|mjs|cjs|css|html)$/i
+
+export function stripStrayDirectiveLines(path: string, content: string): { content: string; removed: number } {
+  if (!CODE_EXT_RE.test(path)) return { content, removed: 0 }
+  const lines = content.split('\n')
+  const kept = lines.filter((l) => !STRAY_DIRECTIVE_RE.test(l))
+  return { content: kept.join('\n'), removed: lines.length - kept.length }
+}

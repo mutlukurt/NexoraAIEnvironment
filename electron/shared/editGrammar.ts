@@ -91,9 +91,16 @@ ws ::= "\\n" [\\n]*`
  */
 export function buildPlanGrammar(): string {
   const lines = rep('pline', 2, 10)
+  // fpath SEGMENT yapılıdır (en çok 3 klasör + ad + zorunlu uzantı; klasörde
+  // nokta yok, adda en çok bir iç nokta): serbest [A-Za-z0-9._@/-]+ deseni
+  // canlıda "favicon.ico/png/svg/jpg/..." tekrar spiraline izin veriyordu —
+  // segment yapısında spiral üretilemez. (Opsiyonel zincir segment/satır
+  // düzeyinde güvenlidir; karakter düzeyinde durum patlatır — npath dersi.)
   return `root ::= ${lines}
 pline ::= num ". " fpath sep [^\\n]+ "\\n"
 num ::= [1-9] | "1" [0-2]
 sep ::= " — " | " - " | " – " | ": "
-fpath ::= [A-Za-z0-9._@/-]+ "." ("tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg")`
+fpath ::= dseg? dseg? dseg? fname
+dseg ::= [A-Za-z0-9_@-]+ "/"
+fname ::= [A-Za-z0-9_@-]+ ("." [A-Za-z0-9_@-]+)? "." ("tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg")`
 }

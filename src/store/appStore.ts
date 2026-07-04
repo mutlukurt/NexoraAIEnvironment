@@ -15,7 +15,7 @@ import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
 import { selectContextFiles } from '@/lib/contextSelect'
 import { findSectionTemplate } from '@/lib/sectionTemplates'
-import { fixBrokenAssetRefs } from '@/lib/assetFix'
+import { fixBrokenAssetRefs, stripStrayDirectiveLines } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
@@ -198,14 +198,63 @@ let autoFixRounds = 0
 // yazmaz, teknik prompt görmez. Temizse sessiz kalınır.
 let postVerifyActive = false
 
+/**
+ * TIRMANMA (canli-test bulgusu): cerrahi duzeltme turlari yakinsamadiginda
+ * (ornek: fonksiyon basligi kaybolmus 24 satirlik App.tsx — model semptomu
+ * yamalayip duruyor) hatali dosyayi expectFile grameriyle KOMPLE yeniden
+ * urettir. Tek dosyalik temiz uretim yapisal olarak yakinsar; tam yeniden
+ * yazim yasagi bu OZEL turda gecerli degildir cunku cikti gramerle tam o
+ * dosyaya kilitlidir ve otomatik uygulanir.
+ */
+async function regenerateBrokenFile(
+  diagnosis: string,
+  get: () => AppState,
+  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
+): Promise<boolean> {
+  const m = diagnosis.match(/([\w./-]+\.(?:tsx|ts|jsx|js|css|html))/)
+  const path = m?.[1]?.replace(/^\.\//, '')
+  const file = path ? useArtifactsStore.getState().files[path] : undefined
+  if (!path || !file || file.content.length > 12000) return false
+  set((s) => ({
+    messages: [
+      ...s.messages,
+      { id: nanoid(), role: 'assistant', content: `♻️ Nokta düzeltmeler yetmedi — ${path} baştan üretiliyor…` }
+    ]
+  }))
+  const prompt = `The file ${path} does NOT compile. Build error:
+${diagnosis.split('\n').slice(0, 8).join('\n')}
+
+Current BROKEN content of ${path}:
+--- ${path} ---
+${file.content}
+--- end ---
+
+Rewrite ${path} from scratch as ONE complete, correct file: keep the intended imports/sections/behavior, fix the structural problem (e.g. missing function declaration, unbalanced braces). Output EXACTLY ONE fenced code block for ${path}.`
+  const wasActive = plannedBuildActive
+  plannedBuildActive = true // bu turun ciktisi dogrudan uygulansin
+  try {
+    await get().sendMessage(prompt, { expectFile: path })
+  } finally {
+    plannedBuildActive = wasActive
+  }
+  for (let w = 0; w < 60 && (get().sending || get().generating); w++) {
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  await new Promise((r) => setTimeout(r, 500))
+  const after = useArtifactsStore.getState().files[path]
+  return !!after && after.content.trim().length >= 30 && after.content !== file.content
+}
+
+
 async function postGenVerify(
   get: () => AppState,
   set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
 ): Promise<void> {
   if (postVerifyActive) return
   postVerifyActive = true
+  let regenerated = false
   try {
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; round < 4; round++) {
       const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
         path: f.path,
         content: f.content
@@ -250,7 +299,13 @@ async function postGenVerify(
         }
         return
       }
-      if (round === 2) {
+      if (round >= 2) {
+        // Cerrahi turlar tukendi: dosyayi (bir kez) komple yeniden urettir,
+        // dongu son kontrolu yapar; o da olmazsa durustce raporla.
+        if (!regenerated && !get().sending && (await regenerateBrokenFile(diagnosis, get, set))) {
+          regenerated = true
+          continue
+        }
         set((s) => ({
           lastBuildError: diagnosis,
           messages: [
@@ -660,7 +715,13 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         for (const p of touchedPaths) {
           const f = useArtifactsStore.getState().files[p]
           if (!f) continue
-          const r = fixBrokenAssetRefs(f.content, existingPaths, fetchTargets)
+          // Once direktif copunu sil (dosyaya sizan [FONT]/[PKG]... satirlari
+          // — yorumlanmis kopyalar dahil), sonra gorsel referans onarimi.
+          const stripped = stripStrayDirectiveLines(p, f.content)
+          if (stripped.removed > 0) {
+            useArtifactsStore.getState().updateFile(p, stripped.content)
+          }
+          const r = fixBrokenAssetRefs(stripped.content, existingPaths, fetchTargets)
           if (r.fixed > 0) {
             useArtifactsStore.getState().updateFile(p, r.content)
             fixedTotal += r.fixed
@@ -807,17 +868,42 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               'düzelt — önceki düzeltme hatayı gidermedi. Hata satırındaki değil, ASIL nedeni bul: kapanmamış tırnak/parantez/JSX etiketi genellikle hata satırının YUKARISINDADIR. Dosyayı dikkatle tara.'
             )
           } else if (check.error) {
-            set((s) => ({
-              lastBuildError: check.error ?? null,
-              messages: [
-                ...s.messages,
-                {
-                  id: nanoid(),
-                  role: 'assistant',
-                  content: `⚠️ Otomatik denemelere rağmen derleme hatası sürüyor:\n\n${check.error.split('\n').slice(0, 6).join('\n')}\n\nKod sekmesinden ilgili dosyaya bakıp chat'te daha net tarif edebilirsiniz.`
+            // Son tirmanma: hatali dosyayi komple yeniden urettir ve derlemeyi
+            // bir kez daha dogrula (canli-test bulgusu: nokta yamalar bazen
+            // yapisal hatada yakinsamiyor).
+            const err = check.error
+            void (async () => {
+              if (await regenerateBrokenFile(err, get, set)) {
+                const files2 = Object.values(useArtifactsStore.getState().files).map((f) => ({
+                  path: f.path,
+                  content: f.content
+                }))
+                const again = await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: files2 })
+                if (again.ok) {
+                  autoFixRounds = 0
+                  set((s) => ({
+                    lastBuildError: null,
+                    messages: [
+                      ...s.messages,
+                      { id: nanoid(), role: 'assistant', content: '✅ Dosya baştan üretildi — derleme hatası giderildi.' }
+                    ]
+                  }))
+                  return
                 }
-              ]
-            }))
+                set((s) => ({ lastBuildError: again.error ?? null }))
+              }
+              set((s) => ({
+                lastBuildError: s.lastBuildError ?? err,
+                messages: [
+                  ...s.messages,
+                  {
+                    id: nanoid(),
+                    role: 'assistant',
+                    content: `⚠️ Otomatik denemelere rağmen derleme hatası sürüyor:\n\n${(get().lastBuildError ?? err).split('\n').slice(0, 6).join('\n')}\n\nKod sekmesinden ilgili dosyaya bakıp chat'te daha net tarif edebilirsiniz.`
+                  }
+                ]
+              }))
+            })()
           }
         })()
       }
@@ -1439,7 +1525,7 @@ N. <file path> — <one-line description>
 Example:
 1. src/lib/data.ts — typed content model: menu items, reviews, site copy
 2. src/components/Hero.tsx — hero section with headline and CTA
-Rules: real file paths with extensions; foundations first (css, lib/data), components in the middle, the entry file (src/App.tsx) LAST. Descriptions in ${answerLang}. Nothing else — no headings, no prose.
+Rules: real SOURCE file paths with extensions (.tsx/.ts/.css/.html/.json only). NEVER plan asset or image files (no favicon, png, jpg, images/ folders). Foundations first (css, lib/data), components in the middle, the entry file (src/App.tsx) LAST. Descriptions in ${answerLang}. Nothing else — no headings, no prose.
 ${pathList ? 'Existing project files: ' + pathList + '\n' : ''}User request: ${trimmed}`
     }
 
