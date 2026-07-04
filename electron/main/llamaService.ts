@@ -158,7 +158,13 @@ export async function chat(
 
   // Proje türüne duyarlı prompt: açık bir sinyal ("electron app", "next.js site"…)
   // mimari profilini değiştirir; yoksa mevcut profil yapışkan kalır.
-  const detected = detectProfile(input.prompt)
+  // YALNIZCA yeni-istek turlarında: iterasyon/düzelt turunda profil KİLİTLİDİR —
+  // canlı testte otomatik hata metnindeki bir kelime profili React Native'e
+  // çevirip düzeltme turlarını zehirledi (model 'mobil uygulama yaz' talimatıyla
+  // web dosyası yamamaya çalıştı).
+  const isIterationTurn =
+    (input.currentFiles && input.currentFiles.length > 0) || !!input.expectFile || !!input.expectPlan
+  const detected = isIterationTurn ? null : detectProfile(input.prompt)
   if (detected && detected.id !== activeProfileId) {
     activeProfileId = detected.id
     console.log('[NexoraAI] prompt profile ->', getProfile(activeProfileId).label)
