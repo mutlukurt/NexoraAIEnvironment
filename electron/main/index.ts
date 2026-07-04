@@ -367,6 +367,23 @@ void app.whenReady().then(async () => {
       const t2 = Date.now()
       const full2 = await chat({ prompt: 'What is my favorite fruit? One word.', options: { maxTokens: 8, temperature: 0 } }, (t) => process.stdout.write(t))
       console.log(`\n[selftest] turn2 answer="${full2.trim()}" (${Date.now() - t2}ms)`)
+      // UPDATE turu: gramerli cerrahi düzenleme hattı (roadmap 2.1)
+      if (process.env['NEXORA_SELFTEST_UPDATE'] === '1') {
+        const demo = `export default function App() {\n  return (\n    <div>\n      <h1>Fırın Luna</h1>\n      <p>Taze ekmek</p>\n    </div>\n  )\n}\n`
+        const t3 = Date.now()
+        const full3 = await chat(
+          {
+            prompt: 'Başlıktaki "Fırın Luna" yazısını "Luna Bakery" yap.',
+            currentFiles: [{ path: 'src/App.tsx', content: demo }],
+            options: { maxTokens: 200, temperature: 0.2 }
+          },
+          () => {}
+        )
+        const hasEdit = /```edit src\/App\.tsx\n<<<<<<< SEARCH\n/.test(full3)
+        const searchSizes = [...full3.matchAll(/<<<<<<< SEARCH\n([\s\S]*?)=======\n/g)].map((m) => m[1].split('\n').length - 1)
+        console.log(`[selftest] update-turn: editBlock=${hasEdit} searchLines=[${searchSizes.join(',')}] (${Date.now() - t3}ms)`)
+        console.log('[selftest] update-output:\n' + full3.slice(0, 400))
+      }
     } catch (err) {
       console.error('[selftest] FAILED', (err as Error).message)
     } finally {

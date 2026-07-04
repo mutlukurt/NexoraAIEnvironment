@@ -382,6 +382,7 @@ async function chatRequest(
   if (typeof options?.maxTokens === 'number') body.max_tokens = options.maxTokens
   if (onToken) body.stream_options = { include_usage: true }
   if (banCjk && cjkBias) body.logit_bias = cjkBias
+  if (options?.grammar) body.grammar = options.grammar
 
   const res = await fetch(baseUrl + '/v1/chat/completions', {
     method: 'POST',
@@ -558,7 +559,24 @@ export const serverEngine: InferenceEngine = {
     const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: promptText }]
     abortCtl = new AbortController()
     try {
-      const r = await chatRequest(messages, options, !CJK_RE.test(promptText), onToken, abortCtl.signal)
+      let streamedAny = false
+      const countingToken = (t: string) => {
+        streamedAny = true
+        onToken(t)
+      }
+      let r
+      try {
+        r = await chatRequest(messages, options, !CJK_RE.test(promptText), countingToken, abortCtl.signal)
+      } catch (err) {
+        // Bozuk gramer üretimi KİLİTLEMESİN: sunucu daha token akıtmadan
+        // hata verdiyse (tipik: gramer 400'ü) bir kez gramersiz dene.
+        if (options?.grammar && !streamedAny && (err as Error).name !== 'AbortError') {
+          console.warn('[llamaServerEngine] gramerli istek reddedildi, gramersiz yeniden deneniyor:', (err as Error).message)
+          r = await chatRequest(messages, { ...options, grammar: undefined }, !CJK_RE.test(promptText), onToken, abortCtl.signal)
+        } else {
+          throw err
+        }
+      }
       // Kısmi çıktı da geçmiğe girer: tokenlar üretildi ve kullanıcı gördü.
       history.push({ role: 'user', content: promptText })
       history.push({ role: 'assistant', content: r.text })

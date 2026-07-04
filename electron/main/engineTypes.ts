@@ -35,6 +35,11 @@ export interface PromptOptions {
   temperature?: number
   topP?: number
   maxTokens?: number
+  /**
+   * GBNF grameri (yalnızca server motoru uygular; worker yok sayar —
+   * orada renderer'daki streaming watchdog korumaya devam eder).
+   */
+  grammar?: string
 }
 
 export interface InferenceEngine {

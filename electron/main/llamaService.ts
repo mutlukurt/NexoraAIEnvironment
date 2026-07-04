@@ -21,9 +21,10 @@ import {
   detectAgentIntent,
   AGENT_HINT
 } from '../shared/prompts'
-import type { InferenceEngine, LoadProgressCallback } from './engineTypes'
+import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
+import { buildEditGrammar } from '../shared/editGrammar'
 
 export type { LoadProgressCallback } from './engineTypes'
 
@@ -205,6 +206,7 @@ Rules:
 3. A COMPLETE file (normal \`\`\`tsx path format) is allowed ONLY for a brand NEW file that does not exist yet. Rewriting an EXISTING file in full is automatically REJECTED — it will never be applied; generation gets cut off.
 4. Do not output unchanged files. No explanations outside blocks.
 5. If the request reports an error or bug, locate the cause in the files above and fix it with a small edit block.
+6. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>
 ==================================================`
   }
 
@@ -215,7 +217,19 @@ Rules:
     prompt += '\n\n' + AGENT_HINT
   }
 
-  return engine!.prompt(prompt, input.options, onChunk)
+  // UPDATE turunda GBNF grameri (roadmap 2.1): cerrahi düzenleme formatı
+  // örnekleyici seviyesinde zorlanır — SEARCH ≤12 satır, hedef yol yalnızca
+  // gerçekten var olan dosyalar. Server motoru uygular; worker yok sayar.
+  const options: PromptOptions = { ...(input.options ?? {}) }
+  if (input.currentFiles && input.currentFiles.length > 0) {
+    const allPaths = [
+      ...input.currentFiles.map((f) => f.path),
+      ...(input.otherPaths ?? [])
+    ]
+    options.grammar = buildEditGrammar(allPaths)
+  }
+
+  return engine!.prompt(prompt, options, onChunk)
 }
 
 export async function abortChat(): Promise<void> {

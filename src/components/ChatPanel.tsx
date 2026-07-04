@@ -129,12 +129,14 @@ function AssistantMessage({
   // Code NEVER renders in chat — prose + per-file progress only (Bolt style).
   const { text, files: parsedFiles } = parseStreaming(content, { final: !streaming })
   // Direktif satırları ([RUN]/[FONT]…) balonda gizlenir; sonuçları ayrı eylem
-  // günlüğü mesajında gösterilir.
+  // günlüğü mesajında gösterilir. "ANSWER: " öneki gramerin soru-kaçışıdır
+  // (bkz. editGrammar.ts) — kullanıcıya gösterilmez.
   const prose = text
     .split('\n')
     .filter((l) => !DIRECTIVE_LINE_RE.test(l))
     .join('\n')
     .trim()
+    .replace(/^ANSWER:\s*/, '')
 
   // Dedupe by path (a rewritten file keeps its latest state), preserve order.
   const byPath = new Map<string, { path: string; complete: boolean; edited: boolean; editLive?: { blocks: number; phase: 'search' | 'replace' } }>()
