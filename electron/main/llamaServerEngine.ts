@@ -521,8 +521,12 @@ export const serverEngine: InferenceEngine = {
 
     // Bağlam sıkıştırma (worker ile aynı eşik): %75 üstünde geçmiş, modele
     // özetletilip sıfırlanır — özet yeni ilk mesajın notuna gömülür.
+    // ÖNEMLİ: yalnızca geçmiş dolulukla değil, GELEN istemin tahmini yüküyle
+    // birlikte bakılır — canlı testte 12k'lık geçmişe 4.5k'lık UPDATE istemi
+    // binince sunucu 400 (exceed_context_size) döndürmüştü.
     let promptText = text
-    if (ctxUsed > ctxSize * 0.75) {
+    const incomingEst = Math.ceil(text.length / 3) + 64
+    if (history.length > 0 && ctxUsed + incomingEst > ctxSize * 0.75) {
       console.log(`[llamaServerEngine] bağlam doldu (${ctxUsed}/${ctxSize}) — geçmiş özetlenip sıfırlanıyor`)
       let summary = ''
       if (ctxUsed < ctxSize - 600) {
@@ -568,10 +572,29 @@ export const serverEngine: InferenceEngine = {
       try {
         r = await chatRequest(messages, options, !CJK_RE.test(promptText), countingToken, abortCtl.signal)
       } catch (err) {
-        // Bozuk gramer üretimi KİLİTLEMESİN: sunucu daha token akıtmadan
-        // hata verdiyse (tipik: gramer 400'ü) bir kez gramersiz dene.
-        if (options?.grammar && !streamedAny && (err as Error).name !== 'AbortError') {
-          console.warn('[llamaServerEngine] gramerli istek reddedildi, gramersiz yeniden deneniyor:', (err as Error).message)
+        const emsg = (err as Error).message ?? ''
+        const aborted = (err as Error).name === 'AbortError'
+        if (!streamedAny && !aborted && /exceed.*context|context.*size/i.test(emsg)) {
+          // Tahmin yetmedi ve sunucu bağlam taşması bildirdi: geçmişi özetsiz
+          // boşalt (özet isteyecek yer de yok) ve bir kez daha dene.
+          console.warn('[llamaServerEngine] bağlam taştı — geçmiş boşaltılıp yeniden deneniyor:', emsg.slice(0, 120))
+          history = []
+          ctxUsed = 0
+          if (!promptText.startsWith('[NOTE:')) {
+            promptText =
+              '[NOTE: earlier conversation was dropped due to context limits; this message is the source of truth.]\n\n' + text
+          }
+          r = await chatRequest(
+            [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptText }],
+            options,
+            !CJK_RE.test(promptText),
+            onToken,
+            abortCtl.signal
+          )
+        } else if (options?.grammar && !streamedAny && !aborted) {
+          // Bozuk gramer üretimi KİLİTLEMESİN: sunucu daha token akıtmadan
+          // hata verdiyse (tipik: gramer 400'ü) bir kez gramersiz dene.
+          console.warn('[llamaServerEngine] gramerli istek reddedildi, gramersiz yeniden deneniyor:', emsg)
           r = await chatRequest(messages, { ...options, grammar: undefined }, !CJK_RE.test(promptText), onToken, abortCtl.signal)
         } else {
           throw err
