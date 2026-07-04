@@ -226,7 +226,9 @@ export default function Sidebar() {
                   {fmtBytes(modelInfo.sizeBytes)} ·{' '}
                   {modelInfo.gpuLayers > 0
                     ? `GPU ${modelInfo.gpuLayers}/${modelInfo.totalLayers}`
-                    : 'CPU'}{' '}
+                    : modelInfo.gpuLayers === -1
+                      ? 'GPU (oto)'
+                      : 'CPU'}{' '}
                   · {modelInfo.contextSize} ctx
                 </p>
               </div>

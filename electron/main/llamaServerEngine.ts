@@ -1,0 +1,593 @@
+/**
+ * llama-server motoru — VARSAYILAN çıkarım motoru (roadmap 1.5).
+ *
+ * llama.cpp'nin resmi sunucusu ayrı bir süreçte koşar; bu modül onu yönetir
+ * ve OpenAI-uyumlu /v1/chat/completions ucuyla konuşur. node-llama-cpp
+ * worker'ına göre kazandırdıkları:
+ *
+ *  - PROMPT CACHE: aynı öneke sahip istekler yeniden işlenmez (canlı ölçüm:
+ *    7.7k tokenlik önek 23.5s → 0.14s), --cache-reuse ile önek bozulsa bile
+ *    değişmeyen parçalar KV kaydırmayla geri kazanılır — iterasyonun asıl
+ *    bekleme maliyeti kalkar.
+ *  - Paralel slotlar (gelecek: vision + kod aynı anda, speculative decoding).
+ *  - GPU'lu sürüm (Vulkan/Metal) otomatik indirilir; -ngl auto sunucu
+ *    tarafında VRAM'e sığdırır.
+ *
+ * Sohbet geçmişi bu modülde tutulur (sunucu durumsuzdur): her istek tam
+ * messages listesiyle gider; sunucu önbelleği ortak öneki yakalar.
+ * CJK yasağı istek başına logit_bias ile uygulanır (kimlikler cjkScan.js
+ * ile ayrı süreçte, ağırlık yüklemeden çıkarılır ve diske önbellenir).
+ */
+import { spawn, type ChildProcess } from 'child_process'
+import { join, dirname, basename } from 'path'
+import { homedir, freemem } from 'os'
+import { existsSync } from 'fs'
+import { mkdir, readFile, writeFile, rename, rm, stat } from 'fs/promises'
+import { createServer } from 'net'
+import type {
+  EngineLoadOptions,
+  EngineLoadResult,
+  InferenceEngine,
+  PromptOptions
+} from './engineTypes'
+import { findNodeBinary } from './llamaWorkerEngine'
+
+const BIN_TAG = 'b9870'
+const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
+const CACHE_DIR = join(homedir(), 'NexoraAI', 'cache')
+const HOST = '127.0.0.1'
+/** Vision sidecar 8091 kullanır — ona dokunma. */
+const AVOID_PORTS = new Set([8091])
+
+// llamaWorker.ts / cjkScan.ts ile birebir aynı aralıklar.
+const CJK_RE = /[　-〿぀-ヿ㐀-䶿一-鿿豈-﫿＀-￯가-힯]/
+
+interface ChatMsg {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+let proc: ChildProcess | null = null
+let baseUrl = ''
+let systemPrompt = ''
+let history: ChatMsg[] = []
+let ctxSize = 4096
+let ctxUsed = 0
+let cjkBias: Record<number, number> | null = null
+let abortCtl: AbortController | null = null
+let loadedPath = ''
+let procLog = ''
+
+// ---------------------------------------------------------------------------
+// Binary edinme: GPU istendiyse GPU'lu sürüm (Vulkan/Metal) tercih edilir;
+// vision'ın CPU binary'si her platformda son çare olarak iş görür.
+// ---------------------------------------------------------------------------
+
+interface BinaryCandidate {
+  dir: string
+  asset: string | null // null = indirilemez, yalnızca varsa kullanılır
+  gpuCapable: boolean
+}
+
+function binaryCandidates(wantGpu: boolean): BinaryCandidate[] {
+  const base = `https://github.com/ggml-org/llama.cpp/releases/download/${BIN_TAG}/llama-${BIN_TAG}-bin-`
+  const out: BinaryCandidate[] = []
+  if (process.platform === 'linux' && process.arch === 'x64') {
+    if (wantGpu) out.push({ dir: `llama-${BIN_TAG}-vulkan`, asset: base + 'ubuntu-vulkan-x64.tar.gz', gpuCapable: true })
+    out.push({ dir: `llama-${BIN_TAG}`, asset: base + 'ubuntu-x64.tar.gz', gpuCapable: false })
+  } else if (process.platform === 'darwin') {
+    // macOS paketi Metal içerir — tek binary hem CPU hem GPU.
+    const asset = base + (process.arch === 'arm64' ? 'macos-arm64.tar.gz' : 'macos-x64.tar.gz')
+    out.push({ dir: `llama-${BIN_TAG}`, asset, gpuCapable: true })
+  } else if (process.platform === 'win32' && process.arch === 'x64') {
+    if (wantGpu) out.push({ dir: `llama-${BIN_TAG}-vulkan`, asset: base + 'win-vulkan-x64.zip', gpuCapable: true })
+    out.push({ dir: `llama-${BIN_TAG}`, asset: base + 'win-cpu-x64.zip', gpuCapable: false })
+  }
+  return out
+}
+
+function serverBin(dir: string): string {
+  const name = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  return join(BIN_ROOT, dir, name)
+}
+
+async function downloadTo(url: string, dest: string): Promise<void> {
+  const res = await fetch(url, { redirect: 'follow' })
+  if (!res.ok || !res.body) throw new Error(`indirilemedi (HTTP ${res.status})`)
+  await mkdir(dirname(dest), { recursive: true })
+  const tmp = dest + '.part'
+  const { createWriteStream } = await import('fs')
+  const { Readable } = await import('stream')
+  const { pipeline } = await import('stream/promises')
+  await pipeline(Readable.fromWeb(res.body as never), createWriteStream(tmp))
+  await rename(tmp, dest)
+}
+
+async function extractArchive(archive: string, destDir: string): Promise<void> {
+  await mkdir(destDir, { recursive: true })
+  // Release arşivlerinde tek üst klasör var (llama-bXXXX/): strip 1.
+  const cmd =
+    archive.endsWith('.zip')
+      ? `tar -xf "${archive}" -C "${destDir}" --strip-components=1`
+      : `tar xzf "${archive}" -C "${destDir}" --strip-components=1`
+  await new Promise<void>((res, rej) => {
+    const p = spawn(cmd, { shell: true })
+    p.on('close', (c) => (c === 0 ? res() : rej(new Error('arşiv açılamadı'))))
+    p.on('error', rej)
+  })
+}
+
+/** Kullanılabilir bir llama-server binary'si döndür (gerekirse indir). */
+async function ensureBinary(wantGpu: boolean): Promise<{ bin: string; gpuCapable: boolean }> {
+  const candidates = binaryCandidates(wantGpu)
+  if (candidates.length === 0) throw new Error('Bu platform için hazır llama-server paketi yok.')
+  // Önce diskte hazır olan
+  for (const c of candidates) {
+    if (existsSync(serverBin(c.dir))) return { bin: serverBin(c.dir), gpuCapable: c.gpuCapable }
+  }
+  // Yoksa sırayla indirmeyi dene
+  let lastErr: Error | null = null
+  for (const c of candidates) {
+    if (!c.asset) continue
+    try {
+      console.log('[llamaServerEngine] binary indiriliyor:', c.asset)
+      const archive = join(BIN_ROOT, 'engine-download' + (c.asset.endsWith('.zip') ? '.zip' : '.tar.gz'))
+      await downloadTo(c.asset, archive)
+      await extractArchive(archive, join(BIN_ROOT, c.dir))
+      await rm(archive, { force: true })
+      if (existsSync(serverBin(c.dir))) return { bin: serverBin(c.dir), gpuCapable: c.gpuCapable }
+    } catch (err) {
+      lastErr = err as Error
+      console.warn('[llamaServerEngine] binary edinilemedi:', lastErr.message)
+    }
+  }
+  throw new Error('llama-server edinilemedi' + (lastErr ? `: ${lastErr.message}` : ''))
+}
+
+// ---------------------------------------------------------------------------
+// Model metadata (yükleme YOK — saf GGUF başlık okuması)
+// ---------------------------------------------------------------------------
+
+interface GgufMeta {
+  paramCount: number | null
+  blockCount: number | null
+  trainCtx: number
+}
+
+async function readMeta(path: string): Promise<GgufMeta> {
+  try {
+    const m = await import('node-llama-cpp')
+    const info = await m.readGgufFileInfo(path)
+    const md = info.metadata as unknown as Record<string, Record<string, unknown>>
+    const general = md.general ?? {}
+    let paramCount: number | null = null
+    if (typeof general.parameter_count === 'number') paramCount = general.parameter_count as number
+    else if (typeof general.size_label === 'string') {
+      const mm = (general.size_label as string).match(/([\d.]+)\s*B/i)
+      if (mm) paramCount = Math.round(parseFloat(mm[1]) * 1e9)
+    }
+    const arch = general.architecture as string | undefined
+    const archMd = arch ? (md[arch] ?? {}) : {}
+    const blockCount = typeof archMd.block_count === 'number' ? (archMd.block_count as number) : null
+    const trainCtx = typeof archMd.context_length === 'number' ? (archMd.context_length as number) : 4096
+    return { paramCount, blockCount, trainCtx }
+  } catch (err) {
+    console.warn('[llamaServerEngine] GGUF metadata okunamadı:', (err as Error).message)
+    return { paramCount: null, blockCount: null, trainCtx: 4096 }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CJK yasağı: kimlikler ayrı süreçte (cjkScan.js, vocabOnly) çıkarılır ve
+// model dosyası başına diske önbellenir (~1 sn, bir kez).
+// ---------------------------------------------------------------------------
+
+async function ensureCjkIds(modelPath: string): Promise<number[] | null> {
+  try {
+    const st = await stat(modelPath)
+    const key = `cjk-${basename(modelPath)}-${st.size}.json`
+    const cacheFile = join(CACHE_DIR, key)
+    if (existsSync(cacheFile)) {
+      const parsed = JSON.parse(await readFile(cacheFile, 'utf8')) as { ids?: number[] }
+      if (Array.isArray(parsed.ids)) return parsed.ids
+    }
+    const script = join(__dirname, 'cjkScan.js')
+    const out = await new Promise<string>((res, rej) => {
+      const p = spawn(findNodeBinary(), [script, modelPath], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } as NodeJS.ProcessEnv
+      })
+      let s = ''
+      p.stdout.on('data', (d: Buffer) => (s += d.toString()))
+      p.on('close', (c) => (c === 0 ? res(s) : rej(new Error('cjkScan çıkış kodu ' + c))))
+      p.on('error', rej)
+      setTimeout(() => { p.kill(); rej(new Error('cjkScan zaman aşımı')) }, 60000)
+    })
+    // Karışan log satırlarına karşı: yalnızca {"ids": ile başlayan SON satır.
+    const jsonLine = out
+      .split('\n')
+      .filter((l) => l.trimStart().startsWith('{"ids"'))
+      .pop()
+    if (!jsonLine) return null
+    const parsed = JSON.parse(jsonLine) as { ids?: number[] }
+    if (!Array.isArray(parsed.ids)) return null
+    await mkdir(CACHE_DIR, { recursive: true })
+    await writeFile(cacheFile, JSON.stringify(parsed))
+    console.log(`[llamaServerEngine] CJK taraması: ${parsed.ids.length} token yasaklanacak`)
+    return parsed.ids
+  } catch (err) {
+    console.warn('[llamaServerEngine] CJK taraması yapılamadı (yasak devre dışı):', (err as Error).message)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sunucu yaşam döngüsü
+// ---------------------------------------------------------------------------
+
+function freePort(): Promise<number> {
+  return new Promise((res, rej) => {
+    const srv = createServer()
+    srv.listen(0, HOST, () => {
+      const addr = srv.address()
+      const port = typeof addr === 'object' && addr ? addr.port : 0
+      srv.close(() => (port && !AVOID_PORTS.has(port) ? res(port) : res(8090)))
+    })
+    srv.on('error', rej)
+  })
+}
+
+/** llamaWorker.pickContextSize ile aynı mantık: RAM kademesi, q8_0'da 2×. */
+function pickContextSize(trainCtx: number, quantizedKv: boolean): number {
+  const freeGb = freemem() / 1e9
+  let preferred = freeGb >= 10 ? 16384 : freeGb >= 5 ? 8192 : 4096
+  if (quantizedKv) preferred *= 2
+  return Math.min(preferred, trainCtx)
+}
+
+interface SpawnRung {
+  ctx: number
+  ngl: number | 'auto' | 0
+  quantKv: boolean
+}
+
+function buildRungs(preferredCtx: number, gpu: boolean, gpuLayers: number | 'auto', blockCount: number | null): SpawnRung[] {
+  const rungs: SpawnRung[] = []
+  const half = Math.max(4096, Math.floor(preferredCtx / 2))
+  if (gpu) {
+    rungs.push({ ctx: preferredCtx, ngl: gpuLayers, quantKv: true })
+    rungs.push({ ctx: half, ngl: gpuLayers, quantKv: true })
+    // Katman merdiveni (1.2 ile aynı felsefe): auto bile OOM olabilir.
+    if (blockCount) {
+      const base = typeof gpuLayers === 'number' ? Math.min(gpuLayers, blockCount) : blockCount
+      for (const f of [0.6, 0.4, 0.2]) {
+        const n = Math.floor(base * f)
+        if (n >= 1) rungs.push({ ctx: half, ngl: n, quantKv: true })
+      }
+    }
+  }
+  rungs.push({ ctx: preferredCtx, ngl: 0, quantKv: true })
+  rungs.push({ ctx: 4096, ngl: 0, quantKv: false })
+  return rungs
+}
+
+async function killProc(): Promise<void> {
+  if (!proc) return
+  const p = proc
+  proc = null
+  try {
+    p.kill()
+  } catch {
+    /* ignore */
+  }
+  // Port serbest kalsın diye kısa bekleme
+  await new Promise((r) => setTimeout(r, 300))
+}
+
+async function waitHealth(url: string, child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  let exited = false
+  child.once('exit', () => {
+    exited = true
+  })
+  // spawn hatası (EACCES/ENOENT) 'exit' üretmez — timeout beklemeden düş.
+  child.once('error', () => {
+    exited = true
+  })
+  while (Date.now() < deadline) {
+    if (exited) return false
+    try {
+      const res = await fetch(url + '/health', { signal: AbortSignal.timeout(2000) })
+      if (res.ok) return true
+    } catch {
+      /* henüz hazır değil */
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return false
+}
+
+async function spawnServer(bin: string, modelPath: string, rung: SpawnRung, port: number, sizeBytes: number): Promise<boolean> {
+  const args = [
+    '-m', modelPath,
+    '--host', HOST,
+    '--port', String(port),
+    '-c', String(rung.ctx),
+    '-ngl', String(rung.ngl),
+    '--cache-reuse', '256',
+    '--no-webui'
+  ]
+  if (rung.quantKv) {
+    // Kuantize V cache flash attention ister (llama.cpp kuralı).
+    args.push('-fa', 'on', '-ctk', 'q8_0', '-ctv', 'q8_0')
+  } else {
+    args.push('-fa', 'auto')
+  }
+  console.log('[llamaServerEngine] deneme:', `ctx=${rung.ctx} ngl=${rung.ngl} kv=${rung.quantKv ? 'q8_0' : 'f16'}`)
+  procLog = ''
+  const child = spawn(bin, args, {
+    env: { ...process.env, LD_LIBRARY_PATH: dirname(bin) } as NodeJS.ProcessEnv,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  proc = child
+  const collect = (d: Buffer) => {
+    procLog += d.toString()
+    if (procLog.length > 20000) procLog = procLog.slice(-20000)
+  }
+  child.stdout?.on('data', collect)
+  child.stderr?.on('data', collect)
+  child.on('exit', (code, signal) => {
+    if (proc === child) {
+      console.warn('[llamaServerEngine] sunucu kapandı, code =', code, 'signal =', signal)
+      proc = null
+    }
+  })
+  // Sağlık bekleme süresi model boyutuyla ölçeklenir (disk + VRAM kopyası).
+  const timeoutMs = 60000 + Math.ceil(sizeBytes / 1e9) * 20000
+  const ok = await waitHealth(`http://${HOST}:${port}`, child, timeoutMs)
+  if (!ok) {
+    console.warn('[llamaServerEngine] başlatma başarısız:', procLog.slice(-400).replace(/\n/g, ' | '))
+    await killProc()
+  }
+  return ok
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI-uyumlu sohbet (SSE akışı)
+// ---------------------------------------------------------------------------
+
+interface Usage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
+async function chatRequest(
+  messages: ChatMsg[],
+  options: PromptOptions | undefined,
+  banCjk: boolean,
+  onToken: ((t: string) => void) | null,
+  signal?: AbortSignal
+): Promise<{ text: string; usage: Usage | null; aborted: boolean }> {
+  const body: Record<string, unknown> = {
+    messages,
+    stream: !!onToken,
+    temperature: options?.temperature ?? 0.2,
+    top_p: options?.topP ?? 0.9,
+    // Worker ile aynı örnekleme pariteleri:
+    repeat_penalty: 1.15,
+    repeat_last_n: 128,
+    frequency_penalty: 0.05
+  }
+  if (typeof options?.maxTokens === 'number') body.max_tokens = options.maxTokens
+  if (onToken) body.stream_options = { include_usage: true }
+  if (banCjk && cjkBias) body.logit_bias = cjkBias
+
+  const res = await fetch(baseUrl + '/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal
+  })
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Sunucu hatası (HTTP ${res.status}): ${errText.slice(0, 300)}`)
+  }
+
+  if (!onToken) {
+    const j = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>
+      usage?: Usage
+    }
+    return { text: j.choices?.[0]?.message?.content ?? '', usage: j.usage ?? null, aborted: false }
+  }
+
+  // SSE akışı
+  let text = ''
+  let usage: Usage | null = null
+  const reader = res.body!.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6).trim()
+        if (!payload || payload === '[DONE]') continue
+        try {
+          const j = JSON.parse(payload) as {
+            choices?: Array<{ delta?: { content?: string } }>
+            usage?: Usage
+          }
+          const delta = j.choices?.[0]?.delta?.content
+          if (delta) {
+            text += delta
+            onToken(delta)
+          }
+          if (j.usage) usage = j.usage
+        } catch {
+          /* bozuk SSE satırı — atla */
+        }
+      }
+    }
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      return { text, usage, aborted: true }
+    }
+    throw err
+  }
+  return { text, usage, aborted: false }
+}
+
+// ---------------------------------------------------------------------------
+// Motor arayüzü
+// ---------------------------------------------------------------------------
+
+export const serverEngine: InferenceEngine = {
+  name: 'server',
+
+  async load(opts: EngineLoadOptions): Promise<EngineLoadResult> {
+    await killProc()
+    history = []
+    ctxUsed = 0
+    cjkBias = null
+    systemPrompt = opts.systemPrompt
+    loadedPath = opts.path
+
+    opts.onProgress?.('model', 0.02)
+    const { bin, gpuCapable } = await ensureBinary(opts.gpu)
+    const useGpu = opts.gpu && gpuCapable
+    const meta = await readMeta(opts.path)
+    const file = await stat(opts.path)
+    opts.onProgress?.('model', 0.1)
+
+    // CJK taraması sunucu başlatmayla YARIŞMASIN diye önce yapılır (~1 sn).
+    const ids = await ensureCjkIds(opts.path)
+    if (ids && ids.length > 0) {
+      const bias: Record<number, number> = {}
+      for (const t of ids) bias[t] = -100
+      cjkBias = bias
+    }
+    opts.onProgress?.('model', 0.2)
+
+    const port = await freePort()
+    baseUrl = `http://${HOST}:${port}`
+    const preferred = pickContextSize(meta.trainCtx, true)
+    const rungs = buildRungs(preferred, useGpu, useGpu ? opts.gpuLayers : 0, meta.blockCount)
+
+    let started: SpawnRung | null = null
+    for (const rung of rungs) {
+      if (await spawnServer(bin, opts.path, rung, port, file.size)) {
+        started = rung
+        break
+      }
+    }
+    if (!started) {
+      throw new Error('llama-server hiçbir konfigürasyonla başlatılamadı. Bellek yetersiz olabilir — daha küçük bir model deneyin.')
+    }
+    opts.onProgress?.('model', 1)
+    opts.onProgress?.('context', 1)
+
+    ctxSize = started.ctx
+    console.log(
+      `[llamaServerEngine] hazır: ctx=${started.ctx} ngl=${String(started.ngl)} kv=${started.quantKv ? 'q8_0+fa' : 'f16'} port=${port}`
+    )
+    return {
+      contextSize: started.ctx,
+      trainContextSize: meta.trainCtx,
+      gpu: useGpu && started.ngl !== 0,
+      // 'auto' modda kesin katman sayısı sunucudan okunamıyor: -1 = otomatik.
+      gpuLayers: started.ngl === 'auto' ? -1 : (started.ngl as number),
+      totalLayers: meta.blockCount ?? 0,
+      paramCount: meta.paramCount
+    }
+  },
+
+  async reset(newSystemPrompt: string): Promise<void> {
+    // Sunucu durumsuz: geçmişi boşaltmak yeter, model yüklü kalır (ucuz!).
+    systemPrompt = newSystemPrompt
+    history = []
+    ctxUsed = 0
+  },
+
+  async prompt(text: string, options: PromptOptions | undefined, onToken: (t: string) => void): Promise<string> {
+    if (!proc) throw new Error('Model yüklenmemiş. Önce bir GGUF seç.')
+
+    // Bağlam sıkıştırma (worker ile aynı eşik): %75 üstünde geçmiş, modele
+    // özetletilip sıfırlanır — özet yeni ilk mesajın notuna gömülür.
+    let promptText = text
+    if (ctxUsed > ctxSize * 0.75) {
+      console.log(`[llamaServerEngine] bağlam doldu (${ctxUsed}/${ctxSize}) — geçmiş özetlenip sıfırlanıyor`)
+      let summary = ''
+      if (ctxUsed < ctxSize - 600) {
+        try {
+          const r = await chatRequest(
+            [
+              { role: 'system', content: systemPrompt },
+              ...history,
+              {
+                role: 'user',
+                content:
+                  'Context is nearly full. For your own memory, summarize this conversation in 3-5 short sentences: what project is being built, key design decisions, and what the user accepted, rejected or asked to change. Write in the language the user has been writing. Output ONLY the summary.'
+              }
+            ],
+            { maxTokens: 250, temperature: 0.2 },
+            !CJK_RE.test(text),
+            null
+          )
+          summary = r.text.trim().slice(0, 1200)
+          if (summary) console.log('[llamaServerEngine] sıkıştırma özeti alındı (' + summary.length + ' karakter)')
+        } catch (err) {
+          console.warn('[llamaServerEngine] sıkıştırma özeti alınamadı:', (err as Error).message)
+        }
+      }
+      history = []
+      ctxUsed = 0
+      promptText =
+        '[NOTE: earlier conversation was compacted due to context limits; the current project files in this message are the source of truth.' +
+        (summary ? ` Summary of the earlier conversation:\n${summary}` : '') +
+        ']\n\n' +
+        text
+    }
+
+    const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: promptText }]
+    abortCtl = new AbortController()
+    try {
+      const r = await chatRequest(messages, options, !CJK_RE.test(promptText), onToken, abortCtl.signal)
+      // Kısmi çıktı da geçmiğe girer: tokenlar üretildi ve kullanıcı gördü.
+      history.push({ role: 'user', content: promptText })
+      history.push({ role: 'assistant', content: r.text })
+      if (r.usage?.total_tokens) ctxUsed = r.usage.total_tokens
+      else ctxUsed += Math.ceil((promptText.length + r.text.length) / 4)
+      return r.text
+    } finally {
+      abortCtl = null
+    }
+  },
+
+  async abort(): Promise<void> {
+    abortCtl?.abort()
+  },
+
+  async unload(): Promise<void> {
+    await killProc()
+    history = []
+    ctxUsed = 0
+    cjkBias = null
+    loadedPath = ''
+  },
+
+  dispose(): void {
+    try {
+      proc?.kill()
+    } catch {
+      /* ignore */
+    }
+    proc = null
+  }
+}

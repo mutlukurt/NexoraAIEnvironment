@@ -16,7 +16,10 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'electron/main/index.ts'),
           // Saf Node.js altında koşan inference worker'ı (V8 cage nedeniyle ayrı süreç).
-          llamaWorker: resolve(__dirname, 'electron/main/llamaWorker.ts')
+          llamaWorker: resolve(__dirname, 'electron/main/llamaWorker.ts'),
+          // CJK token taraması — llama-server motorunun logit_bias listesi için
+          // (vocabOnly yükleme; o da saf Node ister).
+          cjkScan: resolve(__dirname, 'electron/main/cjkScan.ts')
         }
       }
     }

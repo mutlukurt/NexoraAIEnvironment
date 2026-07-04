@@ -354,12 +354,19 @@ void app.whenReady().then(async () => {
 
   if (process.env['NEXORA_SELFTEST']) {
     const path = process.env['NEXORA_SELFTEST']
+    const gpu = process.env['NEXORA_SELFTEST_GPU'] === '1'
     try {
-      console.log('[selftest] loading', path)
-      const info = await loadModel(path)
-      console.log('[selftest] loaded', info.name, 'gpu=' + info.gpu, 'ctx=' + info.contextSize)
-      const full = await chat({ prompt: 'Bir kere upon a time', options: { maxTokens: 30 } }, (t) => process.stdout.write(t))
-      console.log('\n[selftest] response len=' + full.length)
+      console.log('[selftest] loading', path, 'gpu =', gpu)
+      const info = await loadModel(path, gpu)
+      console.log('[selftest] loaded', info.name, 'gpu=' + info.gpu, 'layers=' + info.gpuLayers + '/' + info.totalLayers, 'ctx=' + info.contextSize)
+      const t1 = Date.now()
+      const prompt1 = process.env['NEXORA_SELFTEST_PROMPT'] ?? 'My favorite fruit is mango. Reply with just: OK'
+      const full = await chat({ prompt: prompt1, options: { maxTokens: process.env['NEXORA_SELFTEST_PROMPT'] ? 48 : 8, temperature: 0 } }, (t) => process.stdout.write(t))
+      console.log(`\n[selftest] turn1 len=${full.length} (${Date.now() - t1}ms)`)
+      // İkinci tur: sohbet geçmişi motorda yaşıyor mu? (cevap ilk turdan gelmeli)
+      const t2 = Date.now()
+      const full2 = await chat({ prompt: 'What is my favorite fruit? One word.', options: { maxTokens: 8, temperature: 0 } }, (t) => process.stdout.write(t))
+      console.log(`\n[selftest] turn2 answer="${full2.trim()}" (${Date.now() - t2}ms)`)
     } catch (err) {
       console.error('[selftest] FAILED', (err as Error).message)
     } finally {

@@ -1,14 +1,17 @@
 /**
- * Llama servis katmanı — asıl çıkarım (inference) ayrı bir saf Node.js worker
- * sürecinde koşar (bkz. llamaWorker.ts). Electron'un V8 "memory cage" sınırı
- * 4 GB'den büyük GGUF modellerini ana süreçte çökerttiği için model asla
- * Electron içinde yüklenmez. Worker çökerse yalnızca model oturumu düşer,
- * uygulama ayakta kalır.
+ * Llama servis katmanı — CEPHE (facade).
+ *
+ * Asıl çıkarım iki motordan biriyle koşar (bkz. engineTypes.ts):
+ *  - llamaServerEngine (varsayılan): llama.cpp'nin resmi sunucusu.
+ *    Prompt cache sayesinde iterasyon turları ortak öneki yeniden işlemez.
+ *  - llamaWorkerEngine (yedek): node-llama-cpp worker'ı. Sunucu binary'si
+ *    edinilemezse ya da hiçbir konfigürasyonla başlamazsa devreye girer.
+ *
+ * Bu modül profil seçimi, model-boyutuna uyarlı sistem prompt'u ve UPDATE
+ * modu sarmalayıcısından sorumludur; motorlar yalnızca "yükle/üret" bilir.
  */
-import { basename, join } from 'path'
+import { basename } from 'path'
 import { stat } from 'fs/promises'
-import { existsSync } from 'fs'
-import { spawn, type ChildProcess } from 'child_process'
 import type { ChatSendInput, ModelLoadedInfo } from '../shared/ipc'
 import {
   DEFAULT_PROFILE_ID,
@@ -18,37 +21,13 @@ import {
   detectAgentIntent,
   AGENT_HINT
 } from '../shared/prompts'
+import type { InferenceEngine, LoadProgressCallback } from './engineTypes'
+import { serverEngine } from './llamaServerEngine'
+import { workerEngine } from './llamaWorkerEngine'
 
-export type LoadProgressCallback = (stage: 'model' | 'context', progress: number) => void
+export type { LoadProgressCallback } from './engineTypes'
 
-interface WorkerResponse {
-  id?: number
-  ok?: boolean
-  error?: string
-  aborted?: boolean
-  event?: 'ready' | 'token' | 'load-progress'
-  token?: string
-  stage?: 'model' | 'context'
-  progress?: number
-  full?: string
-  info?: {
-    contextSize: number
-    trainContextSize: number
-    gpu: boolean
-    gpuLayers?: number
-    totalLayers?: number
-    paramCount?: number | null
-  }
-}
-
-let worker: ChildProcess | null = null
-let workerReady: Promise<void> | null = null
-let nextId = 1
-const pending = new Map<number, { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void }>()
-
-let activeChunkCb: ((token: string) => void) | null = null
-let activeProgressCb: LoadProgressCallback | null = null
-
+let engine: InferenceEngine | null = null
 let loadedInfo: ModelLoadedInfo | null = null
 let customSystemPrompt = ''
 let activeProfileId = DEFAULT_PROFILE_ID
@@ -67,115 +46,8 @@ function getFullSystemPrompt(): string {
   return buildSystemPrompt(activeProfileId, customSystemPrompt, smallModel)
 }
 
-/**
- * Worker'ı çalıştıracak Node yorumlayıcısını bul. Paketli uygulamada
- * resources/node-bin/node olarak kendi Node kopyamızı taşırız; geliştirmede
- * PATH'teki node kullanılır. Electron binary'si işe yaramaz (aynı V8 cage).
- */
-function findNodeBinary(): string {
-  const bundled = join(process.resourcesPath ?? '', 'node-bin', 'node')
-  if (existsSync(bundled)) return bundled
-  return 'node'
-}
-
-function workerScriptPath(): string {
-  return join(__dirname, 'llamaWorker.js')
-}
-
-function failAllPending(err: Error): void {
-  for (const [, p] of pending) p.reject(err)
-  pending.clear()
-}
-
-function ensureWorker(): Promise<void> {
-  if (worker && workerReady) return workerReady
-
-  const nodeBin = findNodeBinary()
-  const script = workerScriptPath()
-  console.log('[llamaService] starting worker:', nodeBin, script)
-
-  const child = spawn(nodeBin, [script], {
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } as NodeJS.ProcessEnv
-  })
-  worker = child
-
-  child.stdout?.on('data', (d: Buffer) => process.stdout.write('[llamaWorker] ' + d.toString()))
-  child.stderr?.on('data', (d: Buffer) => process.stderr.write('[llamaWorker] ' + d.toString()))
-
-  workerReady = new Promise<void>((resolveReady, rejectReady) => {
-    const readyTimeout = setTimeout(() => {
-      rejectReady(new Error('Model süreci başlatılamadı (zaman aşımı). Node çalıştırılabilir dosyası bulunamamış olabilir.'))
-    }, 30000)
-
-    child.on('message', (raw: unknown) => {
-      const msg = raw as WorkerResponse
-      if (msg.event === 'ready') {
-        clearTimeout(readyTimeout)
-        resolveReady()
-        return
-      }
-      if (msg.event === 'token' && typeof msg.token === 'string') {
-        activeChunkCb?.(msg.token)
-        return
-      }
-      if (msg.event === 'load-progress' && msg.stage) {
-        activeProgressCb?.(msg.stage, msg.progress ?? 0)
-        return
-      }
-      if (typeof msg.id === 'number') {
-        const p = pending.get(msg.id)
-        if (p) {
-          pending.delete(msg.id)
-          p.resolve(msg)
-        }
-      }
-    })
-
-    child.on('error', (err) => {
-      clearTimeout(readyTimeout)
-      const e = new Error(`Model süreci başlatılamadı: ${err.message}`)
-      rejectReady(e)
-      failAllPending(e)
-      worker = null
-      workerReady = null
-    })
-
-    child.on('exit', (code, signal) => {
-      clearTimeout(readyTimeout)
-      console.warn('[llamaService] worker exited, code =', code, 'signal =', signal)
-      const e = new Error(
-        'Model süreci beklenmedik şekilde kapandı' +
-          (signal ? ` (${signal})` : '') +
-          '. Bellek yetersiz olabilir — daha küçük bir model deneyin ve modeli yeniden yükleyin.'
-      )
-      rejectReady(e)
-      failAllPending(e)
-      worker = null
-      workerReady = null
-      loadedInfo = null
-    })
-  })
-
-  return workerReady
-}
-
-async function request(msg: Record<string, unknown>): Promise<WorkerResponse> {
-  await ensureWorker()
-  const id = nextId++
-  return new Promise<WorkerResponse>((resolve, reject) => {
-    pending.set(id, { resolve, reject })
-    worker!.send({ ...msg, id }, (err) => {
-      if (err) {
-        pending.delete(id)
-        reject(err)
-      }
-    })
-  })
-}
-
 export function isModelLoaded(): boolean {
-  return !!loadedInfo && !!worker
+  return !!loadedInfo && !!engine
 }
 
 export function getLoadedInfo(): ModelLoadedInfo | null {
@@ -190,67 +62,89 @@ export async function loadModel(
 ): Promise<ModelLoadedInfo> {
   console.log('[llamaService] loadModel path =', modelPath, 'enableGpu =', enableGpu, 'gpuLayers =', gpuLayers)
   const file = await stat(modelPath)
-  // Sistem prompt'u model boyutuna göre seçilir — worker'a göndermeden ÖNCE.
+  // Sistem prompt'u model boyutuna göre seçilir — motora göndermeden ÖNCE.
   smallModel = file.size < 9e9
 
-  activeProgressCb = onProgress ?? null
+  // Önceki motor hangisiyse kapat (motor değişimi temiz olsun).
+  if (engine) {
+    try {
+      await engine.unload()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const loadOpts = {
+    path: modelPath,
+    gpu: !!enableGpu,
+    gpuLayers: gpuLayers ?? ('auto' as const),
+    systemPrompt: getFullSystemPrompt(),
+    onProgress
+  }
+
+  // Varsayılan motor: llama-server. Tamamen başarısızsa worker'a düş —
+  // kullanıcı hiçbir durumda "motor yok" ile baş başa kalmaz.
+  let info
   try {
-    const res = await request({
-      cmd: 'load',
-      path: modelPath,
-      gpu: !!enableGpu,
-      gpuLayers: gpuLayers ?? 'auto',
-      systemPrompt: getFullSystemPrompt()
-    })
-    if (!res.ok || !res.info) {
+    info = await serverEngine.load(loadOpts)
+    engine = serverEngine
+  } catch (serverErr) {
+    console.warn(
+      '[llamaService] llama-server motoru başarısız, node-llama-cpp worker yedeğine geçiliyor:',
+      (serverErr as Error).message
+    )
+    try {
+      info = await workerEngine.load(loadOpts)
+      engine = workerEngine
+    } catch (workerErr) {
+      engine = null
       throw new Error(
-        `Model yüklenemedi (${res.error ?? 'bilinmeyen hata'}). Bellek yetersiz olabilir — daha küçük bir model veya daha düşük quantizasyon (ör. Q4) deneyin.`
+        `Model yüklenemedi (${(workerErr as Error).message}). Bellek yetersiz olabilir — daha küçük bir model veya daha düşük quantizasyon (ör. Q4) deneyin.`
       )
     }
-
-    // Gerçek parametre sayısı metadata'dan geldi: dosya-boyutu tahminimiz
-    // yanlışsa (örn. sıkı quantize 14B+) doğru prompt ile oturumu yeniden kur.
-    // ≥13B modeller tam profesyonel çok-dosyalı prompt'u kaldırabilir.
-    if (typeof res.info.paramCount === 'number' && res.info.paramCount > 0) {
-      const actualSmall = res.info.paramCount < 13e9
-      if (actualSmall !== smallModel) {
-        console.log(
-          `[llamaService] model ${(res.info.paramCount / 1e9).toFixed(1)}B parametre — prompt profili düzeltiliyor (small=${actualSmall})`
-        )
-        smallModel = actualSmall
-        await request({ cmd: 'reset', systemPrompt: getFullSystemPrompt() })
-      }
-    }
-
-    loadedInfo = {
-      name: basename(modelPath),
-      path: modelPath,
-      sizeBytes: file.size,
-      contextSize: res.info.contextSize,
-      gpu: res.info.gpu,
-      gpuLayers: res.info.gpuLayers ?? 0,
-      totalLayers: res.info.totalLayers ?? 0
-    }
-    return loadedInfo
-  } finally {
-    activeProgressCb = null
   }
+
+  // Gerçek parametre sayısı metadata'dan geldi: dosya-boyutu tahminimiz
+  // yanlışsa (örn. sıkı quantize 14B+) doğru prompt ile oturumu yeniden kur.
+  // ≥13B modeller tam profesyonel çok-dosyalı prompt'u kaldırabilir.
+  if (typeof info.paramCount === 'number' && info.paramCount > 0) {
+    const actualSmall = info.paramCount < 13e9
+    if (actualSmall !== smallModel) {
+      console.log(
+        `[llamaService] model ${(info.paramCount / 1e9).toFixed(1)}B parametre — prompt profili düzeltiliyor (small=${actualSmall})`
+      )
+      smallModel = actualSmall
+      await engine.reset(getFullSystemPrompt())
+    }
+  }
+
+  loadedInfo = {
+    name: basename(modelPath),
+    path: modelPath,
+    sizeBytes: file.size,
+    contextSize: info.contextSize,
+    gpu: info.gpu,
+    gpuLayers: info.gpuLayers,
+    totalLayers: info.totalLayers
+  }
+  console.log('[llamaService] motor =', engine.name)
+  return loadedInfo
 }
 
 export async function unloadModel(): Promise<void> {
   loadedInfo = null
-  if (!worker) return
+  if (!engine) return
   try {
-    await request({ cmd: 'unload' })
+    await engine.unload()
   } catch {
-    /* worker ölmüş olabilir; sorun değil */
+    /* motor ölmüş olabilir; sorun değil */
   }
 }
 
 export async function resetSession(options?: { resetProfile?: boolean }): Promise<void> {
   if (options?.resetProfile) activeProfileId = DEFAULT_PROFILE_ID
-  if (!worker || !loadedInfo) return
-  await request({ cmd: 'reset', systemPrompt: getFullSystemPrompt() })
+  if (!engine || !loadedInfo) return
+  await engine.reset(getFullSystemPrompt())
 }
 
 export async function chat(
@@ -321,34 +215,21 @@ Rules:
     prompt += '\n\n' + AGENT_HINT
   }
 
-  activeChunkCb = onChunk
-  try {
-    const res = await request({ cmd: 'prompt', text: prompt, options: input.options })
-    if (!res.ok) {
-      throw new Error(res.error ?? 'Sohbet hatası')
-    }
-    return res.full ?? ''
-  } finally {
-    activeChunkCb = null
-  }
+  return engine!.prompt(prompt, input.options, onChunk)
 }
 
 export async function abortChat(): Promise<void> {
-  if (!worker) return
+  if (!engine) return
   try {
-    await request({ cmd: 'abort' })
+    await engine.abort()
   } catch {
     /* ignore */
   }
 }
 
-/** Uygulama kapanırken worker'ı da kapat. */
+/** Uygulama kapanırken motor süreçlerini de kapat. */
 export function disposeWorker(): void {
-  try {
-    worker?.kill()
-  } catch {
-    /* ignore */
-  }
-  worker = null
-  workerReady = null
+  serverEngine.dispose()
+  workerEngine.dispose()
+  engine = null
 }

@@ -782,7 +782,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         const modeText =
           res.info.gpuLayers > 0
             ? `GPU modunda (${res.info.gpuLayers}/${res.info.totalLayers} katman ekran kartında)`
-            : 'CPU modunda'
+            : res.info.gpuLayers === -1
+              ? 'GPU modunda (katmanlar VRAM\'e göre otomatik)'
+              : 'CPU modunda'
         set({
           messages: [
             {

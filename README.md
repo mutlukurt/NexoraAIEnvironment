@@ -498,7 +498,7 @@ NexoraAIEnvironment/
 |---|---|
 | Shell | Electron 43, electron-vite, electron-builder (`.deb`) |
 | UI | React 18, TypeScript, Tailwind CSS (CSS-variable theme tokens, dark/light), Zustand, CodeMirror 6, lucide icons, embedded Inter font |
-| Inference | node-llama-cpp 3 (llama.cpp), bundled Node 22 runtime, TokenBias sampling control, context compaction |
+| Inference | llama.cpp `llama-server` (OpenAI-compatible sidecar: prompt cache/`--cache-reuse`, flash attention + Q8_0 KV, `-ngl auto` GPU fit, per-request CJK logit_bias, context compaction with model-written summary); node-llama-cpp 3 worker on the bundled Node 22 runtime as automatic fallback |
 | Vision | llama.cpp `llama-server` + libmtmd sidecar, Qwen2.5-VL (auto-downloaded GGUF + mmproj, RAM-aware auto-upgrade) |
 | Post-processing | Prettier 3 (standalone, lazy-loaded), deterministic scaffold & asset repair |
 | Generated projects | Vite 5, React 18, TypeScript, Tailwind (scaffolded deterministically) |
