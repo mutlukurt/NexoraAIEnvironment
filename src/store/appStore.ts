@@ -594,6 +594,19 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
       }
       // Model katı: yüklü model yoksa sessizce dur (Kat 0 zaten denendi).
       if (!get().modelInfo) return
+      // Konumlama (roadmap 5.3): stack kesik olsa bile "sorun ŞURADA" —
+      // kullanıcı raporu yüzdeli şüphelileri görür, model turu doğru
+      // dosyanın satır-numaralı bağlamını alır.
+      const { locateFault, formatLocalization } = await import('@/lib/faultLocate')
+      const filesForLocate = Object.fromEntries(
+        Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [
+          p,
+          { path: f.path, content: f.content, updatedAt: f.updatedAt }
+        ])
+      )
+      const loc = locateFault(`${e.message}\n${cleanStack}`, filesForLocate)
+      const isTr = get().language === 'tr'
+      const locLine = loc.primary ? '\n' + formatLocalization(loc, isTr) : ''
       set((s) => ({
         lastBuildError: diagnosis,
         messages: [
@@ -601,7 +614,7 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
           {
             id: nanoid(),
             role: 'assistant',
-            content: `🌐 Canlı sayfada hata yakalandı — otomatik düzeltiliyor (${n + 1}/2)…\n${sig}`
+            content: `🌐 Canlı sayfada hata yakalandı — otomatik düzeltiliyor (${n + 1}/2)…\n${sig}${locLine}`
           }
         ]
       }))
@@ -609,9 +622,21 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
       const filesMap = Object.fromEntries(
         Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
       )
+      // Stack proje dosyası göstermiyorsa numberedSnippet hedef bulamaz;
+      // vendor çerçevesinin dev satır numarası da pencereyi boşa kaydırır.
+      // Konum ipucu tanının BAŞINA konur: File: ve (satır:sütun) ilk eşleşme
+      // olarak bizim şüphelimizi gösterir, stack yalnızca bağlam olarak kalır.
+      const snippetSeed = loc.primary
+        ? `File: ${loc.primary.path}${loc.primary.line ? ` (${loc.primary.line}:1)` : ''}\n${e.message}\n${cleanStack}`
+        : `${e.message}\n${cleanStack}`
+      const locHint = loc.primary
+        ? ` En olası konum: ${loc.primary.path}${loc.primary.line ? ':' + loc.primary.line : ''} (%${Math.round(loc.primary.confidence * 100)}${loc.identifier ? `, '${loc.identifier}'` : ''}).`
+        : ''
       void get().sendMessage(
-        'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda. Stack\'teki dosyada kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
-          numberedSnippet(`${e.message}\n${cleanStack}`, filesMap),
+        'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda.' +
+          locHint +
+          ' Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
+          numberedSnippet(snippetSeed, filesMap),
         { hideUser: true }
       )
     })()

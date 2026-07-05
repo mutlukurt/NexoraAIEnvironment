@@ -19,6 +19,7 @@
     "dist:dir": "npm run build && electron-builder --linux --dir",
     "test:corpus": "node tests/error-corpus.mjs",
     "test:scan": "node tests/debug-scan.mjs",
+    "test:locate": "node tests/fault-locate.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"

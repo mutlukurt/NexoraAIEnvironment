@@ -56,7 +56,7 @@ function lineOf(content: string, index: number): number {
 }
 
 /** import satırlarından bu dosyada TANIMLI sayılan adları topla. */
-function importedNames(content: string): Set<string> {
+export function importedNames(content: string): Set<string> {
   const names = new Set<string>()
   const importRe = /import\s+(?:([\w$]+)\s*,?\s*)?(?:\{([^}]*)\})?\s*(?:from\s*)?['"][^'"]+['"]/g
   for (const m of content.matchAll(importRe)) {
@@ -74,7 +74,7 @@ function importedNames(content: string): Set<string> {
 }
 
 /** Dosyada bildirilen üst-düzey/yerel adlar (kaba ama hızlı). */
-function declaredNames(content: string): Set<string> {
+export function declaredNames(content: string): Set<string> {
   const names = new Set<string>()
   const declRe = /\b(?:const|let|var|function|class)\s+([\w$]+)/g
   for (const m of content.matchAll(declRe)) names.add(m[1])
