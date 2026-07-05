@@ -25,6 +25,7 @@ import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './eng
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
 import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
+import { shouldUseApi, promptApi } from './apiEngine'
 
 export type { LoadProgressCallback } from './engineTypes'
 
@@ -275,10 +276,38 @@ Rules:
     options.grammar = buildEditGrammar(allPaths)
   }
 
+  // Hibrit API (roadmap 4.1): bu tur bir DÜZELTME turu mu? (otomatik/kullanıcı
+  // "düzelt" + derleme/runtime hata metni taşıyan iterasyon turları). Kullanıcı
+  // yapılandırdıysa bu turlar frontier modele yönlendirilir — yerel küçük
+  // modelin çözemediği keyfi yapı/mantık hataları için Bolt paritesi.
+  const isFixTurn =
+    !!input.currentFiles &&
+    input.currentFiles.length > 0 &&
+    /(^|\n)\s*düzelt\b|BUILD ERROR|RUNTIME ERROR|does NOT compile|GÖRSEL denetim/i.test(input.prompt)
+  if (shouldUseApi(isFixTurn)) {
+    apiAbort = new AbortController()
+    try {
+      console.log('[NexoraAI] tur API motoruna yönlendirildi (hibrit 4.1)')
+      return await promptApi(getFullSystemPrompt(), prompt, onChunk, apiAbort.signal)
+    } catch (err) {
+      // API başarısızsa sessizce yerele düş — kullanıcı asla motorsuz kalmaz.
+      console.warn('[NexoraAI] API motoru başarısız, yerele düşülüyor:', (err as Error).message)
+    } finally {
+      apiAbort = null
+    }
+  }
+
   return engine!.prompt(prompt, options, onChunk)
 }
 
+let apiAbort: AbortController | null = null
+
 export async function abortChat(): Promise<void> {
+  try {
+    apiAbort?.abort()
+  } catch {
+    /* ignore */
+  }
   if (!engine) return
   try {
     await engine.abort()

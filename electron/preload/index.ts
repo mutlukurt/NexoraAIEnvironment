@@ -67,6 +67,7 @@ export interface NexoraApi {
   home: string
   versions: { electron: string; chrome: string; node: string }
   model: {
+    setApiConfig: (config: { baseUrl: string; apiKey: string; model: string; mode: 'off' | 'fix' | 'all' }) => Promise<{ ok: boolean }>
     select: () => Promise<ModelSelectResponse>
     load: (path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') => Promise<ModelLoadResponse>
     unload: () => Promise<{ ok: boolean }>
@@ -154,6 +155,7 @@ const api: NexoraApi = {
     node: process.versions.node
   },
   model: {
+    setApiConfig: (config) => ipcRenderer.invoke(IPC.MODEL_SET_API_CONFIG, config),
     select: () => ipcRenderer.invoke(IPC.MODEL_SELECT),
     load: (path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') =>
       ipcRenderer.invoke(IPC.MODEL_LOAD, path, enableGpu, gpuLayers),

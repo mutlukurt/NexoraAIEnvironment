@@ -38,6 +38,7 @@ import {
 } from './agentService'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware, getAdvisorPlan } from './advisorService'
+import { setApiConfig, type ApiConfig } from './apiEngine'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { getRules, setRules } from './rulesService'
 import { historyCommit, historyList, historyRestore, historyRestoreGreen } from './gitService'
@@ -163,6 +164,11 @@ function registerIpc(): void {
     if (isModelLoaded()) {
       await resetSession()
     }
+    return { ok: true }
+  })
+
+  ipcMain.handle(IPC.MODEL_SET_API_CONFIG, async (_e, config: Partial<ApiConfig>) => {
+    setApiConfig(config)
     return { ok: true }
   })
 

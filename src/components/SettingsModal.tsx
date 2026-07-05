@@ -15,6 +15,11 @@ export default function SettingsModal() {
   const setGpuLayers = useSettingsStore((s) => s.setGpuLayers)
   const save = useSettingsStore((s) => s.save)
   const customCommands = useSettingsStore((s) => s.customCommands)
+  const apiBaseUrl = useSettingsStore((s) => s.apiBaseUrl)
+  const apiKey = useSettingsStore((s) => s.apiKey)
+  const apiModel = useSettingsStore((s) => s.apiModel)
+  const apiMode = useSettingsStore((s) => s.apiMode)
+  const setApi = useSettingsStore((s) => s.setApi)
   const addCommand = useSettingsStore((s) => s.addCommand)
   const updateCommand = useSettingsStore((s) => s.updateCommand)
   const removeCommand = useSettingsStore((s) => s.removeCommand)
@@ -68,6 +73,61 @@ export default function SettingsModal() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 bg-ink-card flex flex-col gap-5">
+          {/* Hibrit API (4.1): OpenAI-uyumlu uzak uç — güçlü modelle düzeltme */}
+          <div className="rounded-xl border border-brand-500/40 bg-brand-500/5 p-4 shadow-sm">
+            <div className="flex flex-col pr-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+                {language === 'tr' ? 'Hibrit API (Güçlü Model)' : 'Hybrid API (Powerful Model)'}
+              </span>
+              <span className="mt-1 text-[11px] font-medium leading-normal text-ink-dim">
+                {language === 'tr'
+                  ? 'OpenAI-uyumlu bir uç (OpenAI, OpenRouter, yerel sunucu…). Yerel küçük modelin çözemediği karmaşık hataları güçlü bir modele düzelttir — Bolt gibi.'
+                  : 'An OpenAI-compatible endpoint (OpenAI, OpenRouter, a local server…). Let a powerful model fix the hard errors the small local model cannot — like Bolt.'}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(['off', 'fix', 'all'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setApi({ apiMode: m })}
+                  className={
+                    'rounded-lg px-3 py-1.5 text-xs font-bold transition ' +
+                    (apiMode === m ? 'bg-brand-600 text-white' : 'bg-ink-hi text-ink-mut hover:text-ink-text')
+                  }
+                >
+                  {m === 'off'
+                    ? language === 'tr' ? 'Kapalı' : 'Off'
+                    : m === 'fix'
+                    ? language === 'tr' ? 'Sadece Düzeltme' : 'Fixes Only'
+                    : language === 'tr' ? 'Tüm Turlar' : 'All Turns'}
+                </button>
+              ))}
+            </div>
+            {apiMode !== 'off' && (
+              <div className="mt-3 flex flex-col gap-2">
+                <input
+                  value={apiBaseUrl}
+                  onChange={(e) => setApi({ apiBaseUrl: e.target.value })}
+                  placeholder={language === 'tr' ? 'Uç adresi (ör. https://api.openai.com/v1)' : 'Base URL (e.g. https://api.openai.com/v1)'}
+                  className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
+                />
+                <input
+                  value={apiModel}
+                  onChange={(e) => setApi({ apiModel: e.target.value })}
+                  placeholder={language === 'tr' ? 'Model adı (ör. gpt-4o-mini)' : 'Model name (e.g. gpt-4o-mini)'}
+                  className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
+                />
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApi({ apiKey: e.target.value })}
+                  placeholder={language === 'tr' ? 'API anahtarı (cihazında saklanır)' : 'API key (stored on your device)'}
+                  className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
+                />
+              </div>
+            )}
+          </div>
+
           {/* GPU Acceleration Switch */}
           <div className="flex items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
             <div className="flex flex-col pr-4">

@@ -84,6 +84,7 @@ export const IPC = {
   MODEL_UNLOAD: 'model:unload',
   MODEL_STATUS: 'model:status',
   MODEL_SET_SYSTEM_PROMPT: 'model:set-system-prompt',
+  MODEL_SET_API_CONFIG: 'model:set-api-config',
   CHAT_NEW: 'chat:new',
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
