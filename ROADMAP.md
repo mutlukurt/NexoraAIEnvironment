@@ -35,7 +35,7 @@ A small model's weakness isn't intelligence, it's freedom. The less freedom, the
 
 ## Phase 4 — Productization (v1.0)
 
-- [ ] **4.1 Hybrid API mode** — optional OpenAI-compatible / Anthropic endpoint for weak hardware; local stays the default.
+- [x] **4.1 Hybrid API mode** — optional OpenAI-compatible / Anthropic endpoint for weak hardware; local stays the default. *Shipped: Settings gains an OpenAI-compatible base URL + key + model with a mode selector (Off / Fixes Only / All Turns). Fix turns (iterating files + a repair signature) route through a stateless apiEngine (SSE streamed like local), with silent fallback to local on failure; the deterministic repair ladder still runs first so only genuinely hard fixes reach the paid model. This is the real fix for 'the small local model can't repair its own errors' — Bolt parity. Verified end to end against a stand-in endpoint: the turn hit the remote and streamed back into chat.*
 - [ ] **4.2 Windows & macOS packaging**
 - [x] **4.3 Multi-project workspaces + in-project search** — *Shipped: sidebar PROJELER section lists generated + linked projects (newest first, linked badge), one-click load via the safe scanner; code view search box matches paths and content case-insensitively with path:line previews. GUI-verified.*
 - [x] **4.4 Remote model-catalog manifest** — update the Hardware Advisor's catalog without shipping a new app version. *Shipped: advisor.plan() fetches model-catalog.json from the repo (validated, 4s timeout), caches it, and merges over the embedded catalog (remote updates/adds, embedded keys always kept). Offline: cache → embedded → local buildPlan fallback. Verified: live GitHub manifest fetched in-app, override reflected in the plan, all embedded models preserved, cached to disk.*
