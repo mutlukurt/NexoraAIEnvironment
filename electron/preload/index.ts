@@ -124,6 +124,9 @@ export interface NexoraApi {
   projects: {
     /** Klasör Aç (roadmap 3.1): klasör diyaloğu + tarama + bağlama. */
     import: () => Promise<import('../shared/ipc').ProjectImportResult>
+    /** 4.3: bilinen projeler (Projects/ + bağlı klasörler). */
+    list: () => Promise<Array<{ name: string; dir: string; linked: boolean; mtime: number }>>
+    open: (dir: string) => Promise<import('../shared/ipc').ProjectImportResult>
   }
   capture: {
     /** Görsel öz-denetim (roadmap 3.3): dev sayfasını görünmez pencerede yakala. */
@@ -234,7 +237,9 @@ const api: NexoraApi = {
     set: (projectName: string, content: string) => ipcRenderer.invoke(IPC.RULES_SET, projectName, content)
   },
   projects: {
-    import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT)
+    import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT),
+    list: () => ipcRenderer.invoke(IPC.PROJECT_LIST),
+    open: (dir: string) => ipcRenderer.invoke(IPC.PROJECT_OPEN, dir)
   },
   capture: {
     page: (input: { url: string }) => ipcRenderer.invoke(IPC.AGENT_CAPTURE_PAGE, input)

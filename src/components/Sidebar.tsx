@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore, fmtBytes, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { useHfStore } from '@/store/hfStore'
@@ -46,6 +46,8 @@ export default function Sidebar() {
   const activeTab = useAppStore((s) => s.activeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
   const importFolder = useAppStore((s) => s.importFolder)
+  const openProject = useAppStore((s) => s.openProject)
+  const [projects, setProjects] = (window as unknown as { React?: never }, useProjectsList())
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const theme = useAppStore((s) => s.theme)
@@ -145,6 +147,29 @@ export default function Sidebar() {
           <span>{t.settings}</span>
         </button>
       </nav>
+
+      {/* Projeler (4.3): Projects/ kopyalari + bagli klasorler */}
+      {projects.length > 0 && (
+        <div className="mt-2 px-4">
+          <p className="px-1 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-ink-dim">
+            {language === 'tr' ? 'Projeler' : 'Projects'}
+          </p>
+          <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
+            {projects.slice(0, 12).map((pr) => (
+              <button
+                key={pr.dir}
+                onClick={() => void openProject(pr.dir, pr.name)}
+                title={pr.dir}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
+              >
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{pr.name}</span>
+                {pr.linked && <span className="ml-auto shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">{language === 'tr' ? 'bagli' : 'linked'}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Anahtarlar */}
       <div className="mt-3 flex flex-col gap-1 border-y border-ink-line/80 px-4 py-2.5">
@@ -306,4 +331,17 @@ export default function Sidebar() {
       </div>
     </aside>
   )
+}
+
+/** 4.3: bilinen projeler listesi (Projects/ + bağlı klasörler). */
+function useProjectsList(): [Array<{ name: string; dir: string; linked: boolean; mtime: number }>, (v: Array<{ name: string; dir: string; linked: boolean; mtime: number }>) => void] {
+  const [list, setList] = useState<Array<{ name: string; dir: string; linked: boolean; mtime: number }>>([])
+  useEffect(() => {
+    let alive = true
+    const refresh = () => void window.nexora.projects.list().then((l: Array<{ name: string; dir: string; linked: boolean; mtime: number }>) => { if (alive) setList(l) })
+    refresh()
+    const t = setInterval(refresh, 15000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+  return [list, setList]
 }

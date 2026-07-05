@@ -32,7 +32,9 @@ import {
   startRuntimeCollector,
   setRuntimeErrorCallback,
   importProjectFolder,
-  appendRepairLog
+  appendRepairLog,
+  listProjects,
+  openProjectDir
 } from './agentService'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware } from './advisorService'
@@ -370,6 +372,22 @@ function registerIpc(): void {
   ipcMain.handle(IPC.REPAIR_LOG, async (_e, entry: Record<string, unknown>) => {
     await appendRepairLog(entry)
     return { ok: true }
+  })
+
+  // 4.3: çoklu proje çalışma alanı
+  ipcMain.handle(IPC.PROJECT_LIST, async () => {
+    try {
+      return await listProjects()
+    } catch {
+      return []
+    }
+  })
+  ipcMain.handle(IPC.PROJECT_OPEN, async (_e, dir: string) => {
+    try {
+      return await openProjectDir(dir)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   // Git tabanlı üretim geçmişi (roadmap 3.4).

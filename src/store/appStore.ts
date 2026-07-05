@@ -109,6 +109,8 @@ interface AppState {
   newSession: () => Promise<void>
   /** Klasör Aç (roadmap 3.1): var olan projeyi içe aktarıp bağla. */
   importFolder: () => Promise<void>
+  /** 4.3: bilinen projeyi (Projects/ ya da bağlı klasör) çalışma alanına yükle. */
+  openProject: (dir: string, name: string) => Promise<void>
   /** Görsel öz-denetim (roadmap 3.3): Run sonrası sayfayı vizyon modeline göster. */
   runVisualReview: (url: string) => Promise<void>
   sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => Promise<void>
@@ -1449,6 +1451,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       profileId: DEFAULT_PROFILE_ID,
       profileLabel: getProfile(DEFAULT_PROFILE_ID).label
     })
+  },
+
+  openProject: async (dir: string, name: string) => {
+    const res = await window.nexora.projects.open(dir)
+    if (!res.ok || !res.files) {
+      set({ error: res.error ?? 'Proje açılamadı.' })
+      return
+    }
+    await get().newSession()
+    const files = Object.fromEntries(
+      res.files.map((f: { path: string; content: string }) => [
+        f.path,
+        { path: f.path, content: f.content, language: detectLanguage(f.path), updatedAt: Date.now() }
+      ])
+    )
+    const entry =
+      ['src/App.tsx', 'src/App.jsx', 'App.tsx', 'index.html', 'package.json'].find((p) => files[p]) ??
+      Object.keys(files)[0]
+    useArtifactsStore.getState().replaceAll(files, entry)
+    const isTr = get().language === 'tr'
+    set((s) => ({
+      activeTab: 'code',
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: isTr
+            ? `📂 "${res.projectName ?? name}" çalışma alanına yüklendi (${res.files!.length} dosya). Değişiklik isteyebilir, Geçmiş sekmesinden eski sürümlere dönebilirsin.`
+            : `📂 Loaded "${res.projectName ?? name}" into the workspace (${res.files!.length} files).`
+        }
+      ]
+    }))
   },
 
   importFolder: async () => {

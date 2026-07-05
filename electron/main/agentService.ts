@@ -617,6 +617,45 @@ export async function appendRepairLog(entry: Record<string, unknown>): Promise<v
   }
 }
 
+/** 4.3: bilinen projeler — Projects/ kopyaları + bağlı (içe aktarılmış) klasörler. */
+export async function listProjects(): Promise<Array<{ name: string; dir: string; linked: boolean; mtime: number }>> {
+  const out: Array<{ name: string; dir: string; linked: boolean; mtime: number }> = []
+  try {
+    const entries = await readdir(PROJECTS_ROOT, { withFileTypes: true })
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      const dir = join(PROJECTS_ROOT, e.name)
+      try {
+        out.push({ name: e.name, dir, linked: false, mtime: (await stat(dir)).mtimeMs })
+      } catch { /* atla */ }
+    }
+  } catch { /* Projects yok */ }
+  for (const [slug, dir] of Object.entries(linkedFolders)) {
+    if (!existsSync(dir)) continue
+    try {
+      out.push({ name: slug, dir, linked: true, mtime: (await stat(dir)).mtimeMs })
+    } catch { /* atla */ }
+  }
+  out.sort((a, b) => b.mtime - a.mtime)
+  return out
+}
+
+/** 4.3: bilinen bir projeyi çalışma alanına yükle (tarama kuralları importla aynı). */
+export async function openProjectDir(dir: string): Promise<ProjectImportResult> {
+  if (!existsSync(dir)) return { ok: false, error: 'Klasör bulunamadı: ' + dir }
+  const { files, skipped } = await scanProjectDir(dir)
+  if (files.length === 0) return { ok: false, error: 'Projede yüklenebilir dosya yok.' }
+  let projectName = dir.split(sep).pop() || 'proje'
+  const pkg = files.find((f) => f.path === 'package.json')
+  if (pkg) {
+    try {
+      const n = (JSON.parse(pkg.content) as { name?: string }).name
+      if (n) projectName = n
+    } catch { /* klasör adı kalır */ }
+  }
+  return { ok: true, folderPath: dir, projectName, files, skipped }
+}
+
 export async function importProjectFolder(): Promise<ProjectImportResult> {
   // Test dikişi: otomatik GUI testleri yerel OS diyaloğunu süremez; env ile
   // klasör verilirse diyalog atlanır (normal kullanımda tanımsızdır).

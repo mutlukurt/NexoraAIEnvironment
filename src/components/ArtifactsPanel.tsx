@@ -111,6 +111,22 @@ export default function ArtifactsPanel() {
   const redoFiles = useArtifactsStore((s) => s.redo)
   const generating = useAppStore((s) => s.generating)
   const [exporting, setExporting] = useState(false)
+  // 4.3: proje içi arama (dosya adı + içerik, büyük/küçük harfsiz)
+  const [searchQ, setSearchQ] = useState('')
+  const searchHits = searchQ.trim().length >= 2
+    ? Object.values(files)
+        .map((f) => {
+          const q = searchQ.toLowerCase()
+          const nameHit = f.path.toLowerCase().includes(q)
+          const li = f.content.toLowerCase().indexOf(q)
+          if (!nameHit && li < 0) return null
+          const lineNo = li >= 0 ? f.content.slice(0, li).split('\n').length : 0
+          const line = li >= 0 ? (f.content.split('\n')[lineNo - 1] ?? '').trim().slice(0, 80) : ''
+          return { path: f.path, lineNo, line }
+        })
+        .filter((x): x is { path: string; lineNo: number; line: string } => !!x)
+        .slice(0, 30)
+    : []
   const [exportMsg, setExportMsg] = useState<string | null>(null)
   
   const activeTab = useAppStore((s) => s.activeTab)
@@ -336,8 +352,34 @@ export default function ArtifactsPanel() {
         </div>
       ) : (
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <div className="w-52 shrink-0 border-r border-ink-line/80 bg-ink-card">
-            <FileTree />
+          <div className="flex w-52 shrink-0 flex-col border-r border-ink-line/80 bg-ink-card">
+            <input
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder={language === 'tr' ? 'Dosyalarda ara…' : 'Search files…'}
+              className="m-2 rounded-lg border border-ink-line/70 bg-ink-panel px-2 py-1.5 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
+            />
+            {searchQ.trim().length >= 2 ? (
+              <div className="flex-1 overflow-y-auto px-1 pb-2">
+                {searchHits.length === 0 && (
+                  <p className="px-2 pt-1 text-[11px] text-ink-dim">{language === 'tr' ? 'Eşleşme yok' : 'No matches'}</p>
+                )}
+                {searchHits.map((h) => (
+                  <button
+                    key={h.path}
+                    onClick={() => useArtifactsStore.getState().selectFile(h.path)}
+                    className="block w-full rounded-lg px-2 py-1.5 text-left transition hover:bg-ink-hi/60"
+                  >
+                    <span className="block truncate text-[11px] font-bold text-ink-text">{h.path}{h.lineNo ? ':' + h.lineNo : ''}</span>
+                    {h.line && <span className="block truncate text-[10px] text-ink-dim">{h.line}</span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-hidden">
+                <FileTree />
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-0 overflow-hidden">
             <CodeEditor />
