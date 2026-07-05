@@ -37,6 +37,7 @@ import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionServi
 import { detectHardware } from './advisorService'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { getRules, setRules } from './rulesService'
+import { historyCommit, historyList, historyRestore } from './gitService'
 import {
   IPC,
   type ChatSendInput,
@@ -350,6 +351,32 @@ function registerIpc(): void {
   ipcMain.handle(IPC.PROJECT_IMPORT, async () => {
     try {
       return await importProjectFolder()
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // Git tabanlı üretim geçmişi (roadmap 3.4).
+  ipcMain.handle(
+    IPC.HISTORY_COMMIT,
+    async (_e, input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) => {
+      try {
+        return await historyCommit(input.projectName, input.files, input.message)
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+  ipcMain.handle(IPC.HISTORY_LIST, async (_e, projectName: string) => {
+    try {
+      return await historyList(projectName)
+    } catch {
+      return []
+    }
+  })
+  ipcMain.handle(IPC.HISTORY_RESTORE, async (_e, projectName: string, hash: string) => {
+    try {
+      return await historyRestore(projectName, hash)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }

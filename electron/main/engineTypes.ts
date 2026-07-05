@@ -51,6 +51,12 @@ export interface PromptOptions {
   purpose?: 'chat' | 'prose'
   /** Sohbet sistem prompt'unun cevap dili. */
   answerLang?: 'tr' | 'en'
+  /**
+   * Tur motor geçmişine YAZILMAZ (enhance gibi meta turlar). Canlı-test
+   * bulgusu: geçmişteki "Output ONLY the brief text" talimatı, brief'in
+   * yeniden gönderiminde 3B'yi kod yerine brief'i tekrarlamaya itiyordu.
+   */
+  ephemeral?: boolean
 }
 
 export interface InferenceEngine {

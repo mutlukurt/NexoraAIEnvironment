@@ -560,21 +560,8 @@ const IMPORT_EXTS = new Set([
 const IMPORT_MAX_FILES = 400
 const IMPORT_MAX_SIZE = 200 * 1024
 
-export async function importProjectFolder(): Promise<ProjectImportResult> {
-  // Test dikişi: otomatik GUI testleri yerel OS diyaloğunu süremez; env ile
-  // klasör verilirse diyalog atlanır (normal kullanımda tanımsızdır).
-  let root = process.env.NEXORA_IMPORT_DIR && existsSync(process.env.NEXORA_IMPORT_DIR)
-    ? process.env.NEXORA_IMPORT_DIR
-    : ''
-  if (!root) {
-    const picked = await dialog.showOpenDialog({
-      title: 'Proje klasörü seç',
-      properties: ['openDirectory']
-    })
-    if (picked.canceled || picked.filePaths.length === 0) return { ok: false, canceled: true }
-    root = picked.filePaths[0]
-  }
-
+/** Bir proje klasörünü güvenli kurallarla tara (import ve 3.4 restore paylaşır). */
+export async function scanProjectDir(root: string): Promise<{ files: ProjectFileInput[]; skipped: number }> {
   const files: ProjectFileInput[] = []
   let skipped = 0
   const walk = async (dir: string): Promise<void> => {
@@ -612,6 +599,25 @@ export async function importProjectFolder(): Promise<ProjectImportResult> {
     }
   }
   await walk(root)
+  return { files, skipped }
+}
+
+export async function importProjectFolder(): Promise<ProjectImportResult> {
+  // Test dikişi: otomatik GUI testleri yerel OS diyaloğunu süremez; env ile
+  // klasör verilirse diyalog atlanır (normal kullanımda tanımsızdır).
+  let root = process.env.NEXORA_IMPORT_DIR && existsSync(process.env.NEXORA_IMPORT_DIR)
+    ? process.env.NEXORA_IMPORT_DIR
+    : ''
+  if (!root) {
+    const picked = await dialog.showOpenDialog({
+      title: 'Proje klasörü seç',
+      properties: ['openDirectory']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return { ok: false, canceled: true }
+    root = picked.filePaths[0]
+  }
+
+  const { files, skipped } = await scanProjectDir(root)
   if (files.length === 0) {
     return { ok: false, error: 'Klasörde içe aktarılabilir metin dosyası bulunamadı.' }
   }

@@ -399,7 +399,12 @@ async function chatRequest(
     // Qwen3 model kartının önerdiği doğal-dil örneklemesine yakın.
     body.top_k = 20
   }
-  if (typeof options?.maxTokens === 'number') body.max_tokens = options.maxTokens
+  // HER istekte tavan ŞART (canlı-test bulgusu: iptal edilen bir tur sunucuda
+  // hayalet üretim olarak dönmeye devam etti — tavansız istek 16k bağlam
+  // duvarına kadar ~20 dk slotu kilitledi, sonraki istekler sonsuz kuyrukta
+  // "Düşünüyor…" gösterdi). Tavan, hayalet üretimi de en kötü birkaç dakikada
+  // kendi kendine bitirir.
+  body.max_tokens = typeof options?.maxTokens === 'number' ? options.maxTokens : 4096
   if (onToken) body.stream_options = { include_usage: true }
   if (banCjk && cjkBias) body.logit_bias = cjkBias
   if (options?.grammar) body.grammar = options.grammar
@@ -640,11 +645,15 @@ export const serverEngine: InferenceEngine = {
           throw err
         }
       }
-      // Kısmi çıktı da geçmiğe girer: tokenlar üretildi ve kullanıcı gördü.
-      history.push({ role: 'user', content: promptText })
-      history.push({ role: 'assistant', content: r.text })
-      if (r.usage?.total_tokens) ctxUsed = r.usage.total_tokens
-      else ctxUsed += Math.ceil((promptText.length + r.text.length) / 4)
+      // Kısmi çıktı da geçmişe girer: tokenlar üretildi ve kullanıcı gördü.
+      // ephemeral turlar (enhance) HARİÇ: meta talimatları geçmişe yazmak,
+      // sonraki turu zehirliyor (brief-tekrarı vakası) ve bağlamı şişiriyor.
+      if (!options?.ephemeral) {
+        history.push({ role: 'user', content: promptText })
+        history.push({ role: 'assistant', content: r.text })
+        if (r.usage?.total_tokens) ctxUsed = r.usage.total_tokens
+        else ctxUsed += Math.ceil((promptText.length + r.text.length) / 4)
+      }
       return r.text
     } finally {
       abortCtl = null

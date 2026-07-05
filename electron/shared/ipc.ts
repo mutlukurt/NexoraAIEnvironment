@@ -49,6 +49,12 @@ export interface ChatSendInput {
   /** Plan turu: "N. yol — açıklama" satır formatı gramerle zorlanır. */
   expectPlan?: boolean
   prompt: string
+  /**
+   * Proje profili bu turda DEĞİŞMESİN. Enhance brief'inin yeniden gönderimi
+   * makine metnidir: brief'teki "mobil uyumlu" gibi ifadeler detectProfile'ı
+   * tetikleyip web sitesini React Native projesine çeviriyordu (canlı test).
+   */
+  profileLock?: boolean
   currentFiles?: Array<{ path: string; content: string }>
   /** Bağlam diyeti: var olan ama içeriği gönderilmeyen proje dosyaları. */
   otherPaths?: string[]
@@ -66,6 +72,8 @@ export interface ChatSendInput {
     purpose?: 'chat' | 'prose'
     /** Sohbet sistem prompt'unun cevap dili. */
     answerLang?: 'tr' | 'en'
+    /** Tur motor geçmişine yazılmaz (enhance gibi meta turlar). */
+    ephemeral?: boolean
   }
 }
 
@@ -107,8 +115,18 @@ export const IPC = {
   SESSIONS_DELETE: 'sessions:delete',
   RULES_GET: 'rules:get',
   RULES_SET: 'rules:set',
-  PROJECT_IMPORT: 'project:import'
+  PROJECT_IMPORT: 'project:import',
+  HISTORY_COMMIT: 'history:commit',
+  HISTORY_LIST: 'history:list',
+  HISTORY_RESTORE: 'history:restore'
 } as const
+
+/** Git tabanlı üretim geçmişi (roadmap 3.4). */
+export interface HistoryEntryIpc {
+  hash: string
+  subject: string
+  time: number
+}
 
 /** Klasör Aç (roadmap 3.1): var olan bir projeyi çalışma alanına bağla. */
 export interface ProjectImportResult {

@@ -187,7 +187,8 @@ export async function chat(
   // Sohbet turu proje profili DEĞİŞTİRMEZ: "python nedir?" gibi bir soru
   // aktif projenin profilini FastAPI'ye çevirip oturumu sıfırlamamalı.
   const isProseTurn = !!input.options?.purpose
-  const detected = isIterationTurn || isProseTurn ? null : detectProfile(input.prompt)
+  const detected =
+    isIterationTurn || isProseTurn || input.profileLock ? null : detectProfile(input.prompt)
   if (detected && detected.id !== activeProfileId) {
     activeProfileId = detected.id
     console.log('[NexoraAI] prompt profile ->', getProfile(activeProfileId).label)

@@ -125,6 +125,11 @@ export interface NexoraApi {
     /** Klasör Aç (roadmap 3.1): klasör diyaloğu + tarama + bağlama. */
     import: () => Promise<import('../shared/ipc').ProjectImportResult>
   }
+  history: {
+    commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) => Promise<{ ok: boolean; hash?: string; skipped?: string; error?: string }>
+    list: (projectName: string) => Promise<import('../shared/ipc').HistoryEntryIpc[]>
+    restore: (projectName: string, hash: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; error?: string }>
+  }
 }
 
 const api: NexoraApi = {
@@ -221,6 +226,12 @@ const api: NexoraApi = {
   },
   projects: {
     import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT)
+  },
+  history: {
+    commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) =>
+      ipcRenderer.invoke(IPC.HISTORY_COMMIT, input),
+    list: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_LIST, projectName),
+    restore: (projectName: string, hash: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE, projectName, hash)
   }
 }
 

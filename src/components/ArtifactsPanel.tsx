@@ -1,11 +1,99 @@
-import { useState } from 'react'
-import { useArtifactsStore } from '@/store/artifactsStore'
+import { useEffect, useState } from 'react'
+import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
 import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2 } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
+
+/**
+ * Git zaman çizelgesi (roadmap 3.4): her kabul edilen üretim bir commit.
+ * Bağlı (içe aktarılmış) klasörlerde ve git'siz sistemlerde liste boş döner —
+ * bileşen bunu dürüstçe söyler.
+ */
+function HistoryTimeline({ language }: { language: 'tr' | 'en' }) {
+  const [entries, setEntries] = useState<Array<{ hash: string; subject: string; time: number }>>([])
+  const [loaded, setLoaded] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const isTr = language === 'tr'
+
+  const refresh = async () => {
+    try {
+      setEntries(await window.nexora.history.list(getProjectName()))
+    } catch {
+      setEntries([])
+    }
+    setLoaded(true)
+  }
+  useEffect(() => {
+    void refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const restore = async (hash: string) => {
+    if (!window.confirm(isTr ? `${hash} sürümüne dönülsün mü? (Mevcut durum da geçmişe kaydedilir)` : `Restore version ${hash}? (Current state is also saved to history)`)) return
+    setBusy(hash)
+    const res = await window.nexora.history.restore(getProjectName(), hash)
+    setBusy(null)
+    if (res.ok && res.files) {
+      const files = Object.fromEntries(
+        res.files.map((f: { path: string; content: string }) => [
+          f.path,
+          { path: f.path, content: f.content, language: detectLanguage(f.path), updatedAt: Date.now() }
+        ])
+      )
+      useArtifactsStore.getState().replaceAll(files, null)
+      setNote(isTr ? `↩️ ${hash} sürümüne dönüldü.` : `↩️ Restored version ${hash}.`)
+      void refresh()
+    } else {
+      setNote(res.error ?? (isTr ? 'Geri dönüş başarısız.' : 'Restore failed.'))
+    }
+    setTimeout(() => setNote(null), 6000)
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-ink-card p-5">
+      <h3 className="text-sm font-extrabold text-ink-text">{isTr ? 'Üretim Geçmişi' : 'Generation History'}</h3>
+      <p className="mt-1 text-xs text-ink-mut">
+        {isTr
+          ? 'Her kabul edilen üretim otomatik bir git kaydı olur; istediğin sürüme dönebilirsin.'
+          : 'Every accepted generation becomes a git commit; restore any version.'}
+      </p>
+      {note && <p className="mt-3 rounded-lg bg-ink-hi px-3 py-2 text-xs font-semibold text-ink-text">{note}</p>}
+      {loaded && entries.length === 0 && (
+        <p className="mt-4 text-xs text-ink-dim">
+          {isTr
+            ? 'Henüz kayıt yok. (İçe aktarılmış klasörlerde zaman çizelgesi kendi git geçmişinizdir; ayrıca sistemde git kurulu olmalı.)'
+            : 'No entries yet. (For imported folders the timeline is your own git history; git must also be installed.)'}
+        </p>
+      )}
+      <ul className="mt-4 flex flex-col gap-2">
+        {entries.map((e, i) => (
+          <li key={e.hash} className="flex items-center justify-between gap-3 rounded-xl border border-ink-line/70 bg-ink-panel px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold text-ink-text">{e.subject}</p>
+              <p className="mt-0.5 text-[11px] text-ink-dim">
+                {e.hash} · {new Date(e.time * 1000).toLocaleString(isTr ? 'tr-TR' : 'en-US')}
+                {i === 0 ? (isTr ? ' · şu an' : ' · current') : ''}
+              </p>
+            </div>
+            {i > 0 && (
+              <button
+                onClick={() => void restore(e.hash)}
+                disabled={busy !== null}
+                className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-brand-500 disabled:opacity-50"
+              >
+                {busy === e.hash ? '…' : isTr ? 'Bu sürüme dön' : 'Restore'}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export default function ArtifactsPanel() {
   const view = useArtifactsStore((s) => s.view)
@@ -34,9 +122,10 @@ export default function ArtifactsPanel() {
   // Önizleme kaldırıldı: projeyi görmenin yolu "Çalıştır" (gerçek vite +
   // localhost + tarayıcı). Sandbox iframe'in kısıtlarıyla boğuşmak yerine
   // kullanıcı gerçek çıktıya bakar.
-  const tabs: { id: 'code' | 'tree'; label: string }[] = [
+  const tabs: { id: 'code' | 'tree' | 'history'; label: string }[] = [
     { id: 'code', label: language === 'tr' ? 'Kod' : 'Code' },
-    { id: 'tree', label: language === 'tr' ? 'Ağaç' : 'Tree' }
+    { id: 'tree', label: language === 'tr' ? 'Ağaç' : 'Tree' },
+    { id: 'history', label: language === 'tr' ? 'Geçmiş' : 'History' }
   ]
 
   const handleExport = async () => {
@@ -214,7 +303,12 @@ export default function ArtifactsPanel() {
         </div>
       )}
 
-      {fileCount === 0 ? (
+      {/* Geçmiş, BOŞ çalışma alanında da erişilebilir olmalı: taze oturumda
+          eski projenin zaman çizelgesine dönmek tam da bu görünümün işi
+          (canlı test: boş-durum dalı Geçmiş sekmesini gölgeliyordu). */}
+      {view === 'history' ? (
+        <HistoryTimeline language={language} />
+      ) : fileCount === 0 ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center">
           <div>
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-ink-hi border border-ink-line/50 shadow-sm">

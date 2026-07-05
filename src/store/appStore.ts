@@ -179,6 +179,10 @@ function setAgentAllowed(): void {
 
 // Test/CDP sürücüleri için: modele giden son ham prompt (davranışı etkilemez).
 let lastOutgoingPrompt = ''
+// Zaman çizelgesi commit mesajı için: gizli (hideUser) oto-düzeltme turları
+// değil, kullanıcının GÖRÜNÜR son isteği kullanılır ("Az önceki düzenlemen
+// kesildi…" başlıklı commit vakası).
+let lastVisibleUserPrompt = ''
 export function getLastOutgoingPrompt(): string {
   return lastOutgoingPrompt
 }
@@ -351,6 +355,26 @@ async function postGenVerify(
     }
   } finally {
     postVerifyActive = false
+    // Git zaman çizelgesi (roadmap 3.4): bu üretim turunun SON hâli (otomatik
+    // düzeltmeler dahil) bir commit olur. Ateşle-unut: git yoksa ya da proje
+    // bağlı klasörse main süreç sessizce atlar; sohbet akışını asla bekletmez.
+    void (async () => {
+      try {
+        const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
+          path: f.path,
+          content: f.content
+        }))
+        if (all.length === 0) return
+        const { getProjectName } = await import('@/lib/agentActions')
+        await window.nexora.history.commit({
+          projectName: getProjectName(),
+          files: all,
+          message: (lastVisibleUserPrompt || 'üretim').split('\n')[0]
+        })
+      } catch {
+        /* zaman çizelgesi en-iyi-çaba: hata sohbeti etkilemez */
+      }
+    })()
   }
 }
 
@@ -1470,6 +1494,9 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       set({ error: 'Önce bir GGUF modeli seç.' })
       return
     }
+    // expectFile turları da makine turudur (planlı dosya/yeniden-üretim):
+    // commit mesajına teknik tanı metni sızmasın.
+    if (!opts?.hideUser && !opts?.expectFile) lastVisibleUserPrompt = trimmed
 
     ensureStream(get, set)
     cancelScheduledApply()
@@ -1595,6 +1622,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // gönderim (bypass) normal akışa — Önce Plan açıksa plana — girer.
     // Bu mesaj gerçekten bir proje/build isteği mi? Sohbet/soru ise enhance ve
     // plan tetiklenmez (canlı-test bulgusu: "kendini tanıt" → site brief'i).
+    const enhanceResend = forceBuildNext
     const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed)
     forceBuildNext = false
     const isEnhanceTurn =
@@ -1666,6 +1694,16 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
     // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
     let outgoing = trimmed
+    // Enhance sonrası brief yeniden gönderimi: brief'i çıplak göndermek 3B'yi
+    // "devam eden brief yazımı" sanıp tekrarlamaya itiyordu (0 dosya vakası).
+    // Kod turuna düşen yeniden gönderim, açık bir üretim emriyle sarılır
+    // (plan turunda gerek yok — plan deterministik üretici/gramerle akar).
+    if (enhanceResend && !isPlanTurn && !isChatTurn) {
+      outgoing = `The professional brief below is APPROVED — now BUILD the complete website from it. Follow your output format EXACTLY (one short sentence, then the code blocks). Do NOT repeat or rewrite the brief text itself.
+
+BRIEF:
+${trimmed}`
+    }
     // Sohbet turu: soru OLDUĞU GİBİ gider — İngilizce sargı + kod personası
     // çelişkisi küçük modelleri saçmalatıyordu (canlı-test matrisi). Konuşma
     // modu motor tarafında options.purpose='chat' ile kurulur: sade sohbet
@@ -1795,6 +1833,7 @@ ${rules.slice(0, 1500)}
       maxTokens?: number
       purpose?: 'chat' | 'prose'
       answerLang?: 'tr' | 'en'
+      ephemeral?: boolean
     } = isChatTurn
       ? // Sohbet: doğal-dil örneklemesi (Qwen3 kartı: 0.6/0.95). Kod sıcaklığı
         // (0.2) + tekrar cezaları Türkçe cevapları bozuyordu. maxTokens tavanı
@@ -1802,12 +1841,14 @@ ${rules.slice(0, 1500)}
         { temperature: 0.6, topP: 0.95, maxTokens: 3072, purpose: 'chat' }
       : isEnhanceTurn
         ? // Ayrıntılı brief + düşünen modellerin düşünme payı için geniş tavan.
-          { temperature: 0.6, topP: 0.95, maxTokens: 4096, purpose: 'prose' }
+          // ephemeral: enhance meta-talimatı motor geçmişine yazılmaz.
+          { temperature: 0.6, topP: 0.95, maxTokens: 4096, purpose: 'prose', ephemeral: true }
         : isPlanTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
-          ? { temperature: 0.1 }
-          : { temperature: 0.2 }
+          ? // Cerrahi düzeltme blokları küçüktür; tavan hayalet-üretim sigortası.
+            { temperature: 0.1, maxTokens: 2560 }
+          : { temperature: 0.2, maxTokens: 4096 }
     if (sampling.purpose) sampling.answerLang = get().language === 'tr' ? 'tr' : 'en'
     // Planlı dosya turu: tek dosya ~4k tokene sığmalı; sınır, kapanmayan
     // fence içinde sonsuza dek gezinen üretime karşı güvenlik tavanı.
@@ -1822,6 +1863,9 @@ ${rules.slice(0, 1500)}
     try {
       const res = await window.nexora.chat.send({
         prompt: outgoing,
+        // Brief yeniden gönderimi makine metnidir: içindeki "mobil" gibi
+        // kelimeler proje profilini değiştirmesin (RN'e uçan site vakası).
+        profileLock: enhanceResend || undefined,
         currentFiles: currentFiles.length > 0 ? currentFiles : undefined,
         otherPaths: excludedPaths.length > 0 ? excludedPaths : undefined,
         expectFile: opts?.expectFile,
