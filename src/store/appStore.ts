@@ -738,7 +738,10 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               {
                 id: nanoid(),
                 role: 'assistant',
-                content: '✨ Tarifin profesyonel bir briefe dönüştürüldü — şimdi bu briefle devam ediliyor.'
+                content:
+                  get().language === 'tr'
+                    ? '✨ Tarifin profesyonel bir briefe dönüştürüldü — şimdi bu briefle devam ediliyor.'
+                    : '✨ Your description was turned into a professional brief — continuing with it.'
               }
             ]
           }))
