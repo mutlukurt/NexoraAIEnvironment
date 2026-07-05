@@ -122,6 +122,20 @@ const failures = []
   else { fail++; failures.push(`✗ temiz projede ${r.findings.length} yanlış alarm: ${r.findings.map((f) => `${f.cls}@${f.path}`).join(', ')}`) }
 }
 
+// Klasik fonksiyon parametresi prop'u tanımsız SANILMAMALI (canlı yanlış alarm,
+// 2026-07-05: function List({ data }) içindeki data.map stub'landı — prop
+// gölgelediği için stub çare de olamazdı)
+{
+  const r = await runDebugScan(
+    F({
+      'src/List.tsx': `function List({ data }) {\n  return <ul>{data.map((x, i) => <li key={i}>{String(x)}</li>)}</ul>\n}\n\nexport default function Wrap(items) {\n  return items.length > 0 ? <List data={[]} /> : null\n}\n`
+    })
+  )
+  const falseAlarm = r.findings.find((f) => f.cls === 'data-undefined')
+  if (!falseAlarm) { pass++; console.log('✓ klasik fonksiyon parametresi yanlış alarm üretmez') }
+  else { fail++; failures.push(`✗ prop parametresi tanımsız sanıldı: ${falseAlarm.message}`) }
+}
+
 for (const c of CASES) {
   const r = await runDebugScan(c.files)
   const hit = r.findings.find((f) => f.cls === c.cls)

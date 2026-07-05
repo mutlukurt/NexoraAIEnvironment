@@ -94,6 +94,16 @@ export function declaredNames(content: string): Set<string> {
       if (name && /^[\w$]+$/.test(name)) names.add(name)
     }
   }
+  // Klasik fonksiyon parametreleri: function List({ data }) — canlı yanlış
+  // alarm (25 no'lu ekran görüntüsü çekilirken): prop 'data' tanımsız sanılıp
+  // modül düzeyinde stub'landı; prop gölgelediği için onarım da işe yaramazdı.
+  const fnParamRe = /function\s*[\w$]*\s*\(([^)]*)\)/g
+  for (const m of content.matchAll(fnParamRe)) {
+    for (const part of m[1].split(',')) {
+      const name = part.replace(/[{}[\]]/g, '').split(':')[0]?.split('=')[0]?.trim()
+      if (name && /^[\w$]+$/.test(name)) names.add(name)
+    }
+  }
   return names
 }
 
