@@ -83,6 +83,14 @@ On 2026-07-04/05 the entire pipeline was rebuilt and then battle-tested **live, 
 |---|---|---|
 | ![v0.10 plan](docs/screenshots/19-v010-grammar-plan.png) | ![v0.10 build](docs/screenshots/20-v010-file-by-file.png) | ![v0.10 workspace](docs/screenshots/21-v010-workspace.png) |
 
+## Latest Build — a 14B Portfolio, Debugged by the Engine (v0.11)
+
+The v0.11 closing test: **Qwen2.5-Coder-14B** (Q4_K_M, 9 GB, partial GPU offload on a 4 GB RTX 2050, 32k context) received one detailed Turkish brief — exact hex palette (`#0B0F14` page / `#C8F31D` electric-lime accent), named fonts (Space Grotesk + Inter via the `[FONT]` pipeline), eight ordered sections, and six **real Unsplash photo URLs** pinned in the brief so the model couldn't hallucinate images. The deterministic planner derived the section skeleton in seconds; the 14B filled it file by file — **9/9 files** — then the run continued the way this project believes it should: *the model made real mistakes and the app caught every one of them.* A surgical edit from the model's own iteration broke a file's closing syntax → the post-generation check caught it, two silent fix rounds weren't enough, and the ladder **escalated to full file regeneration, which verified green — zero human input**. Turkish negation typos in the copy ("geliştir**mi**yoruz") were then corrected through normal chat iterations. The owner's verdict after watching it live: *"the engine works — this project has proven itself."*
+
+| The built portfolio (live at localhost) | Inside NexoraAI — 14B loaded, workspace after the build |
+|---|---|
+| ![14B portfolio hero](docs/screenshots/27-portfolio-site.png) | ![NexoraAI workspace with the 14B build](docs/screenshots/28-portfolio-build-app.png) |
+
 ## Feature Overview
 
 - 🧠 **Local GGUF inference** — load any `.gguf` model (Qwen, Gemma, Llama…); CPU by default, GPU offload optional with automatic CPU fallback.
