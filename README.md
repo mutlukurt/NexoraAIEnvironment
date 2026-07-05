@@ -546,10 +546,11 @@ Recently shipped (see the [Development Chronicle](#development-chronicle) for th
 
 The full phased plan lives in **[ROADMAP.md](ROADMAP.md)**. Status in one breath:
 
-1. **Engine** — ✅ shipped: flash attention + Q8_0 KV cache, partial GPU offload with a layer ladder + slider, per-phase sampler presets, compaction summaries, and inference migrated to `llama-server` (prompt caching, worker fallback).
-2. **Making small models masters** — ✅ shipped: grammar-enforced edit blocks, plan → file-by-file generation, silent auto-verify after every generation, the section template bank. Remaining: model-family prompt profiles.
-3. **An agent with eyes** — ✅ runtime error capture shipped (zero-touch auto-heal). Next: import existing projects, visual self-review via the vision model, git-based history.
-4. **Productization** (v1.0) — hybrid API mode, Windows/macOS packaging, multi-project workspaces, local model benchmarking, stable-diffusion.cpp image generation.
+1. **Engine** — ✅ complete: flash attention + Q8_0 KV cache, partial GPU offload with a layer ladder + slider, per-phase sampler presets, compaction summaries, and inference migrated to `llama-server` (prompt caching, worker fallback).
+2. **Making small models masters** — ✅ complete: grammar-enforced edit blocks, plan → file-by-file generation, silent auto-verify after every generation, the section template bank, model-family prompt profiles.
+3. **An agent with eyes** — ✅ complete: import existing projects (open folder), zero-touch runtime error capture + the autonomous repair ladder, pixel + vision self-review, git-based generation history.
+4. **Productization** (v1.0) — ✅ mostly complete: hybrid API mode, multi-project workspaces + in-project search, remote model-catalog manifest, local mini-benchmark with real on-device scores. **Not completed (deferred):** 4.2 Windows/macOS packaging (needs per-platform Node vendoring + real hardware/CI to verify) and 4.6 local image generation via stable-diffusion.cpp (a separate infrastructure effort competing for the same RAM) — both parked until after Phase 5.
+5. **The Debug Engine** (v1.1) — 🚧 **the new direction.** One engine that finds faulty code by scanning, sees localhost errors the instant they fire, pinpoints the root cause and fixes it — deterministically when it can, with the model when it must, verified always. Built by fusing the already-shipped senses (runtime collector, repair ladder, error corpus, visual review, git green-restore) into one pipeline — **Capture → Diagnose → Locate → Fix → Verify** — proven on simple projects first, then hardened level by level. Details in [ROADMAP.md](ROADMAP.md).
 
 ## License
 
