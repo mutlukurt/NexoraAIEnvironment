@@ -113,6 +113,13 @@ interface AppState {
   openProject: (dir: string, name: string) => Promise<void>
   /** Görsel öz-denetim (roadmap 3.3): Run sonrası sayfayı vizyon modeline göster. */
   runVisualReview: (url: string) => Promise<void>
+  /**
+   * Debug Engine (roadmap 5.1/5.2): projeyi çalıştırmadan tara.
+   * apply=false → yalnızca rapor (içe aktarma otomatik taraması dosyaya
+   * DOKUNMAZ — kullanıcının orijinal klasörüne izinsiz yazılmaz);
+   * quiet=true → temiz taramada mesaj atılmaz (Run öncesi sessiz denetim).
+   */
+  runProjectScan: (opts?: { apply?: boolean; quiet?: boolean }) => Promise<void>
   sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
@@ -1522,6 +1529,74 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       ]
     }))
+    // Debug Engine (5.2): içe aktarılan proje otomatik taranır — YALNIZCA
+    // rapor; kullanıcının orijinal klasörüne tek tıksız yazılmaz.
+    void get().runProjectScan({ apply: false, quiet: true })
+  },
+
+  runProjectScan: async (opts?: { apply?: boolean; quiet?: boolean }) => {
+    // Debug Engine (roadmap 5.1/5.2): statik tarama → deterministik bulgular
+    // Kat 0'dan modelsiz onarılır → dürüst rapor. Model HİÇ çağrılmaz;
+    // kalan bulgular için kullanıcı "düzelt" der (model turu oradan akar).
+    const apply = opts?.apply !== false
+    const isTr = get().language === 'tr'
+    const say = (content: string): void =>
+      set((s) => ({ messages: [...s.messages, { id: nanoid(), role: 'assistant', content }] }))
+    const filesRaw = useArtifactsStore.getState().files
+    if (Object.keys(filesRaw).length === 0) {
+      if (!opts?.quiet) {
+        say(
+          isTr
+            ? '🔍 Taranacak proje yok — önce bir proje üret ya da Klasör Aç ile yükle.'
+            : '🔍 Nothing to scan — generate a project or open a folder first.'
+        )
+      }
+      return
+    }
+    const { runDebugScan, formatScanReport } = await import('@/lib/debugEngine')
+    const files = Object.fromEntries(
+      Object.entries(filesRaw).map(([p, f]) => [p, { path: f.path, content: f.content }])
+    )
+    const report = await runDebugScan(files)
+    if (report.findings.length === 0) {
+      if (!opts?.quiet) say(formatScanReport(report, isTr))
+      return
+    }
+    if (!apply) {
+      // Rapor modu (içe aktarma otomatiği): kullanıcının orijinal klasörüne
+      // İZİNSİZ yazılmaz — bulgular listelenir, onarım Tara'ya bırakılır.
+      const fixable = report.fixed.length
+      say(
+        [
+          isTr
+            ? `🔍 İçe aktarılan projede ${report.findings.length} olası sorun görüldü${fixable ? ` (${fixable} tanesi modelsiz onarılabilir)` : ''}:`
+            : `🔍 The imported project shows ${report.findings.length} potential issue(s)${fixable ? ` (${fixable} repairable without a model)` : ''}:`,
+          ...report.findings.map((f) => `  • ${f.path}${f.line ? ':' + f.line : ''} — ${f.message}`),
+          isTr ? 'Onarmak için Dosyalar & Kod sekmesindeki "Tara" düğmesine bas.' : 'Press "Scan" in the Files & Code tab to repair.'
+        ].join('\n')
+      )
+      return
+    }
+    for (const [path, content] of Object.entries(report.patched)) {
+      useArtifactsStore.getState().upsertFile(path, content)
+    }
+    if (report.fixed.length > 0) {
+      logRepair({ layer: 'scan-kat0', notes: report.fixed.map((f) => f.note) })
+      // Onarım diske inmeli (bağlı projede orijinal klasöre) — runtime
+      // onarımıyla aynı sync yolu; vite açıksa HMR sayfayı toparlar.
+      try {
+        const { getProjectName } = await import('@/lib/agentActions')
+        const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
+          path: f.path,
+          content: f.content
+        }))
+        await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: all, onlyIfInstalled: true })
+      } catch { /* sync olmadıysa store günceldir; Run'da diske yazılır */ }
+    }
+    if (report.remaining.length > 0) {
+      logRepair({ layer: 'scan-remaining', notes: report.remaining.map((f) => `${f.cls}@${f.path}`) })
+    }
+    say(formatScanReport(report, isTr))
   },
 
   runVisualReview: async (url: string) => {

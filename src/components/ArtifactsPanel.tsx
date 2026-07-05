@@ -3,7 +3,7 @@ import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
-import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2 } from 'lucide-react'
+import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 
@@ -160,6 +160,19 @@ export default function ArtifactsPanel() {
 
   const [devBusy, setDevBusy] = useState(false)
   const [devUrl, setDevUrl] = useState<string | null>(null)
+  const [scanBusy, setScanBusy] = useState(false)
+
+  const handleScan = async () => {
+    setScanBusy(true)
+    try {
+      await useAppStore.getState().runProjectScan()
+    } finally {
+      setScanBusy(false)
+    }
+    // Rapor chat'e düşer — kullanıcı sohbet sekmesinde görür.
+    setExportMsg(language === 'tr' ? 'Tarama raporu sohbete eklendi' : 'Scan report added to chat')
+    setTimeout(() => setExportMsg(null), 5000)
+  }
 
   const handleDev = async () => {
     if (devUrl) {
@@ -170,6 +183,9 @@ export default function ArtifactsPanel() {
       return
     }
     setDevBusy(true)
+    // Debug Engine (5.2): Çalıştır'dan önce sessiz tarama — deterministik
+    // sınıflar localhost'a hiç ulaşmadan onarılır (temizse mesaj yok).
+    try { await useAppStore.getState().runProjectScan({ quiet: true }) } catch { /* tarama Run'ı engellemez */ }
     setExportMsg(language === 'tr' ? 'Proje hazırlanıyor (npm install + dev sunucusu)…' : 'Preparing project (npm install + dev server)…')
     const fileList = Object.values(files).map((f) => ({ path: f.path, content: f.content }))
     const res = await window.nexora.agent.devStart({ projectName: getProjectName(), files: fileList })
@@ -250,6 +266,20 @@ export default function ArtifactsPanel() {
           </div>
           {fileCount > 0 && (
             <>
+              {/* Debug Engine (roadmap 5.2): çalıştırmadan tara + modelsiz onar */}
+              <button
+                onClick={() => void handleScan()}
+                disabled={scanBusy}
+                title={language === 'tr' ? 'Projeyi çalıştırmadan tara: hatalı kodu bul, bulunanı modelsiz onar' : 'Scan without running: find faulty code, repair deterministically'}
+                className="ml-1 rounded-xl border border-ink-line bg-ink-card px-4 py-2 text-xs font-bold text-ink-mut transition shadow-sm hover:border-brand-500/60 hover:text-ink-text disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {scanBusy ? (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-ink-dim border-t-brand-400" />
+                ) : (
+                  <ScanSearch className="h-4 w-4" />
+                )}
+                <span>{language === 'tr' ? 'Tara' : 'Scan'}</span>
+              </button>
               <button
                 onClick={() => void handleDev()}
                 disabled={devBusy}
