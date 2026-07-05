@@ -47,11 +47,29 @@ export default function Sidebar() {
   const setActiveTab = useAppStore((s) => s.setActiveTab)
   const importFolder = useAppStore((s) => s.importFolder)
   const openProject = useAppStore((s) => s.openProject)
-  const [projects, setProjects] = (window as unknown as { React?: never }, useProjectsList())
+  const [projects] = useProjectsList()
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const theme = useAppStore((s) => s.theme)
   const setTheme = useAppStore((s) => s.setTheme)
+
+  const generating = useAppStore((s) => s.generating)
+  const [benchBusy, setBenchBusy] = useState(false)
+  const [benchMsg, setBenchMsg] = useState<string | null>(null)
+  const runBench = async (): Promise<void> => {
+    setBenchBusy(true)
+    setBenchMsg(null)
+    const r = await window.nexora.bench.run()
+    setBenchBusy(false)
+    if ('error' in r) {
+      setBenchMsg('⚠ ' + r.error)
+    } else {
+      const tr = language === 'tr'
+      setBenchMsg(
+        `${r.tokPerSec} tok/s · ${r.compileOk ? (tr ? 'derleme ✓' : 'compiles ✓') : tr ? 'derleme ✗' : 'compiles ✗'} · ${tr ? 'skor' : 'score'} ${r.score}/100`
+      )
+    }
+  }
 
   const t = translations[language]
 
@@ -272,6 +290,20 @@ export default function Sidebar() {
             >
               {t.unloadModel}
             </button>
+            {/* Yerel mini-benchmark (roadmap 4.5): kağıt-üstü not değil, BU
+                makinede ölçülmüş hız + derlenebilirlik skoru. */}
+            <button
+              onClick={() => void runBench()}
+              disabled={benchBusy || generating}
+              className="mt-1.5 w-full rounded-lg border border-ink-line bg-ink-bg/60 py-1.5 text-[10px] font-bold text-ink-mut transition hover:bg-ink-hi hover:text-ink-text disabled:opacity-50"
+            >
+              {benchBusy
+                ? language === 'tr' ? 'Ölçülüyor… (≈1 dk)' : 'Benchmarking… (≈1 min)'
+                : language === 'tr' ? 'Mini-test' : 'Mini-benchmark'}
+            </button>
+            {benchMsg && (
+              <p className="mt-1.5 text-center text-[10px] font-bold text-ink-mut">{benchMsg}</p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">

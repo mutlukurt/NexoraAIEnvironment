@@ -105,6 +105,12 @@ export interface NexoraApi {
     /** Toplayıcının bağlı olduğu port; null = otomatik hata yakalama devre dışı. */
     runtimeStatus: () => Promise<{ port: number | null }>
   }
+  bench: {
+    /** Yüklü modeli sabit görevle ölç (roadmap 4.5); sonuç kalıcı yazılır. */
+    run: () => Promise<import('../shared/ipc').BenchResultInfo | { error: string }>
+    /** Kayıtlı skorlar: model dosya adı → sonuç. */
+    get: () => Promise<Record<string, import('../shared/ipc').BenchResultInfo>>
+  }
   vision: {
     pickImage: () => Promise<{ path: string } | null>
     analyze: (input: VisionAnalyzeInput) => Promise<VisionAnalyzeResult>
@@ -218,6 +224,10 @@ const api: NexoraApi = {
       return () => ipcRenderer.off(IPC.AGENT_RUNTIME_ERROR, handler as never)
     },
     runtimeStatus: () => ipcRenderer.invoke(IPC.RUNTIME_STATUS)
+  },
+  bench: {
+    run: () => ipcRenderer.invoke(IPC.BENCH_RUN),
+    get: () => ipcRenderer.invoke(IPC.BENCH_GET)
   },
   vision: {
     pickImage: () => ipcRenderer.invoke(IPC.VISION_PICK_IMAGE),

@@ -126,8 +126,20 @@ export const IPC = {
   REPAIR_LOG: 'repair:log',
   PROJECT_LIST: 'project:list',
   PROJECT_OPEN: 'project:open',
-  RUNTIME_STATUS: 'agent:runtime-status'
+  RUNTIME_STATUS: 'agent:runtime-status',
+  BENCH_RUN: 'bench:run',
+  BENCH_GET: 'bench:get'
 } as const
+
+/** Yerel mini-benchmark sonucu (roadmap 4.5). */
+export interface BenchResultInfo {
+  file: string
+  tokPerSec: number
+  seconds: number
+  compileOk: boolean
+  score: number
+  at: string
+}
 
 /** Git tabanlı üretim geçmişi (roadmap 3.4). */
 export interface HistoryEntryIpc {

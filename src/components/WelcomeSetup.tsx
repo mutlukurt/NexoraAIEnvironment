@@ -38,6 +38,8 @@ export default function WelcomeSetup() {
   const [hw, setHw] = useState<HardwareInfo | null>(null)
   const [plan, setPlan] = useState<AdvisorPlan | null>(null)
   const [chosen, setChosen] = useState<string | null>(null)
+  // Yerel mini-benchmark skorları (roadmap 4.5): dosya adı → ölçüm.
+  const [bench, setBench] = useState<Record<string, import('../../electron/shared/ipc').BenchResultInfo>>({})
   const installedRef = useRef(false)
 
   const dir = useHfStore((s) => s.dir)
@@ -52,6 +54,11 @@ export default function WelcomeSetup() {
   const speedText = SPEED_TEXT[language] ?? SPEED_TEXT.tr
 
   const close = useCallback(() => setOpen(false), [])
+
+  useEffect(() => {
+    if (!open) return
+    void window.nexora.bench?.get().then(setBench).catch(() => { /* skor yoksa boş */ })
+  }, [open])
 
   // Sonradan tekrar açılabilsin (ör. Model Tarayıcı'daki "Cihaz Önerisi" düğmesi)
   useEffect(() => {
@@ -185,6 +192,15 @@ export default function WelcomeSetup() {
                           <span className={'rounded-lg border px-2 py-0.5 text-[10px] font-bold ' + SPEED_STYLES[c.speed]}>
                             {speedText[c.speed]}
                           </span>
+                          {/* 4.5: kağıt-üstü notun yanında BU makinede ölçülmüş gerçek skor */}
+                          {bench[c.file] && (
+                            <span
+                              className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300"
+                              title={language === 'tr' ? 'Bu cihazda ölçüldü (Mini-test)' : 'Measured on this device (Mini-benchmark)'}
+                            >
+                              {bench[c.file].tokPerSec} tok/s · {bench[c.file].compileOk ? '✓' : '✗'} · {bench[c.file].score}/100
+                            </span>
+                          )}
                           {busy ? (
                             <button
                               onClick={() => {
