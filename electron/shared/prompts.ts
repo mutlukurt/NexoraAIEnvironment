@@ -322,6 +322,60 @@ UPDATES: when "Current project files" are provided, use SURGICAL edit blocks (ne
 
 export const DEFAULT_PROFILE_ID = 'react-spa'
 
+// ---------------------------------------------------------------------------
+// Model AİLESİ profilleri (roadmap 2.5): boyut-uyarlı prompt'un ikinci ekseni.
+// Her ailenin kendine has huyları var; GGUF metadata'sından (architecture +
+// general.name) ya da dosya adından aile tespit edilir ve prompt'a KISA bir
+// düzeltme notu eklenir. Küçük modeller uzun kural listesinden boğulur —
+// notlar 1-3 satırı geçmez ve yalnızca gerçek bir huy varsa eklenir.
+// (Qwen zaten baseline: CJK sürüklenmesi sampler'da çözülüyor, ekstra not yok.)
+// ---------------------------------------------------------------------------
+
+export type ModelFamily = 'qwen' | 'gemma' | 'llama' | 'deepseek' | 'phi' | 'mistral' | 'generic'
+
+/**
+ * Mimari (qwen2/gemma3/llama…), model adı ve dosya adından oluşan bir metin
+ * bloğundan aileyi tespit et. Llama-tabanlı modeller mimaride "llama" görünür
+ * ama adları DeepSeek/Mistral olabilir; bu yüzden ad ÖNCE kontrol edilir.
+ */
+export function detectFamily(blob: string): ModelFamily {
+  const s = blob.toLowerCase()
+  if (/deepseek/.test(s)) return 'deepseek'
+  if (/\bphi[-\s]?\d|\bphi\b/.test(s)) return 'phi'
+  if (/mistral|codestral|mixtral|ministral/.test(s)) return 'mistral'
+  if (/gemma/.test(s)) return 'gemma'
+  if (/qwen/.test(s)) return 'qwen'
+  if (/llama|meta-llama/.test(s)) return 'llama'
+  return 'generic'
+}
+
+// Önsöz baskılama: Gemma/Llama/Phi/Mistral küçük modelleri "Elbette! İşte…"
+// gibi giriş cümleleriyle başlıyor ve markdown başlık ekliyor — format tek
+// istenen şeyse bu, kod-blok parser'ını ve gramerini gereksiz yere zorluyor.
+const NO_PREAMBLE = `=== OUTPUT DISCIPLINE (this model tends to over-talk) ===
+Start DIRECTLY with the required output. NEVER begin with "Sure", "Certainly", "Here is/are", "Of course" or any greeting. No markdown headings (#), no bullet-point commentary, no closing remarks — output ONLY exactly what the format section asks for.`
+
+const FAMILY_NOTES: Record<ModelFamily, string> = {
+  // Qwen-Coder = baseline; CJK yasağı sampler'da. Ekstra kurala gerek yok.
+  qwen: '',
+  // Gemma: çok konuşkan, markdown ve önsöz sever; sistem rolünü ilk kullanıcı
+  // mesajına katlar (llama-server jinja hallediyor) ama içerik disiplinine muhtaç.
+  gemma: NO_PREAMBLE,
+  // Llama 3.x: talimatı iyi izler ama "Here is…" önsözüne meyilli.
+  llama: NO_PREAMBLE,
+  // Phi (Microsoft): aşırı açıklar, madde madde yorum ekler.
+  phi: NO_PREAMBLE,
+  // Mistral/Codestral: önsöz + zaman zaman fazladan yorum.
+  mistral: NO_PREAMBLE,
+  // DeepSeek-Coder: Qwen-Coder'a yakın; hafif önsöz baskısı yeterli.
+  deepseek: NO_PREAMBLE,
+  generic: ''
+}
+
+export function familyNote(family?: ModelFamily): string {
+  return family ? (FAMILY_NOTES[family] ?? '') : ''
+}
+
 export function getProfile(id: string): PromptProfile {
   return PROFILES.find((p) => p.id === id) ?? PROFILES[PROFILES.length - 1]
 }
@@ -344,7 +398,12 @@ export function detectProfile(text: string): PromptProfile | null {
  * `smallModel: true` (≲8B GGUF) → kural listesi yerine kompakt, örnek-güdümlü
  * tek-dosya prompt'u; küçük modellerde çok daha güvenilir sonuç verir.
  */
-export function buildSystemPrompt(profileId: string, custom?: string, smallModel?: boolean): string {
+export function buildSystemPrompt(
+  profileId: string,
+  custom?: string,
+  smallModel?: boolean,
+  family?: ModelFamily
+): string {
   const profile = getProfile(profileId)
   let parts: string[]
   if (smallModel && (profile.id === 'react-spa' || profile.id === 'nextjs')) {
@@ -355,6 +414,9 @@ export function buildSystemPrompt(profileId: string, custom?: string, smallModel
     const head = `You are NexoraAI, an expert AI software architect and senior engineer, like Bolt.new. You generate COMPLETE, production-quality projects with professional file trees.`
     parts = [head, FORMAT_RULES, profile.body, ITERATION_RULES]
   }
+  // Aileye özel huy düzeltmesi (roadmap 2.5) — boyut-uyarlı prompt'un yanında.
+  const fam = familyNote(family)
+  if (fam) parts.push(fam)
   if (custom?.trim()) parts.push('--- Additional Instructions ---\n' + custom.trim())
   return parts.join('\n\n')
 }

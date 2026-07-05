@@ -9,7 +9,9 @@ import {
   isModelLoaded,
   getLoadedInfo,
   setCustomSystemPrompt,
-  disposeWorker
+  disposeWorker,
+  getActiveFamily,
+  debugHasFamilyNote
 } from './llamaService'
 import {
   searchModels,
@@ -368,6 +370,7 @@ void app.whenReady().then(async () => {
       console.log('[selftest] loading', path, 'gpu =', gpu)
       const info = await loadModel(path, gpu)
       console.log('[selftest] loaded', info.name, 'gpu=' + info.gpu, 'layers=' + info.gpuLayers + '/' + info.totalLayers, 'ctx=' + info.contextSize)
+      console.log('[selftest] family=' + getActiveFamily() + ' familyNoteInPrompt=' + debugHasFamilyNote())
       const t1 = Date.now()
       const prompt1 = process.env['NEXORA_SELFTEST_PROMPT'] ?? 'My favorite fruit is mango. Reply with just: OK'
       const full = await chat({ prompt: prompt1, options: { maxTokens: process.env['NEXORA_SELFTEST_PROMPT'] ? 48 : 8, temperature: 0 } }, (t) => process.stdout.write(t))

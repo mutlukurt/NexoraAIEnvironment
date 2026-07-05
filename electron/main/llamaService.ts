@@ -34,6 +34,8 @@ let customSystemPrompt = ''
 let activeProfileId = DEFAULT_PROFILE_ID
 /** ≲8B modeller için kompakt tek-dosya prompt'u kullanılır (9 GB eşiği). */
 let smallModel = true
+/** Yüklü modelin ailesi (roadmap 2.5) — prompt'a aileye özel not eklenir. */
+let activeFamily: import('../shared/prompts').ModelFamily = 'generic'
 
 export function setCustomSystemPrompt(prompt: string): void {
   customSystemPrompt = prompt
@@ -43,8 +45,18 @@ export function getActiveProfileId(): string {
   return activeProfileId
 }
 
+/** Yüklü modelin ailesi (roadmap 2.5) — selftest/debug için. */
+export function getActiveFamily(): import('../shared/prompts').ModelFamily {
+  return activeFamily
+}
+
+/** Aktif sistem prompt'unun aileye özel not içerip içermediği — debug için. */
+export function debugHasFamilyNote(): boolean {
+  return /OUTPUT DISCIPLINE/.test(getFullSystemPrompt())
+}
+
 function getFullSystemPrompt(): string {
-  return buildSystemPrompt(activeProfileId, customSystemPrompt, smallModel)
+  return buildSystemPrompt(activeProfileId, customSystemPrompt, smallModel, activeFamily)
 }
 
 export function isModelLoaded(): boolean {
@@ -105,9 +117,10 @@ export async function loadModel(
     }
   }
 
-  // Gerçek parametre sayısı metadata'dan geldi: dosya-boyutu tahminimiz
-  // yanlışsa (örn. sıkı quantize 14B+) doğru prompt ile oturumu yeniden kur.
-  // ≥13B modeller tam profesyonel çok-dosyalı prompt'u kaldırabilir.
+  // loadOpts.systemPrompt ÖNCEKİ aileyle kuruldu; yeni model farklı aile
+  // olabilir. Hem parametre-sayısı düzeltmesini hem aile değişimini burada
+  // toparlayıp gerekiyorsa oturumu doğru prompt'la bir kez yeniden kur.
+  let needsReset = false
   if (typeof info.paramCount === 'number' && info.paramCount > 0) {
     const actualSmall = info.paramCount < 13e9
     if (actualSmall !== smallModel) {
@@ -115,9 +128,16 @@ export async function loadModel(
         `[llamaService] model ${(info.paramCount / 1e9).toFixed(1)}B parametre — prompt profili düzeltiliyor (small=${actualSmall})`
       )
       smallModel = actualSmall
-      await engine.reset(getFullSystemPrompt())
+      needsReset = true
     }
   }
+  const newFamily = info.family ?? 'generic'
+  if (newFamily !== activeFamily) {
+    console.log(`[llamaService] model ailesi: ${newFamily} — aileye özel prompt notu uygulanıyor`)
+    activeFamily = newFamily
+    needsReset = true
+  }
+  if (needsReset) await engine.reset(getFullSystemPrompt())
 
   loadedInfo = {
     name: basename(modelPath),

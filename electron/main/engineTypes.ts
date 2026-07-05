@@ -29,6 +29,8 @@ export interface EngineLoadResult {
   gpuLayers: number
   totalLayers: number
   paramCount: number | null
+  /** GGUF metadata/dosya adından tespit edilen model ailesi (roadmap 2.5). */
+  family?: import('../shared/prompts').ModelFamily
 }
 
 export interface PromptOptions {

@@ -7,7 +7,7 @@
  * Worker'ın kendisi (llamaWorker.ts) değişmedi: V8 cage nedeniyle saf Node
  * altında ayrı süreçte koşar, çökerse uygulama ayakta kalır.
  */
-import { join } from 'path'
+import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 import type {
@@ -168,13 +168,16 @@ export const workerEngine: InferenceEngine = {
       if (!res.ok || !res.info) {
         throw new Error(res.error ?? 'bilinmeyen hata')
       }
+      // Aile: worker metadata döndürmüyor; dosya adından türet (roadmap 2.5).
+      const { detectFamily } = await import('../shared/prompts')
       return {
         contextSize: res.info.contextSize,
         trainContextSize: res.info.trainContextSize,
         gpu: res.info.gpu,
         gpuLayers: res.info.gpuLayers ?? 0,
         totalLayers: res.info.totalLayers ?? 0,
-        paramCount: res.info.paramCount ?? null
+        paramCount: res.info.paramCount ?? null,
+        family: detectFamily(basename(opts.path))
       }
     } finally {
       activeProgressCb = null

@@ -15,7 +15,7 @@ import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
 import { selectContextFiles } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
-import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS } from '@/lib/sectionPlan'
+import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest } from '@/lib/sectionPlan'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
@@ -1545,6 +1545,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Prompt güçlendirme: yeni projede (dosya yokken) gündelik tarif önce
     // profesyonel briefe çevrilir; brief otomatik yeniden gönderilir ve o
     // gönderim (bypass) normal akışa — Önce Plan açıksa plana — girer.
+    // Bu mesaj gerçekten bir proje/build isteği mi? Sohbet/soru ise enhance ve
+    // plan tetiklenmez (canlı-test bulgusu: "kendini tanıt" → site brief'i).
+    const buildReq = looksLikeBuildRequest(trimmed)
     const isEnhanceTurn =
       get().enhancePrompts &&
       !enhanceBypassNext &&
@@ -1552,13 +1555,31 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !visionAnalysis &&
       !fixFlow &&
       !opts?.expectFile &&
-      allFiles.length === 0
+      allFiles.length === 0 &&
+      buildReq
     enhanceBypassNext = false
-    // Plan modu: "Önce Plan" açıkken normal istekler önce plana çevrilir.
-    // Görsel akışı, düzelt akışı ve plan onayı (bypass) doğrudan koda gider.
+    // Plan modu: "Önce Plan" açıkken build istekleri önce plana çevrilir.
+    // Boş oturumda yalnızca build isteğiyse; mevcut projede (iterasyon) eski
+    // davranış korunur. Görsel/düzelt/onay (bypass) doğrudan koda gider.
     const isPlanTurn =
-      get().planFirst && !planBypassNext && !visionAnalysis && !fixFlow && !isEnhanceTurn && !opts?.expectFile
+      get().planFirst &&
+      !planBypassNext &&
+      !visionAnalysis &&
+      !fixFlow &&
+      !isEnhanceTurn &&
+      !opts?.expectFile &&
+      (allFiles.length > 0 || buildReq)
     planBypassNext = false
+    // Sohbet turu: boş oturumda build olmayan mesaj (selamlaşma, soru). Kod
+    // üretim sistem prompt'unu bir sohbet direktifiyle geçersiz kıl.
+    const isChatTurn =
+      !isEnhanceTurn &&
+      !isPlanTurn &&
+      !fixFlow &&
+      !visionAnalysis &&
+      !opts?.expectFile &&
+      allFiles.length === 0 &&
+      !buildReq
 
     // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
     // kalanlar modele yalnızca yol listesi olarak bildirilir. Plan turunda
@@ -1593,6 +1614,12 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
     // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
     let outgoing = trimmed
+    // Sohbet turu: kod üretim sistem prompt'unu bir konuşma direktifiyle bastır
+    // (canlı-test bulgusu: basit soru → model kod/proje üretiyordu).
+    if (isChatTurn) {
+      const answerLangEarly = get().language === 'tr' ? 'TÜRKÇE' : 'English'
+      outgoing = `The user is chatting or asking a question — this is NOT a request to build a project. Reply briefly and helpfully in ${answerLangEarly}. Do NOT output any code, files or edit blocks; just answer conversationally.\n\nUser: ${trimmed}`
+    }
     if (visionAnalysis) {
       outgoing = `${trimmed}
 

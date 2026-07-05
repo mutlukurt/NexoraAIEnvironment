@@ -114,3 +114,34 @@ export function composeAppTsx(sections: PlannedSection[]): string {
 }
 
 export const BASE_INDEX_CSS = '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n'
+
+// ---------------------------------------------------------------------------
+// "Bu mesaj gerçekten bir proje/build isteği mi?" — canlı-test bulgusu:
+// boş oturumda "Merhaba, kendini tanıt" gibi sohbet mesajları da Prompt
+// Güçlendir + Plan hattını tetikleyip site brief'i / plan üretiyordu. Enhance
+// ve plan artık YALNIZCA build isteklerinde çalışsın; sohbet düz cevap alsın.
+// visionIntent.isBuildIntent'in kanıtlanmış "isim + fiil BİRLİKTE" felsefesi
+// (tek kelime kökü yanıltıcı — "ne YAPabilirsin"deki "yap" gibi).
+// ---------------------------------------------------------------------------
+
+// İsim ekleri (sitesi, sayfası, uygulamayı…) tolere edilsin diye çoğunda
+// SON sınır yok; yalnızca yanlış eşleşme riski olan kısa köklerde \b var.
+const ARTIFACT_RE =
+  /\b(site|web|sayfa|landing|portfoly?o|dashboard|panel|uygulama|app\b|aray[üu]z|e-?ticaret|market\b|blog|oyun|game\b|form\b|tema\b|template|men[üu]|clone|klon)/i
+
+const MAKE_RE =
+  /\b(yap|yapar\s*m[ıi]s[ıi]n|oluştur|olustur|kur\b|kodla|tasarla|üret|uret|geliştir|gelistir|hazırla|hazirla|inşa|insa|build|make|creat|implement|generat|design|develop|klonla|kopyala)\b/i
+
+// Açık istek/ihtiyaç kalıpları (fiil olmadan da build sayılır: "… sitesi lazım")
+const WANT_RE = /\b(istiyorum|ister\s*misin|laz[ıi]m|ihtiyac[ıi]m|olsun|gerek(iyor)?)\b/i
+
+const SIMILARITY_RE =
+  /\b(bunun gibi|buna benze|şunun gibi|aynısı|aynisi|birebir|klonla|clone|like this|similar to)\b/i
+
+/** Mesaj gerçekten bir proje/build isteği mi? (sohbet/soru DEĞİL) */
+export function looksLikeBuildRequest(text: string): boolean {
+  if (SIMILARITY_RE.test(text)) return true
+  const hasArtifact = ARTIFACT_RE.test(text)
+  if (!hasArtifact) return false
+  return MAKE_RE.test(text) || WANT_RE.test(text)
+}

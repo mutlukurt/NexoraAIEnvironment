@@ -152,9 +152,12 @@ interface GgufMeta {
   paramCount: number | null
   blockCount: number | null
   trainCtx: number
+  family: import('../shared/prompts').ModelFamily
 }
 
 async function readMeta(path: string): Promise<GgufMeta> {
+  const { detectFamily } = await import('../shared/prompts')
+  const fname = basename(path)
   try {
     const m = await import('node-llama-cpp')
     const info = await m.readGgufFileInfo(path)
@@ -170,10 +173,13 @@ async function readMeta(path: string): Promise<GgufMeta> {
     const archMd = arch ? (md[arch] ?? {}) : {}
     const blockCount = typeof archMd.block_count === 'number' ? (archMd.block_count as number) : null
     const trainCtx = typeof archMd.context_length === 'number' ? (archMd.context_length as number) : 4096
-    return { paramCount, blockCount, trainCtx }
+    // Aile: mimari + model adı + dosya adı birlikte (roadmap 2.5).
+    const family = detectFamily(`${arch ?? ''} ${String(general.name ?? '')} ${fname}`)
+    return { paramCount, blockCount, trainCtx, family }
   } catch (err) {
     console.warn('[llamaServerEngine] GGUF metadata okunamadı:', (err as Error).message)
-    return { paramCount: null, blockCount: null, trainCtx: 4096 }
+    // Metadata okunamasa bile aileyi dosya adından tahmin et.
+    return { paramCount: null, blockCount: null, trainCtx: 4096, family: detectFamily(fname) }
   }
 }
 
@@ -383,6 +389,12 @@ async function chatRequest(
   if (onToken) body.stream_options = { include_usage: true }
   if (banCjk && cjkBias) body.logit_bias = cjkBias
   if (options?.grammar) body.grammar = options.grammar
+  // Düşünmeyi (reasoning) KAPAT (roadmap 2.5, canlı-test bulgusu): Gemma-4 /
+  // Qwen3 gibi düşünen modeller cevaptan önce uzun "thinking" tokenları
+  // üretiyor; küçük yerel model + kod üretim hattında bu yalnızca gecikme ve
+  // maxTokens tavanını dolduran boş içerik demek. Template kwarg'ı destekleyen
+  // modellerde düşünmeyi kapatır; desteklemeyende (Qwen2.5-Coder) yok sayılır.
+  body.chat_template_kwargs = { enable_thinking: false }
 
   const res = await fetch(baseUrl + '/v1/chat/completions', {
     method: 'POST',
@@ -397,10 +409,17 @@ async function chatRequest(
 
   if (!onToken) {
     const j = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
       usage?: Usage
     }
-    return { text: j.choices?.[0]?.message?.content ?? '', usage: j.usage ?? null, aborted: false }
+    const msg = j.choices?.[0]?.message
+    // Savunma: enable_thinking yok sayılıp content boş kaldıysa, düşünme
+    // metnindeki asıl cevaba düş (thinking bloğu ayıklanmış hâliyle).
+    let text = msg?.content ?? ''
+    if (!text && msg?.reasoning_content) {
+      text = msg.reasoning_content.replace(/^[\s\S]*?<\/think>\s*/i, '').trim()
+    }
+    return { text, usage: j.usage ?? null, aborted: false }
   }
 
   // SSE akışı
@@ -505,7 +524,8 @@ export const serverEngine: InferenceEngine = {
       // 'auto' modda kesin katman sayısı sunucudan okunamıyor: -1 = otomatik.
       gpuLayers: started.ngl === 'auto' ? -1 : (started.ngl as number),
       totalLayers: meta.blockCount ?? 0,
-      paramCount: meta.paramCount
+      paramCount: meta.paramCount,
+      family: meta.family
     }
   },
 
