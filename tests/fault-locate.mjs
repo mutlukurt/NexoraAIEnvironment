@@ -98,6 +98,25 @@ const check = (name, cond, detail) => {
   )
 }
 
+// 3c) ÇAPRAZ-DOSYA kök neden (5.7): çökme List.tsx'te ama hata App.tsx'te —
+//     <List /> prop'suz çağrılıyor; stack asla App'i göstermez
+{
+  const files = F({
+    'src/List.tsx': 'export default function List({ data }) { return <ul>{data.map((x, i) => <li key={i}>{x}</li>)}</ul> }',
+    'src/App.tsx': "import List from './List'\nexport default function App() { return <main><List /></main> }"
+  })
+  const loc = locateFault(
+    "Uncaught TypeError: Cannot read properties of undefined (reading 'map')\n    at List (src/List.tsx:1:52)",
+    files
+  )
+  const root = loc.suspects.find((s) => s.reasons.some((r) => r.includes('KÖK NEDEN')))
+  check(
+    'çapraz-dosya: prop\'suz çağıran dosya kök neden adayı',
+    loc.primary?.path === 'src/List.tsx' && root?.path === 'src/App.tsx' && root.line === 2,
+    JSON.stringify(loc.suspects.map((s) => `${s.path}:${s.line}`))
+  )
+}
+
 // 4) Tazelik tie-break: iki eşit şüpheliden son düzenlenen kazanır
 {
   const files = F({

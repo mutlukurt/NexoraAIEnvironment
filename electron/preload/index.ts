@@ -100,6 +100,8 @@ export interface NexoraApi {
     devStop: () => Promise<{ ok: boolean }>
     buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string; skipped?: boolean }>
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
+    /** 5.7 değer probu: koşan dev sunucusunun URL'i (yoksa null). */
+    devUrl: () => Promise<{ url: string | null }>
     onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
     onRuntimeError: (cb: (event: { message: string; stack: string; kind?: string }) => void) => () => void
     /** Toplayıcının bağlı olduğu port; null = otomatik hata yakalama devre dışı. */
@@ -208,6 +210,7 @@ const api: NexoraApi = {
     devStart: (input: AgentDevInput) => ipcRenderer.invoke(IPC.AGENT_DEV_START, input),
     devStop: () => ipcRenderer.invoke(IPC.AGENT_DEV_STOP),
     buildCheck: (input: AgentDevInput) => ipcRenderer.invoke(IPC.AGENT_BUILD_CHECK, input),
+    devUrl: () => ipcRenderer.invoke(IPC.AGENT_DEV_STATUS),
     onDevStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)
       ipcRenderer.on(IPC.AGENT_DEV_STATUS, handler as never)

@@ -531,6 +531,62 @@ let collectorWarned = false
 const notifiedSignatures = new Set<string>()
 /** 5.5: "düzelt api" ipucu imza başına bir kez gösterilir. */
 const apiHintShown = new Set<string>()
+/** 5.7 değer probu: veri bekleyen çözücü + prob sırasında hata bastırma. */
+let probeWaiter: ((data: string) => void) | null = null
+let probing = false
+
+/**
+ * 5.7 değer probu: şüpheli `recv.prop` erişimini geçici olarak __nxProbe ile
+ * sar, diske sync'le (HMR yeniler, çökmeden önce GERÇEK değer POST edilir),
+ * veri gelince (≤8 sn) dosyayı orijinaline döndür. Tahmin değil ölçüm.
+ */
+async function runValueProbe(diagnosis: string, primaryPath: string): Promise<string | null> {
+  const file = useArtifactsStore.getState().files[primaryPath]
+  if (!file) return null
+  const { buildProbe, probeTarget } = await import('@/lib/valueProbe')
+  const target = probeTarget(diagnosis, file.content)
+  if (!target) return null
+  const { probed } = buildProbe(file.content, target.recv, target.prop)
+  if (!probed) return null
+  const original = file.content
+  const syncAll = async (): Promise<void> => {
+    const { getProjectName } = await import('@/lib/agentActions')
+    const all = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
+    await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: all, onlyIfInstalled: true })
+  }
+  probing = true
+  try {
+    // Yarış dersi (canlı 2026-07-05): bekleyici sync'ten ÖNCE kurulmalı —
+    // sync içindeki vite denetimi saniyeler sürer, HMR problu modülü hemen
+    // çalıştırır ve veri bekleyici yokken gelirse boşluğa düşer (probe-timeout).
+    const dataPromise = new Promise<string>((resolve) => { probeWaiter = resolve })
+    useArtifactsStore.getState().upsertFile(primaryPath, probed)
+    await syncAll()
+    // Canlı ders 2: React çökünce ağacı SÖKÜYOR — HMR güncellemesi sökülmüş
+    // ağaçta render tetiklemez, prob hiç koşmaz. Görsel öz-denetimin offscreen
+    // penceresiyle sayfayı bir kez TAM yükletmek probu deterministik ateşler.
+    try {
+      const du = await window.nexora.agent.devUrl()
+      if (du?.url) void window.nexora.capture.page({ url: du.url })
+    } catch { /* dev sunucu yoksa prob zaten anlamsız — zaman aşımı dürüst sonuç */ }
+    const data = await Promise.race([
+      dataPromise,
+      new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 8000))
+    ])
+    logRepair({ layer: data ? 'probe-hit' : 'probe-timeout', diag: data ?? diagnosis.slice(0, 120) })
+    return data
+  } catch {
+    return null
+  } finally {
+    probeWaiter = null
+    // Prob TEK seferliktir: dosya her koşulda orijinaline döner.
+    try {
+      useArtifactsStore.getState().upsertFile(primaryPath, original)
+      await syncAll()
+    } catch { /* store günceldir; sonraki sync diske yazar */ }
+    probing = false
+  }
+}
 
 /**
  * 5.5 çift-modlu cerrah — tırmanış kararı. Yerel model bu hatayı ÇÖZEMEDİĞİNDE
@@ -562,13 +618,25 @@ function ensureRuntimeErrorSub(
 ): void {
   if (runtimeErrorUnsub || !window.nexora?.agent?.onRuntimeError) return
   runtimeErrorUnsub = window.nexora.agent.onRuntimeError((e: { message: string; stack: string; kind?: string }) => {
+    const kind = e.kind ?? 'error'
+    // ---- 5.7: prob verisi — HER BEKÇİDEN ÖNCE teslim edilir. Canlı ders:
+    // aynı çökme 'error' + 'console' olarak İKİ olay üretir; ikincisi prob
+    // beklenirken kendi turunu başlatıp sending=true yapıyor ve prob cevabı
+    // meşguliyet bekçisine takılıp düşüyordu (probe-timeout ×4). Ölçüm cevabı
+    // borunun trafiğine tabi olamaz.
+    if (kind === 'probe') {
+      probeWaiter?.(e.message)
+      return
+    }
+    // Prob turu sırasında sayfa yeniden yüklenir ve AYNI hata tekrar rapor
+    // edilir — bunlar ölçümün yan ürünüdür, deneme hakkı yakmamalı.
+    if (probing) return
     const sig = e.message.slice(0, 120)
     const n = runtimeFixCounts.get(sig) ?? 0
     // Mesgulken ya da proje yokken karisma; sayfa hatayi yeniden raporlar.
     // (Model guard'ı Kat 0'dan SONRA: modelsiz onarım model istemez.)
     if (get().sending || get().generating) return
     if (Object.keys(useArtifactsStore.getState().files).length === 0) return
-    const kind = e.kind ?? 'error'
     const isTrTop = get().language === 'tr'
     // ---- 5.4: AĞ hataları — bilgilendir, model turu yakma -----------------
     // 4xx/5xx ya da kırık kaynak (img/script) çoğu zaman içerik/yol sorunudur;
@@ -717,9 +785,29 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
           messages: [...s.messages, { id: nanoid(), role: 'assistant', content: esc.hint! }]
         }))
       }
+      // 5.7 değer probu: property çökmesinde (undefined.map) model tahminle
+      // değil ÖLÇÜMLE başlasın — şüpheli değer çökme anından okunur.
+      let probeLine = ''
+      if (loc.primary && /Cannot read propert/i.test(e.message)) {
+        const data = await runValueProbe(`${e.message}\n${cleanStack}`, loc.primary.path)
+        if (data) {
+          probeLine = ` PROB VERİSİ (çökme anında ölçüldü): ${data}.`
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: (isTr ? '🔬 Değer probu: ' : '🔬 Value probe: ') + data
+              }
+            ]
+          }))
+        }
+      }
       void get().sendMessage(
         'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda.' +
           locHint +
+          probeLine +
           ' Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
           numberedSnippet(snippetSeed, filesMap),
         { hideUser: true, escalate: esc.escalate }

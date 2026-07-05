@@ -498,6 +498,9 @@ const runtimeHook = (): string => {
     `if(t&&t!==window&&(t.src||t.href)){r('Resource failed: <'+(t.tagName||'').toLowerCase()+'> '+String(t.src||t.href).slice(0,180),'','network');return}` +
     `r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')),'error')},true);` +
     `window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'','error')});` +
+    // 5.7 değer probu: motor şüpheli ifadeyi geçici sarar; değer raporlanır
+    // ve AYNEN geri döner — davranış değişmez, veri toplanır.
+    `window.__nxProbe=function(n,v){try{var s;try{s=v===undefined?'undefined':JSON.stringify(v)}catch(e){s=String(v)}r(n+' = '+String(s).slice(0,200),'','probe')}catch(e){}return v};` +
     `var ce=console.error;console.error=function(){try{var a=Array.prototype.slice.call(arguments);` +
     `var m=a.map(function(x){return x&&x.message?x.message:(typeof x==='string'?x:'')}).join(' ');` +
     `if(/error/i.test(m)){var st='';for(var i=0;i<a.length;i++){if(a[i]&&a[i].stack){st=a[i].stack;break}}r(m.slice(0,300),st,'console')}}catch(err){}` +
@@ -545,7 +548,7 @@ export function startRuntimeCollector(): void {
           try {
             const j = JSON.parse(b) as { message?: unknown; stack?: unknown; kind?: unknown }
             if (j && typeof j.message === 'string') {
-              const kind = typeof j.kind === 'string' && ['error', 'console', 'network', 'hmr'].includes(j.kind) ? j.kind : 'error'
+              const kind = typeof j.kind === 'string' && ['error', 'console', 'network', 'hmr', 'probe'].includes(j.kind) ? j.kind : 'error'
               runtimeErrorCb?.({ message: j.message.slice(0, 500), stack: String(j.stack ?? '').slice(0, 1500), kind })
             }
           } catch { /* bozuk govde — yok say */ }

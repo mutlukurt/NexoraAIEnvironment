@@ -99,6 +99,43 @@ export function locateFault(diagnosis: string, files: FileMap): Localization {
       confidence: i === 0 ? 0.92 : 0.6 - i * 0.15,
       reasons: [i === 0 ? 'stack çerçevesi doğrudan bu dosyayı gösteriyor' : 'stack\'te alt çerçeve']
     }))
+    // 5.7 çapraz-dosya kök neden: çökme A'da ama hata B'de olabilir.
+    // Property hatasında (undefined.map) çöken dosyadaki alıcı bir PROP ise,
+    // asıl suçlu o bileşeni prop'u GEÇMEDEN çağıran dosyadır — stack orayı
+    // asla göstermez (çağıran satır çalışıp bitmiştir).
+    if (ident && ident.kind === 'property') {
+      const pf = files[suspects[0].path]
+      const rm = pf?.content.match(new RegExp(`([\\w$]+)\\s*\\.\\s*${ident.name}\\b`))
+      if (pf && rm) {
+        const recv = rm[1]
+        const isParam =
+          new RegExp(`\\(\\s*\\{[^}]*\\b${recv}\\b[^}]*\\}`).test(pf.content) ||
+          new RegExp(`\\(\\s*${recv}\\s*[,)]`).test(pf.content)
+        // Çöken bileşenin adı: stack sembolü, yoksa alıcıyı parametre alan fonksiyon
+        const comp =
+          suspects[0].symbol ??
+          pf.content.match(new RegExp(`function\\s+([A-Z][\\w$]*)\\s*\\([^)]*\\b${recv}\\b`))?.[1] ??
+          null
+        if (isParam && comp) {
+          for (const g of Object.values(files)) {
+            if (!CODE_RE.test(g.path)) continue
+            const useRe = new RegExp(`<${comp}\\b[^>]*>`, 'g')
+            for (const um of g.content.matchAll(useRe)) {
+              if (new RegExp(`\\b${recv}\\s*=`).test(um[0])) continue // prop geçilmiş
+              const line = g.content.slice(0, um.index ?? 0).split('\n').length
+              suspects.push({
+                path: g.path,
+                line,
+                symbol: null,
+                confidence: 0.55,
+                reasons: [`KÖK NEDEN ADAYI: <${comp}> burada '${recv}' prop'u geçilmeden çağrılıyor`]
+              })
+              break
+            }
+          }
+        }
+      }
+    }
     // Tanımlayıcı BAŞKA dosyada tanımsız kullanılıyorsa çapraz-dosya ipucu ekle
     if (ident && ident.kind === 'undefined') {
       for (const f of Object.values(files)) {

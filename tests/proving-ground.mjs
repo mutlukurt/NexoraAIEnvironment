@@ -142,6 +142,21 @@ const FIXTURES = [
     channel: 'scan',
     expectFix: null, // hiç bulgu olmamalı
     mutate: () => {}
+  },
+  {
+    name: 'P11 çoklu-hata: sözdizimi + MASKELENEN eksik import (5.7 çok-geçiş)',
+    channel: 'scan',
+    expectFix: true,
+    // Kesme işareti sözdizimini bozar → metin analizi bu dosyada ÇALIŞMAZ →
+    // eksik useState importu ilk geçişte görünmezdir. Çok-geçişli motor önce
+    // sözdizimini onarır, ikinci geçişte import'u yakalar. Tek çağrıda ikisi de.
+    mutate: (f) => {
+      f['src/components/Hero.tsx'] = `export default function Hero() {\n  const [ad, setAd] = useState('Atlas Berber'ın ustası')\n  return <section><h1 onClick={() => setAd('usta')}>{ad}</h1></section>\n}\n`
+    },
+    // İKİSİ de onarılmış olmalı: string çift tırnağa dönmüş + useState import edilmiş.
+    verify: (patched) =>
+      patched['src/components/Hero.tsx']?.content.includes('"Atlas Berber\'ın ustası"') &&
+      /import \{[^}]*useState[^}]*\} from ['"]react['"]/.test(patched['src/components/Hero.tsx']?.content ?? '')
   }
 ]
 
@@ -189,6 +204,10 @@ for (const fx of FIXTURES) {
           for (const [p, c] of Object.entries(report.patched)) patched[p] = { path: p, content: c }
           green = await isGreen(patched)
           if (!green) err = 'onarım uygulandı ama proje yeşile dönmedi'
+          else if (fx.verify && !fx.verify(patched)) {
+            green = false
+            err = 'proje yeşil ama beklenen onarım içeriği eksik (verify)'
+          }
         }
       } else {
         fixed = report.fixed.length > 0

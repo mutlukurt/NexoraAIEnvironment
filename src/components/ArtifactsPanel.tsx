@@ -3,7 +3,7 @@ import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
-import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch } from 'lucide-react'
+import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch, Eye } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 
@@ -162,6 +162,59 @@ export default function ArtifactsPanel() {
   const [devUrl, setDevUrl] = useState<string | null>(null)
   const [scanBusy, setScanBusy] = useState(false)
 
+  // Watch mode (roadmap 5.7): kullanıcı yazarken arka planda sürekli tarama.
+  // SALT-RAPOR: watch asla dosya değiştirmez (imlecin altında dosya yamamak
+  // düşmanlıktır) — bulgular rozette birikir, onarım Tara'ya bırakılır.
+  const [watchOn, setWatchOn] = useState(() => localStorage.getItem('nexora.watch') === '1')
+  const [watchInfo, setWatchInfo] = useState<{ count: number; top: string } | null>(null)
+  useEffect(() => {
+    localStorage.setItem('nexora.watch', watchOn ? '1' : '0')
+    if (!watchOn) {
+      setWatchInfo(null)
+      return
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let alive = true
+    const kick = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        void (async () => {
+          const app = useAppStore.getState()
+          // Model yazarken tarama gürültü olur; üretim bitince zaten doğrulama var.
+          if (app.generating || app.sending) return
+          const filesNow = useArtifactsStore.getState().files
+          if (Object.keys(filesNow).length === 0) {
+            if (alive) setWatchInfo(null)
+            return
+          }
+          const { scanProject } = await import('@/lib/debugScan')
+          const findings = await scanProject(
+            Object.fromEntries(Object.entries(filesNow).map(([p, f]) => [p, { path: f.path, content: f.content }]))
+          )
+          if (!alive) return
+          setWatchInfo(
+            findings.length === 0
+              ? { count: 0, top: '' }
+              : {
+                  count: findings.length,
+                  top: findings
+                    .slice(0, 3)
+                    .map((f) => `${f.path}${f.line ? ':' + f.line : ''} — ${f.message}`)
+                    .join('\n')
+                }
+          )
+        })()
+      }, 1500)
+    }
+    kick()
+    const unsub = useArtifactsStore.subscribe(kick)
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+      unsub()
+    }
+  }, [watchOn])
+
   const handleScan = async () => {
     setScanBusy(true)
     try {
@@ -266,6 +319,32 @@ export default function ArtifactsPanel() {
           </div>
           {fileCount > 0 && (
             <>
+              {/* Watch mode (5.7): canlı arka plan taraması aç/kapa + bulgu rozeti */}
+              <button
+                onClick={() => setWatchOn((v) => !v)}
+                title={
+                  watchOn
+                    ? (watchInfo?.top || (language === 'tr' ? 'Canlı tarama açık — bulgu yok' : 'Live scan on — no findings'))
+                    : language === 'tr' ? 'Canlı tarama: sen yazarken arka planda tara (dosya değiştirmez)' : 'Live scan: scan in the background as you type (never edits files)'
+                }
+                className={
+                  'ml-1 rounded-xl border px-3 py-2 text-xs font-bold transition shadow-sm flex items-center gap-1.5 ' +
+                  (watchOn
+                    ? watchInfo && watchInfo.count > 0
+                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                      : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                    : 'border-ink-line bg-ink-card text-ink-dim hover:text-ink-text')
+                }
+              >
+                <Eye className="h-4 w-4" />
+                <span>
+                  {watchOn
+                    ? watchInfo && watchInfo.count > 0
+                      ? `${watchInfo.count}`
+                      : '✓'
+                    : language === 'tr' ? 'Canlı' : 'Live'}
+                </span>
+              </button>
               {/* Debug Engine (roadmap 5.2): çalıştırmadan tara + modelsiz onar */}
               <button
                 onClick={() => void handleScan()}

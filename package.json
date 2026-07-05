@@ -22,7 +22,8 @@
     "test:locate": "node tests/fault-locate.mjs",
     "test:routing": "node tests/api-routing.mjs",
     "test:ground": "node tests/proving-ground.mjs",
-    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:ground",
+    "test:probe": "node tests/value-probe.mjs",
+    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:ground",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"

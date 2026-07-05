@@ -24,33 +24,73 @@ export interface DebugScanReport {
 
 type FileMap = Record<string, { path: string; content: string }>
 
-export async function runDebugScan(files: FileMap): Promise<DebugScanReport> {
-  const findings = await scanProject(files)
-  const fixed: Array<{ finding: ScanFinding; note: string }> = []
-  const remaining: ScanFinding[] = []
-  const patched: Record<string, string> = {}
+/**
+ * 5.7 çoklu-hata oturumu: onarım sırası VARIŞ sırası değil BAĞIMLILIK
+ * sırasıdır — sözdizimi her şeyi maskeler (bozuk dosyada metin analizi
+ * çalışmaz), import grafiği tanımlayıcı analizinden önce gelir.
+ */
+const CLASS_ORDER: Record<ScanFinding['cls'], number> = {
+  syntax: 0,
+  'import-unresolved': 1,
+  'import-missing-export': 2,
+  'hook-missing-import': 3,
+  'jsx-undefined': 3,
+  'data-undefined': 3,
+  'template-marker': 4,
+  'package-json': 4
+}
 
-  // Onarımlar sıralı uygulanır: aynı dosyadaki ikinci bulgu, birincinin
-  // onarılmış içeriğini görmeli — yoksa ilk yamayı ezer.
+export async function runDebugScan(files: FileMap): Promise<DebugScanReport> {
+  const fixed: Array<{ finding: ScanFinding; note: string }> = []
+  const patched: Record<string, string> = {}
+  const seen = new Set<string>()
+  let firstFindings: ScanFinding[] | null = null
+  let remaining: ScanFinding[] = []
   let working: FileMap = files
-  for (const finding of findings) {
-    if (!finding.deterministic) {
-      remaining.push(finding)
-      continue
+
+  // 5.7 çok-geçişli onarım: bir sınıfın onarımı başka bulguları GÖRÜNÜR
+  // kılabilir (kesme işareti düzelince aynı dosyanın eksik import'u ortaya
+  // çıkar). Yeni deterministik onarım çıkmayana dek yeniden taranır (≤3 tur).
+  for (let pass = 0; pass < 3; pass++) {
+    const findings = (await scanProject(working)).sort(
+      (a, b) => CLASS_ORDER[a.cls] - CLASS_ORDER[b.cls]
+    )
+    if (firstFindings === null) firstFindings = findings
+    else {
+      // Sonraki geçişlerde ortaya çıkan YENİ bulgular rapora eklenir.
+      for (const f of findings) {
+        const key = `${f.cls}|${f.path}|${f.message}`
+        if (!seen.has(key) && !firstFindings.some((x) => x.cls === f.cls && x.path === f.path && x.message === f.message)) {
+          firstFindings.push(f)
+        }
+      }
     }
-    const fixes: RepairFix[] = autoRepair(finding.diagnosis, working)
-    if (fixes.length === 0) {
-      remaining.push(finding)
-      continue
+    remaining = []
+    let progressed = false
+    for (const finding of findings) {
+      const key = `${finding.cls}|${finding.path}|${finding.message}`
+      if (seen.has(key)) continue
+      if (!finding.deterministic) {
+        remaining.push(finding)
+        continue
+      }
+      const fixes: RepairFix[] = autoRepair(finding.diagnosis, working)
+      if (fixes.length === 0) {
+        remaining.push(finding)
+        continue
+      }
+      for (const fix of fixes) {
+        working = { ...working, [fix.path]: { path: fix.path, content: fix.content } }
+        patched[fix.path] = fix.content
+      }
+      seen.add(key)
+      fixed.push({ finding, note: fixes[0].note })
+      progressed = true
     }
-    for (const fix of fixes) {
-      working = { ...working, [fix.path]: { path: fix.path, content: fix.content } }
-      patched[fix.path] = fix.content
-    }
-    fixed.push({ finding, note: fixes[0].note })
+    if (!progressed) break
   }
 
-  return { findings, fixed, remaining, patched }
+  return { findings: firstFindings ?? [], fixed, remaining, patched }
 }
 
 /** Rapor chat mesajı (TR/EN) — motorun ne görüp ne yaptığının dürüst özeti. */
