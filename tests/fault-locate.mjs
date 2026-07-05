@@ -81,6 +81,23 @@ const check = (name, cond, detail) => {
   )
 }
 
+// 3b) İKİ dosya da '.map' kullanıyor: prop-alıcılı dosya somut-alıcılı dosyayı
+//     yenmeli (kanıt sahası P8 bulgusu — App'teki items somut import, Hero'daki
+//     data dışarıdan gelen prop; undefined ancak prop'tan gelir)
+{
+  const files = F({
+    'src/App.tsx': "import Hero from './Hero'\nimport { items } from './lib/data'\nexport default function App() { return <main><Hero />{items.map((x, i) => <p key={i}>{x}</p>)}</main> }",
+    'src/Hero.tsx': 'function List({ data }) { return <ul>{data.map((x, i) => <li key={i}>{x}</li>)}</ul> }\nexport default function Hero() { return <List /> }',
+    'src/lib/data.ts': "export const items = ['a']"
+  })
+  const loc = locateFault("Uncaught TypeError: Cannot read properties of undefined (reading 'map')", files)
+  check(
+    "iki '.map' kullanıcısında prop-alıcılı dosya kazanır",
+    loc.primary?.path === 'src/Hero.tsx',
+    JSON.stringify(loc.suspects.map((s) => `${s.path}@${s.confidence}`))
+  )
+}
+
 // 4) Tazelik tie-break: iki eşit şüpheliden son düzenlenen kazanır
 {
   const files = F({

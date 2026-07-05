@@ -135,10 +135,34 @@ export function locateFault(diagnosis: string, files: FileMap): Localization {
           score += 0.55
           reasons.push(`'${ident.name}' kullanılıyor ama tanımlı/import değil`)
         } else if (ident.kind === 'property') {
-          // ".prop" okuması undefined'a çarptı: .prop'u OKUYAN dosya baş şüpheli
-          if (new RegExp(`\\.\\s*${ident.name}\\b`).test(f.content)) {
-            score += 0.45
-            reasons.push(`'.${ident.name}' erişimi bu dosyada`)
+          // ".prop" okuması undefined'a çarptı: .prop'u OKUYAN dosyalar şüpheli —
+          // ama hepsi eşit değil (kanıt sahası P8 bulgusu): alıcısı DIŞARIDAN
+          // gelen (prop/parametre — undefined gelebilir) erişim, modülde somut
+          // değerle tanımlı ya da import edilmiş alıcıdan çok daha şüphelidir.
+          const recvRe = new RegExp(`([\\w$]+)\\s*\\.\\s*${ident.name}\\b`, 'g')
+          let best = 0
+          let bestReason = ''
+          for (const rm of f.content.matchAll(recvRe)) {
+            const recv = rm[1]
+            const isParam =
+              new RegExp(`\\(\\s*\\{[^}]*\\b${recv}\\b[^}]*\\}`).test(f.content) ||
+              new RegExp(`\\(\\s*${recv}\\s*[,)]`).test(f.content)
+            const isConcrete =
+              new RegExp(`\\b(?:const|let|var)\\s+${recv}\\s*(?::[^=]+)?=\\s*[\\[{]`).test(f.content) ||
+              importedNames(f.content).has(recv)
+            const sc = isParam ? 0.6 : isConcrete ? 0.2 : 0.45
+            if (sc > best) {
+              best = sc
+              bestReason = isParam
+                ? `'${recv}.${ident.name}' erişiminde '${recv}' dışarıdan gelen prop/parametre — undefined gelebilir`
+                : isConcrete
+                  ? `'.${ident.name}' erişimi var ama alıcı '${recv}' somut tanımlı`
+                  : `'.${ident.name}' erişimi bu dosyada`
+            }
+          }
+          if (best > 0) {
+            score += best
+            reasons.push(bestReason)
           } else {
             score += 0.15
             reasons.push(`'${ident.name}' bu dosyada geçiyor`)
