@@ -1683,19 +1683,47 @@ ${pathList ? 'Existing project files: ' + pathList + '\n' : ''}User request: ${t
     if (isEnhanceTurn) {
       enhanceTurnActive = true
       updateTurn = false
-      outgoing = `=== PROMPT IMPROVEMENT MODE ===
-Do NOT build anything in this turn. The user is not technical — rewrite their casual description below as ONE professional, specific website brief: page sections in order, per-section layout, color palette (hex), typography, key interactions. Short bullet lines. No code, no questions, no options.
-HARD GROUNDING RULES:
-- Stay STRICTLY on the user's business/topic. Every section, service, FAQ item and review MUST be plausible for THIS exact business — inventing unrelated topics (exams, industrial safety, "rich customers") is FORBIDDEN.
-- If the user asked for a theme or colors (e.g. dark theme), the palette MUST follow it (dark theme = dark background hexes).
-- Concrete realistic values only — NEVER placeholders like "X TL" or generic letters. Invent plausible names and prices.
-- Compact: at most 15 bullet lines total.
-EXAMPLE (user said: "çiçekçim için basit bir site, buketler falan"):
-- Bölümler: Hero (sezon kampanyası sloganı + CTA), Buketler (6 ürün: "Kızıl Bahar" ₺450, "Beyaz Zarafet" ₺520…), Hakkımızda (aile hikâyesi), Teslimat SSS (3 soru), İletişim
-- Palet: yeşil #14532d, krem #fef9ef, toprak #a16207
-- Ton: sıcak, doğal; başlıklar bold, gövde 16px
-LANGUAGE OF YOUR ANSWER: ${answerLang}.
-Output ONLY the improved brief text.
+      // Eski prompt "at most 15 bullet lines / compact" diyordu — kısa özet
+      // brief'in sebebi modelin tavanı değil bu kısıttı (sahip geri bildirimi,
+      // 2026-07-05: "1'den 10'a çek"). Ajans-seviyesi brief: 10 ZORUNLU başlık,
+      // her biri gerçek içerikle. Küçük model başlık iskeletini talimattan iyi
+      // izler (kanıtlı ders); < > betimleyicileri gerçek içerikle değişir.
+      const trHeads = get().language === 'tr'
+      outgoing = `=== PROFESSIONAL BRIEF MODE ===
+Do NOT build anything in this turn. You are a senior brand strategist at a top web agency. Turn the user's casual request below into ONE complete, professional website brief — so detailed that a designer could build the whole site from it without asking a single question.
+
+OUTPUT EXACTLY THESE ${trHeads ? '10' : '10'} SECTIONS, in this order, with these exact headings, each fully filled with REAL invented content (never keep < > descriptors):
+${
+  trHeads
+    ? `1. Marka: <isim (kullanıcı verdiyse onu kullan) — tek cümle konumlandırma>
+2. Hedef Kitle & Ton: <kim için + sitenin ses tonu>
+3. Slogan: <kısa, çarpıcı tek cümle>
+4. Bölümler: <sayfadaki bölümler sırayla; HER bölüm için o bölümde ne yazacağının 1 satır somut özeti>
+5. Hizmetler/Ürünler: <6 gerçekçi öğe, her biri "Ad — ₺Fiyat — 1 cümle açıklama" (2026 Türkiye fiyatları)>
+6. Müşteri Yorumları: <3 kısa yorum, isim + ilk harf soyadı ile ("Ahmet K." gibi)>
+7. SSS: <3 soru VE cevabı, bu işletmeye özgü>
+8. Palet & Tipografi: <3 hex renk (zemin/vurgu/aksan) + başlık ve gövde stili>
+9. Etkileşimler: <hover, kaydırma animasyonu, form doğrulama gibi 3-4 somut davranış>
+10. İletişim: <gerçekçi semt+şehir adresi, 05xx telefon, çalışma saatleri>`
+    : `1. Brand: <name — one-line positioning>
+2. Audience & Tone: <who + site voice>
+3. Tagline: <one punchy line>
+4. Sections: <ordered page sections; for EACH a 1-line concrete summary of its content>
+5. Services/Products: <6 realistic items, each "Name — price — 1-line description">
+6. Testimonials: <3 short quotes with first name + last initial>
+7. FAQ: <3 questions WITH answers, specific to this business>
+8. Palette & Typography: <3 hex colors (bg/primary/accent) + heading and body style>
+9. Interactions: <3-4 concrete behaviors: hover, scroll animation, form validation>
+10. Contact: <realistic address, phone, opening hours>`
+}
+
+HARD RULES:
+- Stay STRICTLY on the user's business/topic; every single item must be plausible for THIS exact business.
+- Write fluent, natural ${answerLang}. No invented words, no language mixing.
+- NEVER output placeholders ("X TL", "Ürün 1", "<...>") — invent specific, realistic names, prices and details.
+- If the user asked for a theme/colors, the palette MUST follow it (dark theme = dark background hexes).
+- Rich but purposeful: every line must carry buildable information, no filler talk.
+Output ONLY the brief text, starting directly with section 1.
 User description: ${trimmed}`
     }
 
@@ -1729,7 +1757,8 @@ ${rules.slice(0, 1500)}
         // düşünen modellerin sınırsız düşünme spiraline karşı emniyet.
         { temperature: 0.6, topP: 0.95, maxTokens: 3072, purpose: 'chat' }
       : isEnhanceTurn
-        ? { temperature: 0.6, topP: 0.95, purpose: 'prose' }
+        ? // Ayrıntılı brief + düşünen modellerin düşünme payı için geniş tavan.
+          { temperature: 0.6, topP: 0.95, maxTokens: 4096, purpose: 'prose' }
         : isPlanTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
