@@ -37,7 +37,7 @@ import {
   openProjectDir
 } from './agentService'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
-import { detectHardware } from './advisorService'
+import { detectHardware, getAdvisorPlan } from './advisorService'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { getRules, setRules } from './rulesService'
 import { historyCommit, historyList, historyRestore, historyRestoreGreen } from './gitService'
@@ -331,6 +331,10 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.ADVISOR_DETECT, async () => {
     return detectHardware()
+  })
+
+  ipcMain.handle(IPC.ADVISOR_PLAN, async () => {
+    return getAdvisorPlan()
   })
 
   ipcMain.handle(IPC.SESSIONS_LIST, async () => {

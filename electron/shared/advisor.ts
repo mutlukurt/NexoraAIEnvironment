@@ -56,7 +56,7 @@ interface CoderDef {
   moe?: boolean
 }
 
-const CODERS: Record<string, CoderDef> = {
+export const EMBEDDED_CODERS: Record<string, CoderDef> = {
   c32: {
     id: 'coder-32b',
     label: 'Qwen2.5-Coder-32B',
@@ -167,7 +167,7 @@ function opt(def: CoderDef, hw: HardwareInfo, note: string, recommended = false)
 }
 
 /** Cihaz ölçümünden öneri planı üret. */
-export function buildPlan(hw: HardwareInfo): AdvisorPlan {
+export function buildPlan(hw: HardwareInfo, CODERS: Record<string, CoderDef> = EMBEDDED_CODERS): AdvisorPlan {
   const r = hw.ramGb
   if (r >= 28) {
     return {

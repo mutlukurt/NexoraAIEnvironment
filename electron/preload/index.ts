@@ -110,6 +110,7 @@ export interface NexoraApi {
   }
   advisor: {
     detect: () => Promise<import('../shared/advisor').HardwareInfo>
+    plan: () => Promise<import('../shared/advisor').AdvisorPlan>
   }
   sessions: {
     list: () => Promise<import('../shared/ipc').SessionMeta[]>
@@ -224,7 +225,8 @@ const api: NexoraApi = {
     }
   },
   advisor: {
-    detect: () => ipcRenderer.invoke(IPC.ADVISOR_DETECT)
+    detect: () => ipcRenderer.invoke(IPC.ADVISOR_DETECT),
+    plan: () => ipcRenderer.invoke(IPC.ADVISOR_PLAN)
   },
   sessions: {
     list: () => ipcRenderer.invoke(IPC.SESSIONS_LIST),

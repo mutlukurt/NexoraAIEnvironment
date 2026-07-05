@@ -66,10 +66,16 @@ export default function WelcomeSetup() {
 
   useEffect(() => {
     if (!open || hw) return
-    void window.nexora.advisor.detect().then((info: HardwareInfo) => {
-      setHw(info)
-      setPlan(buildPlan(info))
-    })
+    // 4.4: plan artık main'de uzak katalogla üretilir (advisor.plan); donanım
+    // bilgisi UI başlığı için ayrıca alınır. Uzak plan başarısızsa gömülü
+    // katalogla yerelde kurulur — çevrimdışı da tam çalışır.
+    void window.nexora.advisor.detect().then((info: HardwareInfo) => setHw(info))
+    void window.nexora.advisor
+      .plan()
+      .then((p: AdvisorPlan) => setPlan(p))
+      .catch(() => {
+        void window.nexora.advisor.detect().then((info: HardwareInfo) => setPlan(buildPlan(info)))
+      })
   }, [open, hw])
 
   const install = useCallback(

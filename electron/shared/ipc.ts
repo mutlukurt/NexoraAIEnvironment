@@ -109,6 +109,7 @@ export const IPC = {
   VISION_STATUS: 'vision:status',
   VISION_PREPARE: 'vision:prepare',
   ADVISOR_DETECT: 'advisor:detect',
+  ADVISOR_PLAN: 'advisor:plan',
   SESSIONS_LIST: 'sessions:list',
   SESSIONS_SAVE: 'sessions:save',
   SESSIONS_LOAD: 'sessions:load',
