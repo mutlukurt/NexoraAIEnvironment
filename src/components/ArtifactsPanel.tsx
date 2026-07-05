@@ -161,6 +161,9 @@ export default function ArtifactsPanel() {
     if (res.ok && res.url) {
       setDevUrl(res.url)
       setExportMsg((language === 'tr' ? 'Çalışıyor: ' : 'Running: ') + res.url)
+      // Görsel öz-denetim (roadmap 3.3): sayfa ayağa kalktıktan sonra uygulama
+      // kendi çıktısına bakar; kusur görürse gizli düzelt turu başlatır.
+      setTimeout(() => void useAppStore.getState().runVisualReview(res.url!), 4000)
     } else {
       setExportMsg(res.error ?? (language === 'tr' ? 'Başlatılamadı' : 'Failed to start'))
     }

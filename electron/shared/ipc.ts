@@ -116,9 +116,11 @@ export const IPC = {
   RULES_GET: 'rules:get',
   RULES_SET: 'rules:set',
   PROJECT_IMPORT: 'project:import',
+  AGENT_CAPTURE_PAGE: 'agent:capture-page',
   HISTORY_COMMIT: 'history:commit',
   HISTORY_LIST: 'history:list',
-  HISTORY_RESTORE: 'history:restore'
+  HISTORY_RESTORE: 'history:restore',
+  HISTORY_RESTORE_GREEN: 'history:restore-green'
 } as const
 
 /** Git tabanlı üretim geçmişi (roadmap 3.4). */

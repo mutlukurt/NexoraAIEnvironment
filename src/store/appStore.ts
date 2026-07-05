@@ -108,6 +108,8 @@ interface AppState {
   newSession: () => Promise<void>
   /** Klasör Aç (roadmap 3.1): var olan projeyi içe aktarıp bağla. */
   importFolder: () => Promise<void>
+  /** Görsel öz-denetim (roadmap 3.3): Run sonrası sayfayı vizyon modeline göster. */
+  runVisualReview: (url: string) => Promise<void>
   sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
@@ -253,6 +255,64 @@ Rewrite ${path} from scratch as ONE complete, correct file: keep the intended im
 }
 
 
+/**
+ * Onarım Merdiveni — Kat 0 uygulayıcısı: tanıyı modelsiz onarmayı dene.
+ * Uygulanan düzeltme notlarını döndürür (boş = bu sınıf kodla onarılamıyor).
+ */
+async function tryAutoRepair(diagnosis: string): Promise<string[]> {
+  const { autoRepair } = await import('@/lib/autoRepair')
+  const files = Object.fromEntries(
+    Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
+  )
+  const fixes = autoRepair(diagnosis, files)
+  for (const f of fixes) {
+    useArtifactsStore.getState().upsertFile(f.path, f.content)
+  }
+  return fixes.map((f) => f.note)
+}
+
+/**
+ * Onarım Merdiveni — Kat 3: çalışan (yeşil) son sürüme dön. Kullanıcı asla
+ * bozuk localhost ile baş başa bırakılmaz; deneme git geçmişinde durur.
+ */
+async function rollbackToGreen(
+  get: () => AppState,
+  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
+): Promise<boolean> {
+  try {
+    const { getProjectName } = await import('@/lib/agentActions')
+    const r = await window.nexora.history.restoreGreen(getProjectName())
+    if (!r.ok || !r.files) return false
+    const files = Object.fromEntries(
+      r.files.map((f: { path: string; content: string }) => [
+        f.path,
+        { path: f.path, content: f.content, language: detectLanguage(f.path), updatedAt: Date.now() }
+      ])
+    )
+    useArtifactsStore.getState().replaceAll(files, null)
+    const isTr = get().language === 'tr'
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: isTr
+            ? `↩️ Hata bu turda giderilemedi; proje ÇALIŞAN son sürüme (${r.hash}) geri alındı — localhost bozuk kalmadı. Denemen git geçmişinde duruyor; isteğini biraz daha küçük parçalara bölerek yeniden deneyebilirsin.`
+            : `↩️ The error couldn't be fixed this round; the project was restored to the last WORKING version (${r.hash}). Your attempt is kept in git history.`
+        }
+      ]
+    }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Son model-düzeltme turunda gerçekten uygulanan blok sayısı (no-op tespiti):
+// hiçbir SEARCH eşleşmediyse aynı reçeteyle ısrar etmek tur yakmaktır.
+let lastFixTurnApplied = -1
+
 async function postGenVerify(
   get: () => AppState,
   set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
@@ -260,6 +320,8 @@ async function postGenVerify(
   if (postVerifyActive) return
   postVerifyActive = true
   let regenerated = false
+  let verifiedClean = false
+  const repairedDiags = new Set<string>()
   try {
     for (let round = 0; round < 4; round++) {
       const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
@@ -292,6 +354,7 @@ async function postGenVerify(
       }
 
       if (!diagnosis) {
+        verifiedClean = true
         if (round > 0) {
           set((s) => ({
             messages: [
@@ -306,27 +369,54 @@ async function postGenVerify(
         }
         return
       }
+
+      // Onarım Merdiveni — KAT 0: modele sormadan kodla onar (eksik import,
+      // kesme işaretli string, kırık görece yol…). Milisaniye sürer, tur
+      // yakmaz; aynı tanıya bir kez denenir (sonsuz döngü koruması).
+      const diagKey = diagnosis.slice(0, 160)
+      if (!repairedDiags.has(diagKey)) {
+        repairedDiags.add(diagKey)
+        const notes = await tryAutoRepair(diagnosis)
+        if (notes.length > 0) {
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: '🔧 Kod onarımı (modelsiz, anında): ' + notes.join('; ')
+              }
+            ]
+          }))
+          round-- // Kat 0 tur yakmaz: yeniden doğrula
+          continue
+        }
+      }
       if (round >= 2) {
         // Cerrahi turlar tukendi: dosyayi (bir kez) komple yeniden urettir,
-        // dongu son kontrolu yapar; o da olmazsa durustce raporla.
+        // dongu son kontrolu yapar; o da olmazsa yeşile dönüş + dürüst rapor.
         if (!regenerated && !get().sending && (await regenerateBrokenFile(diagnosis, get, set))) {
           regenerated = true
           continue
         }
-        set((s) => ({
-          lastBuildError: diagnosis,
-          messages: [
-            ...s.messages,
-            {
-              id: nanoid(),
-              role: 'assistant',
-              content: `⚠️ Üretim sonrası denetim: hata otomatik giderilemedi:\n${diagnosis
-                .split('\n')
-                .slice(0, 6)
-                .join('\n')}\n\n"düzelt" yazarak tekrar deneyebilir ya da Kod sekmesinden bakabilirsiniz.`
-            }
-          ]
-        }))
+        set({ lastBuildError: diagnosis })
+        // KAT 3: kullanıcıyı asla bozuk bırakma — çalışan son sürüme dön.
+        const rolled = await rollbackToGreen(get, set)
+        if (!rolled) {
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: `⚠️ Üretim sonrası denetim: hata otomatik giderilemedi:\n${diagnosis
+                  .split('\n')
+                  .slice(0, 6)
+                  .join('\n')}\n\n"düzelt" yazarak tekrar deneyebilir ya da Kod sekmesinden bakabilirsiniz.`
+              }
+            ]
+          }))
+        }
         return
       }
       // Kullanıcı bu arada yeni bir tur başlattıysa araya girme.
@@ -342,8 +432,17 @@ async function postGenVerify(
           }
         ]
       }))
+      // KAT 1: hatalı dosyanın hata-satırı çevresi SATIR NUMARALI verilir —
+      // SEARCH bloğunun birebir kopyalanması için (no-op turların ana nedeni
+      // modelin dosyayı ezberden yazması).
+      const { numberedSnippet } = await import('@/lib/autoRepair')
+      const filesForSnippet = Object.fromEntries(
+        Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
+      )
+      lastFixTurnApplied = -1
       await get().sendMessage(
-        'düzelt — üretimden hemen sonra yapılan otomatik denetim yukarıdaki hatayı yakaladı. Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.',
+        'düzelt — üretimden hemen sonra yapılan otomatik denetim yukarıdaki hatayı yakaladı. Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
+          numberedSnippet(diagnosis, filesForSnippet),
         { hideUser: true }
       )
       // chat.send cozuldugunde done-handler'in uygulamasi bitmemis olabilir
@@ -352,6 +451,21 @@ async function postGenVerify(
         await new Promise((r) => setTimeout(r, 200))
       }
       await new Promise((r) => setTimeout(r, 400))
+      // KAT 1b: tur hiçbir blok UYGULAYAMADIYSA aynı reçeteyle ısrar etme —
+      // doğrudan dosya yeniden-üretim katına atla ("0 nokta düzeltildi" vakası).
+      if (lastFixTurnApplied === 0) {
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: '↪️ Cerrahi düzeltme tutmadı (0 blok eşleşti) — dosya yeniden üretim katına geçiliyor.'
+            }
+          ]
+        }))
+        round = Math.max(round, 1) // bir sonraki tur >=2: regenerate
+      }
     }
   } finally {
     postVerifyActive = false
@@ -369,7 +483,9 @@ async function postGenVerify(
         await window.nexora.history.commit({
           projectName: getProjectName(),
           files: all,
-          message: (lastVisibleUserPrompt || 'üretim').split('\n')[0]
+          // Doğrulamadan geçen sürüm YEŞİL etiketlenir (Kat 3'ün dönüş noktası).
+          green: verifiedClean,
+          message: (verifiedClean ? '✅ ' : '') + (lastVisibleUserPrompt || 'üretim').split('\n')[0]
         })
       } catch {
         /* zaman çizelgesi en-iyi-çaba: hata sohbeti etkilemez */
@@ -393,9 +509,9 @@ function ensureRuntimeErrorSub(
     const sig = e.message.slice(0, 120)
     const n = runtimeFixCounts.get(sig) ?? 0
     // Mesgulken ya da proje yokken karisma; sayfa hatayi yeniden raporlar.
+    // (Model guard'ı Kat 0'dan SONRA: modelsiz onarım model istemez.)
     if (get().sending || get().generating) return
     if (Object.keys(useArtifactsStore.getState().files).length === 0) return
-    if (!get().modelInfo) return
     if (n >= 2) {
       if (n === 2) {
         runtimeFixCounts.set(sig, n + 1)
@@ -419,21 +535,58 @@ function ensureRuntimeErrorSub(
 ${e.message}
 ${cleanStack}
 HINT: "X is not defined" usually means a missing import in the file shown in the stack. Fix the ROOT CAUSE in that file with a SMALL edit block.`
-    set((s) => ({
-      lastBuildError: diagnosis,
-      messages: [
-        ...s.messages,
-        {
-          id: nanoid(),
-          role: 'assistant',
-          content: `🌐 Canlı sayfada hata yakalandı — otomatik düzeltiliyor (${n + 1}/2)…\n${sig}`
+    void (async () => {
+      // Onarım Merdiveni Kat 0: beyaz-sayfa sınıfının ezici çoğunluğu eksik
+      // import'tur — modele hiç gitmeden, milisaniyede kodla onar.
+      const notes = await tryAutoRepair(`${e.message}\n${cleanStack}`)
+      if (notes.length > 0) {
+        // Onarım DİSKE inmeli: dev sunucu diskten servis eder; sync sonrası
+        // vite HMR sayfayı kendiliğinden toparlar.
+        try {
+          const { getProjectName } = await import('@/lib/agentActions')
+          const files = Object.values(useArtifactsStore.getState().files).map((f) => ({
+            path: f.path,
+            content: f.content
+          }))
+          await window.nexora.agent.buildCheck({ projectName: getProjectName(), files, onlyIfInstalled: true })
+        } catch {
+          /* sync başarısızsa hata yeniden rapor edilir, model katı devralır */
         }
-      ]
-    }))
-    void get().sendMessage(
-      'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda. Stack\'teki dosyada kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.',
-      { hideUser: true }
-    )
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: `🌐 Canlı sayfada hata yakalandı → 🔧 modelsiz onarıldı (anında): ${notes.join('; ')}`
+            }
+          ]
+        }))
+        return
+      }
+      // Model katı: yüklü model yoksa sessizce dur (Kat 0 zaten denendi).
+      if (!get().modelInfo) return
+      set((s) => ({
+        lastBuildError: diagnosis,
+        messages: [
+          ...s.messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: `🌐 Canlı sayfada hata yakalandı — otomatik düzeltiliyor (${n + 1}/2)…\n${sig}`
+          }
+        ]
+      }))
+      const { numberedSnippet } = await import('@/lib/autoRepair')
+      const filesMap = Object.fromEntries(
+        Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
+      )
+      void get().sendMessage(
+        'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda. Stack\'teki dosyada kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
+          numberedSnippet(`${e.message}\n${cleanStack}`, filesMap),
+        { hideUser: true }
+      )
+    })()
   })
 }
 
@@ -874,6 +1027,8 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       // Düzeltme raporu: hangi dosyada kaç nokta değişti, sohbete yazılır —
       // kullanıcı modelin NEREYİ düzelttiğini kod okumadan görür.
       if (outcome.edits.length > 0) {
+        // Onarım merdiveni (Kat 1b): bu turda gerçekten uygulanan blok sayısı.
+        lastFixTurnApplied = outcome.edits.reduce((a, e) => a + e.applied, 0)
         // Aynı dosyaya ait blokları tek satırda topla.
         const byFile = new Map<string, { applied: number; failed: number }>()
         for (const e of outcome.edits) {
@@ -956,6 +1111,35 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               ]
             }))
           } else if (autoFixRounds < 2 && check.error) {
+            // Onarım Merdiveni Kat 0: önce modelsiz onarımı dene — tutarsa
+            // model turu hiç harcamadan yeniden doğrula.
+            const notes = await tryAutoRepair(check.error)
+            if (notes.length > 0) {
+              set((s) => ({
+                messages: [
+                  ...s.messages,
+                  { id: nanoid(), role: 'assistant', content: '🔧 Kod onarımı (modelsiz, anında): ' + notes.join('; ') }
+                ]
+              }))
+              pendingBuildVerify = true
+              const files3 = Object.values(useArtifactsStore.getState().files).map((f) => ({
+                path: f.path,
+                content: f.content
+              }))
+              const again0 = await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: files3 })
+              pendingBuildVerify = false
+              if (again0.ok) {
+                autoFixRounds = 0
+                set((s) => ({
+                  lastBuildError: null,
+                  messages: [
+                    ...s.messages,
+                    { id: nanoid(), role: 'assistant', content: '✅ Derleme hatası modelsiz onarımla giderildi.' }
+                  ]
+                }))
+                return
+              }
+            }
             autoFixRounds++
             set((s) => ({
               lastBuildError: check.error ?? null,
@@ -968,8 +1152,13 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 }
               ]
             }))
+            const { numberedSnippet } = await import('@/lib/autoRepair')
+            const filesMap = Object.fromEntries(
+              Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
+            )
             void get().sendMessage(
-              'düzelt — önceki düzeltme hatayı gidermedi. Hata satırındaki değil, ASIL nedeni bul: kapanmamış tırnak/parantez/JSX etiketi genellikle hata satırının YUKARISINDADIR. Dosyayı dikkatle tara.'
+              'düzelt — önceki düzeltme hatayı gidermedi. Hata satırındaki değil, ASIL nedeni bul: kapanmamış tırnak/parantez/JSX etiketi genellikle hata satırının YUKARISINDADIR. Dosyayı dikkatle tara.' +
+                numberedSnippet(check.error, filesMap)
             )
           } else if (check.error) {
             // Son tirmanma: hatali dosyayi komple yeniden urettir ve derlemeyi
@@ -996,17 +1185,21 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 }
                 set((s) => ({ lastBuildError: again.error ?? null }))
               }
-              set((s) => ({
-                lastBuildError: s.lastBuildError ?? err,
-                messages: [
-                  ...s.messages,
-                  {
-                    id: nanoid(),
-                    role: 'assistant',
-                    content: `⚠️ Otomatik denemelere rağmen derleme hatası sürüyor:\n\n${(get().lastBuildError ?? err).split('\n').slice(0, 6).join('\n')}\n\nKod sekmesinden ilgili dosyaya bakıp chat'te daha net tarif edebilirsiniz.`
-                  }
-                ]
-              }))
+              // Onarım Merdiveni Kat 3: bozuk bırakma — yeşile dön.
+              const rolled = await rollbackToGreen(get, set)
+              if (!rolled) {
+                set((s) => ({
+                  lastBuildError: s.lastBuildError ?? err,
+                  messages: [
+                    ...s.messages,
+                    {
+                      id: nanoid(),
+                      role: 'assistant',
+                      content: `⚠️ Otomatik denemelere rağmen derleme hatası sürüyor:\n\n${(get().lastBuildError ?? err).split('\n').slice(0, 6).join('\n')}\n\nKod sekmesinden ilgili dosyaya bakıp chat'te daha net tarif edebilirsiniz.`
+                    }
+                  ]
+                }))
+              }
             })()
           }
         })()
@@ -1269,6 +1462,116 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       ]
     }))
+  },
+
+  runVisualReview: async (url: string) => {
+    // Uygulama kendi işine bakar (roadmap 3.3): Çalıştır'dan sonra sayfanın
+    // ekran görüntüsü kendi vizyon modeline gösterilir; somut görsel kusur
+    // varsa GİZLİ bir düzelt turu başlar — kullanıcı hiçbir şey yazmaz.
+    try {
+      if (get().sending || get().generating) return
+      const cap = await window.nexora.capture.page({ url })
+      if (!cap.ok || !cap.path) return
+      const isTr = get().language === 'tr'
+      // Katman 1 — DETERMİNİSTİK boşluk tespiti (canlı test: VL-3B bembeyaz
+      // sayfaya "OK" dedi; boşluk modele sorulmaz, piksellerden ölçülür).
+      if ((cap.blankRatio ?? 0) >= 0.98) {
+        const verdict = isTr
+          ? 'Sayfa neredeyse tamamen boş: görünür başlık, metin ya da bölüm yok (piksel analizi).'
+          : 'The page is almost completely blank: no visible heading, text or section (pixel analysis).'
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content:
+                (isTr
+                  ? '👁 Görsel öz-denetim kusur yakaladı — sessizce düzeltiliyor:\n'
+                  : '👁 Visual self-review found defects — fixing silently:\n') + verdict
+            }
+          ]
+        }))
+        // Model yoksa kırmızı hata üretme — tespit değerlidir, dürüstçe söyle.
+        if (!get().modelInfo) {
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: isTr
+                  ? 'ℹ️ Otomatik düzeltme için bir model yüklü değil — model yükleyince "düzelt" yazman yeterli.'
+                  : 'ℹ️ No model is loaded for auto-fixing — load a model and type "düzelt".'
+              }
+            ]
+          }))
+          return
+        }
+        if (get().sending || get().generating) return
+        await get().sendMessage(
+          'düzelt — Çalıştır sonrası otomatik GÖRSEL denetim sayfanın NEREDEYSE TAMAMEN BOŞ render olduğunu ölçtü (piksel analizi). Muhtemel kök neden: App.tsx içeriği boş/render edilmiyor ya da bileşenler bağlanmamış. Dosyaları incele ve sayfayı gerçek içerikle dolduracak KÜÇÜK düzeltmeleri yap:\n' +
+            verdict,
+          { hideUser: true }
+        )
+        return
+      }
+      // Katman 2 — vizyon modeli (yalnızca diskte hazırsa: Run sürpriz GB'lık
+      // indirme başlatmamalı; model Ayarlar/görsel akışından indirilebiliyor).
+      if (!cap.visionReady) return
+      set((s) => ({
+        messages: [
+          ...s.messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: isTr ? '👁 Görsel öz-denetim: sayfa inceleniyor…' : '👁 Visual self-review: inspecting the page…'
+          }
+        ]
+      }))
+      const res = await window.nexora.vision.analyze({
+        imagePath: cap.path,
+        prompt:
+          'This is a screenshot of a website that was just generated. Report ONLY concrete VISUAL defects you can actually see: large blank/empty areas, overlapping or cut-off text, broken layout, missing images (broken icon placeholders), unreadable text contrast. RULE: a page that is entirely or mostly empty IS a critical defect — never answer OK for it. Ignore subjective style opinions. If the page shows real content and looks reasonable, reply with exactly: OK. Otherwise list at most 5 defects, one short line each' +
+          (isTr ? ', in Turkish.' : ', in English.')
+      })
+      if (!res.ok || !res.text) return
+      const verdict = res.text.trim()
+      if (/^ok\b/i.test(verdict)) {
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: isTr ? '👁 Görsel öz-denetim: sorun görülmedi.' : '👁 Visual self-review: no issues found.'
+            }
+          ]
+        }))
+        return
+      }
+      set((s) => ({
+        messages: [
+          ...s.messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content:
+              (isTr
+                ? '👁 Görsel öz-denetim kusur yakaladı — sessizce düzeltiliyor:\n'
+                : '👁 Visual self-review found defects — fixing silently:\n') + verdict.slice(0, 600)
+          }
+        ]
+      }))
+      if (get().sending || get().generating) return
+      await get().sendMessage(
+        'düzelt — Çalıştır sonrası otomatik GÖRSEL denetim, sayfanın ekran görüntüsünde şu somut kusurları gördü. Kök nedenleri dosyalarda bul ve KÜÇÜK edit bloklarıyla düzelt:\n' +
+          verdict.slice(0, 600),
+        { hideUser: true }
+      )
+    } catch {
+      /* öz-denetim en-iyi-çaba: Run akışını asla bozmaz */
+    }
   },
 
   refreshSessions: async () => {
@@ -1933,3 +2236,9 @@ ${rules.slice(0, 1500)}
 }))
 
 export { fmtBytes }
+
+// Onarım Merdiveni: runtime hata aboneliği İLK MESAJI BEKLEMEZ. Canlı test
+// bulgusu — abonelik sendMessage içinde kurulduğundan, kullanıcı hiç mesaj
+// atmadan Çalıştır'a basarsa sayfanın hata POST'ları boşluğa düşüyordu
+// (içe aktarılan bozuk proje vakası). Uygulama açılır açılmaz dinle.
+ensureRuntimeErrorSub(useAppStore.getState, useAppStore.setState)

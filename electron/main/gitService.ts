@@ -71,7 +71,8 @@ async function ensureRepo(dir: string): Promise<boolean> {
 export async function historyCommit(
   projectName: string,
   files: ProjectFileInput[],
-  message: string
+  message: string,
+  green?: boolean
 ): Promise<{ ok: boolean; hash?: string; skipped?: 'no-git' | 'linked' | 'clean'; error?: string }> {
   if (linkedFolderFor(projectName)) return { ok: true, skipped: 'linked' }
   if (!(await hasGit())) return { ok: true, skipped: 'no-git' }
@@ -80,12 +81,29 @@ export async function historyCommit(
   await runGit(dir, ['add', '-A'])
   const msg = (message || 'üretim').replace(/\s+/g, ' ').slice(0, 72)
   const c = await runGit(dir, ['commit', '-m', msg])
-  if (!c.ok) {
-    if (/nothing to commit|değişiklik yok/i.test(c.out)) return { ok: true, skipped: 'clean' }
-    return { ok: false, error: c.out.slice(0, 200) }
-  }
+  const committed = c.ok || /nothing to commit|değişiklik yok/i.test(c.out)
+  if (!committed) return { ok: false, error: c.out.slice(0, 200) }
+  // Onarım merdiveni (Kat 3): doğrulamadan GEÇEN sürüm "yeşil" etiketlenir —
+  // düzeltme merdiveni tükenirse buraya güvenle dönülür.
+  if (green) await runGit(dir, ['tag', '-f', 'nexora-green'])
+  if (!c.ok) return { ok: true, skipped: 'clean' }
   const h = await runGit(dir, ['rev-parse', '--short', 'HEAD'])
   return { ok: true, hash: h.out.trim() }
+}
+
+/** Çalışan (yeşil) son sürüme dön — düzeltilemeyen hatada dürüst güvenlik ağı. */
+export async function historyRestoreGreen(
+  projectName: string
+): Promise<{ ok: boolean; files?: ProjectFileInput[]; hash?: string; error?: string }> {
+  if (linkedFolderFor(projectName)) return { ok: false, error: 'Bağlı klasörde geçerli değil.' }
+  if (!(await hasGit())) return { ok: false, error: 'git yok' }
+  const dir = workspaceDir(projectName)
+  if (!existsSync(join(dir, '.git'))) return { ok: false, error: 'geçmiş yok' }
+  const rev = await runGit(dir, ['rev-parse', '--short', 'nexora-green'])
+  if (!rev.ok) return { ok: false, error: 'yeşil sürüm yok' }
+  const hash = rev.out.trim()
+  const r = await historyRestore(projectName, hash)
+  return { ...r, hash }
 }
 
 export async function historyList(projectName: string): Promise<HistoryEntry[]> {

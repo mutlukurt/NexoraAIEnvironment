@@ -37,7 +37,8 @@ import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionServi
 import { detectHardware } from './advisorService'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { getRules, setRules } from './rulesService'
-import { historyCommit, historyList, historyRestore } from './gitService'
+import { historyCommit, historyList, historyRestore, historyRestoreGreen } from './gitService'
+import { capturePage } from './captureService'
 import {
   IPC,
   type ChatSendInput,
@@ -356,12 +357,21 @@ function registerIpc(): void {
     }
   })
 
+  // Görsel öz-denetim (roadmap 3.3): dev sayfasının ekran görüntüsü.
+  ipcMain.handle(IPC.AGENT_CAPTURE_PAGE, async (_e, input: { url: string }) => {
+    try {
+      return await capturePage(input.url)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
   // Git tabanlı üretim geçmişi (roadmap 3.4).
   ipcMain.handle(
     IPC.HISTORY_COMMIT,
     async (_e, input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) => {
       try {
-        return await historyCommit(input.projectName, input.files, input.message)
+        return await historyCommit(input.projectName, input.files, input.message, (input as { green?: boolean }).green)
       } catch (err) {
         return { ok: false, error: (err as Error).message }
       }
@@ -377,6 +387,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.HISTORY_RESTORE, async (_e, projectName: string, hash: string) => {
     try {
       return await historyRestore(projectName, hash)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+  ipcMain.handle(IPC.HISTORY_RESTORE_GREEN, async (_e, projectName: string) => {
+    try {
+      return await historyRestoreGreen(projectName)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }

@@ -125,10 +125,15 @@ export interface NexoraApi {
     /** Klasör Aç (roadmap 3.1): klasör diyaloğu + tarama + bağlama. */
     import: () => Promise<import('../shared/ipc').ProjectImportResult>
   }
+  capture: {
+    /** Görsel öz-denetim (roadmap 3.3): dev sayfasını görünmez pencerede yakala. */
+    page: (input: { url: string }) => Promise<{ ok: boolean; path?: string; visionReady?: boolean; blankRatio?: number; error?: string }>
+  }
   history: {
-    commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) => Promise<{ ok: boolean; hash?: string; skipped?: string; error?: string }>
+    commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string; green?: boolean }) => Promise<{ ok: boolean; hash?: string; skipped?: string; error?: string }>
     list: (projectName: string) => Promise<import('../shared/ipc').HistoryEntryIpc[]>
     restore: (projectName: string, hash: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; error?: string }>
+    restoreGreen: (projectName: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; hash?: string; error?: string }>
   }
 }
 
@@ -227,11 +232,15 @@ const api: NexoraApi = {
   projects: {
     import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT)
   },
+  capture: {
+    page: (input: { url: string }) => ipcRenderer.invoke(IPC.AGENT_CAPTURE_PAGE, input)
+  },
   history: {
     commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) =>
       ipcRenderer.invoke(IPC.HISTORY_COMMIT, input),
     list: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_LIST, projectName),
-    restore: (projectName: string, hash: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE, projectName, hash)
+    restore: (projectName: string, hash: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE, projectName, hash),
+    restoreGreen: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE_GREEN, projectName)
   }
 }
 
