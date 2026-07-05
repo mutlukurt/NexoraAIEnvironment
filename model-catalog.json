@@ -1,0 +1,14 @@
+{
+  "_comment": "NexoraAI uzak model kataloğu (roadmap 4.4). Bu dosyayı düzenleyip main'e push'lamak, yeni uygulama sürümü çıkmadan Donanım Danışmanı kataloğunu günceller. Gömülü katalogla birleşir (buradaki anahtarlar üzerine yazar/ekler).",
+  "coders": {
+    "c14": {
+      "id": "c14",
+      "label": "Qwen2.5-Coder-14B",
+      "family": "Qwen",
+      "repo": "bartowski/Qwen2.5-Coder-14B-Instruct-GGUF",
+      "file": "Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf",
+      "sizeGb": 9.0,
+      "quality": "Yüksek — profesyonel çok dosyalı projeler (uzak katalogdan güncellendi)"
+    }
+  }
+}
