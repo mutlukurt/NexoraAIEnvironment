@@ -121,6 +121,10 @@ export interface NexoraApi {
     get: (projectName: string) => Promise<{ content: string }>
     set: (projectName: string, content: string) => Promise<{ ok: boolean }>
   }
+  projects: {
+    /** Klasör Aç (roadmap 3.1): klasör diyaloğu + tarama + bağlama. */
+    import: () => Promise<import('../shared/ipc').ProjectImportResult>
+  }
 }
 
 const api: NexoraApi = {
@@ -214,6 +218,9 @@ const api: NexoraApi = {
   rules: {
     get: (projectName: string) => ipcRenderer.invoke(IPC.RULES_GET, projectName),
     set: (projectName: string, content: string) => ipcRenderer.invoke(IPC.RULES_SET, projectName, content)
+  },
+  projects: {
+    import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT)
   }
 }
 

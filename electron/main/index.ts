@@ -30,7 +30,8 @@ import {
   exportProject,
   buildCheck,
   startRuntimeCollector,
-  setRuntimeErrorCallback
+  setRuntimeErrorCallback,
+  importProjectFolder
 } from './agentService'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware } from './advisorService'
@@ -343,6 +344,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_e, id: string) => {
     await deleteSession(id)
     return { ok: true }
+  })
+
+  // Klasör Aç (roadmap 3.1): var olan projeyi çalışma alanına bağla.
+  ipcMain.handle(IPC.PROJECT_IMPORT, async () => {
+    try {
+      return await importProjectFolder()
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   ipcMain.handle(IPC.RULES_GET, async (_e, projectName: string) => {

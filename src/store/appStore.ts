@@ -106,6 +106,8 @@ interface AppState {
   loadModelPath: (path: string) => Promise<void>
   unloadModel: () => Promise<void>
   newSession: () => Promise<void>
+  /** Klasör Aç (roadmap 3.1): var olan projeyi içe aktarıp bağla. */
+  importFolder: () => Promise<void>
   sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
@@ -1209,6 +1211,42 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
+  importFolder: async () => {
+    const res = await window.nexora.projects.import()
+    if (res.canceled) return
+    if (!res.ok || !res.files) {
+      set({ error: res.error ?? 'Klasör içe aktarılamadı.' })
+      return
+    }
+    // Temiz oturum + dosyaları yükle. Bağlı-klasör modunda düzenlemeler ve
+    // Çalıştır, kullanıcının ORİJİNAL klasöründe akar (main süreç yönlendirir).
+    await get().newSession()
+    const files = Object.fromEntries(
+      res.files.map((f: { path: string; content: string }) => [
+        f.path,
+        { path: f.path, content: f.content, language: detectLanguage(f.path), updatedAt: Date.now() }
+      ])
+    )
+    const entry =
+      ['src/App.tsx', 'src/App.jsx', 'App.tsx', 'index.html', 'package.json'].find((p) => files[p]) ??
+      Object.keys(files)[0]
+    useArtifactsStore.getState().replaceAll(files, entry)
+    const isTr = get().language === 'tr'
+    set((s) => ({
+      activeTab: 'code',
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: isTr
+            ? `📂 "${res.projectName}" içe aktarıldı ve bağlandı: ${res.folderPath}\n${res.files!.length} dosya yüklendi${res.skipped ? ` (${res.skipped} dosya atlandı: ikili/çok büyük/derleme çıktısı)` : ''}. Artık bu proje üzerinde değişiklik isteyebilirsin — düzenlemeler doğrudan orijinal klasöre yazılır.`
+            : `📂 Imported and linked "${res.projectName}": ${res.folderPath}\n${res.files!.length} files loaded${res.skipped ? ` (${res.skipped} skipped: binary/too large/build output)` : ''}. You can now request changes — edits are written directly to the original folder.`
+        }
+      ]
+    }))
+  },
+
   refreshSessions: async () => {
     try {
       const list = await window.nexora.sessions.list()
@@ -1569,9 +1607,12 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       allFiles.length === 0 &&
       buildReq
     enhanceBypassNext = false
-    // Plan modu: "Önce Plan" açıkken build istekleri önce plana çevrilir.
-    // Boş oturumda yalnızca build isteğiyse; mevcut projede (iterasyon) eski
-    // davranış korunur. Görsel/düzelt/onay (bypass) doğrudan koda gider.
+    // Plan modu: "Önce Plan" açıkken yalnızca BUILD ÖLÇEKLİ istekler plana
+    // çevrilir — boş oturumda da mevcut projede de. 3.1 canlı testi dersi:
+    // içe aktarılmış gerçek projede "başlığı değiştir" gibi küçük bir istek
+    // plan turuna girince (plan dosya içeriği görmez) model 12 uydurma
+    // dosyalık yeniden-inşa planı önerdi — uygulansa projeyi ezerdi. Küçük
+    // istekler doğrudan cerrahi düzenlemeye (gramerli UPDATE turu) gider.
     const isPlanTurn =
       get().planFirst &&
       !planBypassNext &&
@@ -1579,7 +1620,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !fixFlow &&
       !isEnhanceTurn &&
       !opts?.expectFile &&
-      (allFiles.length > 0 || buildReq)
+      buildReq
     planBypassNext = false
     // Sohbet turu: boş oturumda build olmayan mesaj (selamlaşma, soru). Kod
     // üretim sistem prompt'unu bir sohbet direktifiyle geçersiz kıl.

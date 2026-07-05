@@ -11,9 +11,10 @@ import { spawn, type ChildProcess } from 'child_process'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { join, dirname, resolve, sep } from 'path'
-import { mkdir, writeFile, readFile, cp, rm, access } from 'fs/promises'
-import { existsSync } from 'fs'
-import { shell } from 'electron'
+import { mkdir, writeFile, readFile, cp, rm, access, readdir, stat } from 'fs/promises'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { shell, dialog } from 'electron'
+import type { ProjectImportResult } from '../shared/ipc'
 
 export interface ProjectFileInput {
   path: string
@@ -43,8 +44,38 @@ export function slugifyName(name: string): string {
   return s || 'nexora-projesi'
 }
 
+// ---------------------------------------------------------------------------
+// Bağlı klasörler (roadmap 3.1 — Klasör Aç): içe aktarılan gerçek projelerde
+// çalışma alanı ~/NexoraAI/Projects kopyası DEĞİL, kullanıcının orijinal
+// klasörüdür. Kayıt diskte tutulur ki uygulama yeniden açılınca da düzenleme
+// ve Çalıştır doğru klasörde aksın.
+// ---------------------------------------------------------------------------
+
+const LINKED_FILE = join(homedir(), 'NexoraAI', 'linked-projects.json')
+let linkedFolders: Record<string, string> = {}
+try {
+  linkedFolders = JSON.parse(readFileSync(LINKED_FILE, 'utf8')) as Record<string, string>
+} catch {
+  linkedFolders = {}
+}
+
+export function linkFolder(projectName: string, folderPath: string): void {
+  linkedFolders[slugifyName(projectName)] = folderPath
+  try {
+    mkdirSync(dirname(LINKED_FILE), { recursive: true })
+    writeFileSync(LINKED_FILE, JSON.stringify(linkedFolders, null, 2), 'utf8')
+  } catch {
+    /* kayıt yazılamazsa bağ yalnızca bu oturum için geçerli kalır */
+  }
+}
+
+export function linkedFolderFor(projectName: string): string | null {
+  const p = linkedFolders[slugifyName(projectName)]
+  return p && existsSync(p) ? p : null
+}
+
 export function workspaceDir(projectName: string): string {
-  return join(PROJECTS_ROOT, slugifyName(projectName))
+  return linkedFolderFor(projectName) ?? join(PROJECTS_ROOT, slugifyName(projectName))
 }
 
 /** path traversal koruması: hedef her zaman çalışma alanının içinde kalmalı. */
@@ -432,7 +463,11 @@ export default defineConfig({
 
 export const RUNTIME_ERROR_PORT = 8095
 
-const RUNTIME_HOOK = `<script>/* nexora-runtime */(function(){var s=new Set();function r(m,st){var k=String(m).slice(0,120);if(s.has(k))return;s.add(k);try{fetch('http://127.0.0.1:${'${RUNTIME_ERROR_PORT}'}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||'')})})}catch(e){}}window.addEventListener('error',function(e){r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')))});window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'')});})();</script>`
+// DİKKAT: port GERÇEK değeriyle enjekte edilmeli. Önceki sürümde kaçışlı
+// yer tutucu (${'...'}) ham metin olarak sayfaya gidiyordu — hook geçersiz
+// URL'e POST atıyor, runtime öz-onarım sessizce hiç çalışmıyordu. Gerçek
+// projeye yazılan index.html diff'inde yakalandı (3.1 canlı testi).
+const RUNTIME_HOOK = `<script>/* nexora-runtime */(function(){var s=new Set();function r(m,st){var k=String(m).slice(0,120);if(s.has(k))return;s.add(k);try{fetch('http://127.0.0.1:${RUNTIME_ERROR_PORT}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||'')})})}catch(e){}}window.addEventListener('error',function(e){r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')))});window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'')});})();</script>`
 
 function injectRuntimeHook(html: string): string {
   if (html.includes('nexora-runtime')) return html
@@ -484,15 +519,118 @@ export function stopRuntimeCollector(): void {
 
 export async function syncWorkspace(projectName: string, files: ProjectFileInput[]): Promise<string> {
   const dir = workspaceDir(projectName)
+  const linked = !!linkedFolderFor(projectName)
   await mkdir(dir, { recursive: true })
-  const scaffolded = scaffoldProject(files, projectName)
+  // Bağlı gerçek projede iskelet ÜRETME: proje zaten eksiksiz; scaffold'un
+  // "eksik" sanacağı dosyalar (README, tailwind.config…) taramada atlanmış
+  // gerçek dosyalar olabilir — üstlerine standart şablon yazmak felaket olur.
+  const scaffolded = linked ? files : scaffoldProject(files, projectName)
   for (const f of scaffolded) {
     const full = safeJoin(dir, f.path)
-    await mkdir(dirname(full), { recursive: true })
     const content = /(^|\/)index\.html$/.test(f.path) ? injectRuntimeHook(f.content) : f.content
+    // Bağlı klasörde yalnızca DEĞİŞEN dosya yazılır: kullanıcının gerçek
+    // projesinde 400 dosyanın mtime'ını her turda kirletmek (watcher fırtınası,
+    // git status gürültüsü) kabul edilemez.
+    if (linked) {
+      try {
+        const cur = await readFile(full, 'utf8')
+        if (cur === content) continue
+      } catch {
+        /* dosya yok — yazılacak */
+      }
+    }
+    await mkdir(dirname(full), { recursive: true })
     await writeFile(full, content, 'utf8')
   }
   return dir
+}
+
+// ---------------------------------------------------------------------------
+// Klasör Aç (roadmap 3.1): var olan bir projeyi tarayıp çalışma alanına bağla.
+// ---------------------------------------------------------------------------
+
+const IMPORT_SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', 'out', '.next', 'coverage',
+  '.cache', '.vite', 'release', '__pycache__', '.venv', 'venv', '.idea', '.vscode'
+])
+const IMPORT_EXTS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'css', 'scss', 'less',
+  'html', 'htm', 'md', 'svg', 'txt', 'yml', 'yaml', 'toml', 'py', 'env'
+])
+const IMPORT_MAX_FILES = 400
+const IMPORT_MAX_SIZE = 200 * 1024
+
+export async function importProjectFolder(): Promise<ProjectImportResult> {
+  // Test dikişi: otomatik GUI testleri yerel OS diyaloğunu süremez; env ile
+  // klasör verilirse diyalog atlanır (normal kullanımda tanımsızdır).
+  let root = process.env.NEXORA_IMPORT_DIR && existsSync(process.env.NEXORA_IMPORT_DIR)
+    ? process.env.NEXORA_IMPORT_DIR
+    : ''
+  if (!root) {
+    const picked = await dialog.showOpenDialog({
+      title: 'Proje klasörü seç',
+      properties: ['openDirectory']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return { ok: false, canceled: true }
+    root = picked.filePaths[0]
+  }
+
+  const files: ProjectFileInput[] = []
+  let skipped = 0
+  const walk = async (dir: string): Promise<void> => {
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    // Deterministik sıra: köke yakın ve alfabetik önce (tavana takılırsa
+    // node_modules-vari derinlikler değil asıl kaynak dosyalar kalsın).
+    entries.sort((a, b) => a.name.localeCompare(b.name))
+    for (const e of entries) {
+      if (files.length >= IMPORT_MAX_FILES) { skipped++; continue }
+      const full = join(dir, e.name)
+      if (e.isDirectory()) {
+        if (IMPORT_SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue
+        await walk(full)
+      } else if (e.isFile()) {
+        const ext = e.name.split('.').pop()?.toLowerCase() ?? ''
+        const dotfile = e.name.startsWith('.') && e.name !== '.env'
+        if (dotfile || !IMPORT_EXTS.has(ext)) { skipped++; continue }
+        try {
+          const st = await stat(full)
+          if (st.size > IMPORT_MAX_SIZE) { skipped++; continue }
+          const content = await readFile(full, 'utf8')
+          // İkili dosya koruması: NUL byte içeren içerik metin değildir.
+          if (content.includes('\u0000')) { skipped++; continue }
+          const rel = full.slice(root.length + 1).split(sep).join('/')
+          files.push({ path: rel, content })
+        } catch {
+          skipped++
+        }
+      }
+    }
+  }
+  await walk(root)
+  if (files.length === 0) {
+    return { ok: false, error: 'Klasörde içe aktarılabilir metin dosyası bulunamadı.' }
+  }
+
+  // Proje adı: klasördeki package.json'ın name alanı; yoksa klasör adı.
+  // (Renderer'daki getProjectName de package.json'a bakar — ikisi aynı ada,
+  // dolayısıyla aynı bağlı klasöre çözülür.)
+  let projectName = root.split(sep).pop() || 'proje'
+  const pkg = files.find((f) => f.path === 'package.json')
+  if (pkg) {
+    try {
+      const name = (JSON.parse(pkg.content) as { name?: string }).name
+      if (name && typeof name === 'string') projectName = name
+    } catch {
+      /* bozuk package.json — klasör adı kalır */
+    }
+  }
+  linkFolder(projectName, root)
+  return { ok: true, folderPath: root, projectName, files, skipped }
 }
 
 // ---------------------------------------------------------------------------

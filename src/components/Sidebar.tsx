@@ -45,6 +45,7 @@ export default function Sidebar() {
 
   const activeTab = useAppStore((s) => s.activeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
+  const importFolder = useAppStore((s) => s.importFolder)
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const theme = useAppStore((s) => s.theme)
@@ -128,6 +129,13 @@ export default function Sidebar() {
         >
           <FileCode className="h-4 w-4" />
           <span>{t.filesAndCode}</span>
+        </button>
+        <button
+          onClick={() => void importFolder()}
+          className="flex items-center gap-3 rounded-lg px-4 py-2.5 text-[13px] font-bold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
+        >
+          <FolderOpen className="h-4 w-4" />
+          <span>{t.openFolder}</span>
         </button>
         <button
           onClick={() => window.dispatchEvent(new Event('nexora:openSettings'))}

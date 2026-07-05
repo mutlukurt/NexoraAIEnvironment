@@ -106,8 +106,22 @@ export const IPC = {
   SESSIONS_LOAD: 'sessions:load',
   SESSIONS_DELETE: 'sessions:delete',
   RULES_GET: 'rules:get',
-  RULES_SET: 'rules:set'
+  RULES_SET: 'rules:set',
+  PROJECT_IMPORT: 'project:import'
 } as const
+
+/** Klasör Aç (roadmap 3.1): var olan bir projeyi çalışma alanına bağla. */
+export interface ProjectImportResult {
+  ok: boolean
+  /** Kullanıcı diyaloğu iptal etti (hata değil). */
+  canceled?: boolean
+  error?: string
+  folderPath?: string
+  projectName?: string
+  files?: Array<{ path: string; content: string }>
+  /** Tarama tavanı/ikili-dosya nedeniyle atlanan dosya sayısı. */
+  skipped?: number
+}
 
 // --- Kalıcı oturumlar ---
 
