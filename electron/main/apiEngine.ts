@@ -28,11 +28,17 @@ export function getApiConfig(): ApiConfig {
   return cfg
 }
 
-/** Bu tur API'ye mi gitmeli? */
-export function shouldUseApi(isFixTurn: boolean): boolean {
+/**
+ * Bu tur API'ye mi gitmeli? — 5.5 çift-modlu cerrah kuralı:
+ * 'fix' modunda API EN SON ÇAREDİR: ilk düzeltme denemesi daima yerelde koşar
+ * (Kat 0 zaten bedava sınıfları kapattı), API yalnızca yerel model aynı hatayı
+ * çözemeyip tur TIRMANDIRILDIĞINDA (escalate) devreye girer. 'all' modu
+ * kullanıcının açık tercihi olduğundan tırmanış beklemez.
+ */
+export function shouldUseApi(isFixTurn: boolean, escalate = false): boolean {
   if (!cfg.baseUrl || !cfg.model || cfg.mode === 'off') return false
   if (cfg.mode === 'all') return true
-  return cfg.mode === 'fix' && isFixTurn
+  return cfg.mode === 'fix' && isFixTurn && escalate
 }
 
 /** OpenAI-uyumlu uzak uca durumsuz sohbet (SSE akışı). */

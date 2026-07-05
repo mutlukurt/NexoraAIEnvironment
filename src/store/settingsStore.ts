@@ -21,6 +21,8 @@ export interface Settings {
   apiKey: string
   apiModel: string
   apiMode: 'off' | 'fix' | 'all'
+  /** 5.5: tırmanış API'ye gitmeden ÖNCE sor — onay "düzelt api" yazmaktır. */
+  apiAsk: boolean
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -31,7 +33,8 @@ const DEFAULT_SETTINGS: Settings = {
   apiBaseUrl: '',
   apiKey: '',
   apiModel: '',
-  apiMode: 'off'
+  apiMode: 'off',
+  apiAsk: false
 }
 
 function loadSettings(): Settings {
@@ -51,7 +54,8 @@ function loadSettings(): Settings {
       apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
       apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
       apiModel: typeof parsed.apiModel === 'string' ? parsed.apiModel : '',
-      apiMode: ['off', 'fix', 'all'].includes(parsed.apiMode) ? parsed.apiMode : 'off'
+      apiMode: ['off', 'fix', 'all'].includes(parsed.apiMode) ? parsed.apiMode : 'off',
+      apiAsk: parsed.apiAsk === true
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -65,7 +69,7 @@ interface SettingsState extends Settings {
   addCommand: () => void
   updateCommand: (id: string, patch: Partial<Pick<CustomCommand, 'label' | 'prompt'>>) => void
   removeCommand: (id: string) => void
-  setApi: (patch: Partial<Pick<Settings, 'apiBaseUrl' | 'apiKey' | 'apiModel' | 'apiMode'>>) => void
+  setApi: (patch: Partial<Pick<Settings, 'apiBaseUrl' | 'apiKey' | 'apiModel' | 'apiMode' | 'apiAsk'>>) => void
   save: () => void
 }
 
@@ -96,6 +100,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           apiKey: get().apiKey,
           apiModel: get().apiModel,
           apiMode: get().apiMode,
+          apiAsk: get().apiAsk,
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )

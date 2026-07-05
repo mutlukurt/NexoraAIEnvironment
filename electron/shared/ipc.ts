@@ -74,6 +74,12 @@ export interface ChatSendInput {
     answerLang?: 'tr' | 'en'
     /** Tur motor geçmişine yazılmaz (enhance gibi meta turlar). */
     ephemeral?: boolean
+    /**
+     * 5.5 çift-modlu cerrah: yerel model bu hatayı çözemedi, tur hibrit
+     * API'ye TIRMANDIRILABİLİR ('fix' modunda API yalnız bu bayrakla devreye
+     * girer — ilk deneme daima yereldir).
+     */
+    escalate?: boolean
   }
 }
 

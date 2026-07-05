@@ -19,6 +19,7 @@ export default function SettingsModal() {
   const apiKey = useSettingsStore((s) => s.apiKey)
   const apiModel = useSettingsStore((s) => s.apiModel)
   const apiMode = useSettingsStore((s) => s.apiMode)
+  const apiAsk = useSettingsStore((s) => s.apiAsk)
   const setApi = useSettingsStore((s) => s.setApi)
   const addCommand = useSettingsStore((s) => s.addCommand)
   const updateCommand = useSettingsStore((s) => s.updateCommand)
@@ -124,6 +125,26 @@ export default function SettingsModal() {
                   placeholder={language === 'tr' ? 'API anahtarı (cihazında saklanır)' : 'API key (stored on your device)'}
                   className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
                 />
+                {apiMode === 'fix' && (
+                  <>
+                    <p className="text-[11px] font-medium leading-normal text-ink-dim">
+                      {language === 'tr'
+                        ? 'Sadece Düzeltme modunda API son çaredir: her hata önce modelsiz onarımı ve yerel modeli dener; API yalnızca yerel model çözemeyince devreye girer.'
+                        : 'In Fixes Only mode the API is the last resort: every error first tries the model-free repair and the local model; the API steps in only when local fails.'}
+                    </p>
+                    <label className="flex cursor-pointer items-center justify-between py-1">
+                      <span className="text-xs font-semibold text-ink-mut">
+                        {language === 'tr' ? 'API\'ye göndermeden önce sor ("düzelt api" ile onayla)' : 'Ask before sending to the API (confirm with "fix api")'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={apiAsk}
+                        onChange={(e) => setApi({ apiAsk: e.target.checked })}
+                        className="h-4 w-4 accent-brand-500"
+                      />
+                    </label>
+                  </>
+                )}
               </div>
             )}
           </div>

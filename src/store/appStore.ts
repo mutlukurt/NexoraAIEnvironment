@@ -120,7 +120,7 @@ interface AppState {
    * quiet=true → temiz taramada mesaj atılmaz (Run öncesi sessiz denetim).
    */
   runProjectScan: (opts?: { apply?: boolean; quiet?: boolean }) => Promise<void>
-  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => Promise<void>
+  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
   setAutoApply: (v: boolean) => void
@@ -529,6 +529,32 @@ const runtimeFixCounts = new Map<string, number>()
 let collectorWarned = false
 /** 5.4: ağ/HMR bildirimleri imza başına bir kez (sayfa yenilenince kanca zaten tekilleştirir). */
 const notifiedSignatures = new Set<string>()
+/** 5.5: "düzelt api" ipucu imza başına bir kez gösterilir. */
+const apiHintShown = new Set<string>()
+
+/**
+ * 5.5 çift-modlu cerrah — tırmanış kararı. Yerel model bu hatayı ÇÖZEMEDİĞİNDE
+ * çağrılır: API 'fix' modunda yapılandırılmışsa tur tırmandırılır; kullanıcı
+ * "göndermeden sor" dediyse (apiAsk) otomatik tırmanış YAPILMAZ, bir kez
+ * "düzelt api" ipucu gösterilir — yazması onaydır. API kapalı/eksikse karar
+ * her zaman yereldir (bayrak zararsızdır ama ipucu da gösterilmez).
+ */
+function apiEscalation(sig: string): { escalate: boolean; hint: string | null } {
+  const st = useSettingsStore.getState()
+  const ready = st.apiMode === 'fix' && !!st.apiBaseUrl && !!st.apiModel
+  if (!ready) return { escalate: false, hint: null }
+  if (st.apiAsk) {
+    if (apiHintShown.has(sig)) return { escalate: false, hint: null }
+    apiHintShown.add(sig)
+    return {
+      escalate: false,
+      hint: useAppStore.getState().language === 'tr'
+        ? '🤝 Yerel model bu hatayı çözemedi. Onaylı API modundasın — güçlü modele göndermek için "düzelt api" yazman yeterli.'
+        : '🤝 The local model could not fix this. You are in ask-first API mode — type "fix api" to send it to the frontier model.'
+    }
+  }
+  return { escalate: true, hint: null }
+}
 
 function ensureRuntimeErrorSub(
   get: () => AppState,
@@ -684,12 +710,19 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
       const locHint = loc.primary
         ? ` En olası konum: ${loc.primary.path}${loc.primary.line ? ':' + loc.primary.line : ''} (%${Math.round(loc.primary.confidence * 100)}${loc.identifier ? `, '${loc.identifier}'` : ''}).`
         : ''
+      // 5.5: ikinci deneme = yerel model ilkinde çözemedi → tırmanış kararı.
+      const esc = n >= 1 ? apiEscalation(sig) : { escalate: false, hint: null }
+      if (esc.hint) {
+        set((s) => ({
+          messages: [...s.messages, { id: nanoid(), role: 'assistant', content: esc.hint! }]
+        }))
+      }
       void get().sendMessage(
         'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda.' +
           locHint +
           ' Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
           numberedSnippet(snippetSeed, filesMap),
-        { hideUser: true }
+        { hideUser: true, escalate: esc.escalate }
       )
     })()
   })
@@ -1267,9 +1300,18 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             const filesMap = Object.fromEntries(
               Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
             )
+            // 5.5: son otomatik tur (2/2) = yerel model ilk turda çözemedi →
+            // tırmanış kararı; API yoksa/onaylıysa yerelde son bir deneme.
+            const escB = autoFixRounds >= 2 ? apiEscalation(check.error.slice(0, 120)) : { escalate: false, hint: null }
+            if (escB.hint) {
+              set((s) => ({
+                messages: [...s.messages, { id: nanoid(), role: 'assistant', content: escB.hint! }]
+              }))
+            }
             void get().sendMessage(
               'düzelt — önceki düzeltme hatayı gidermedi. Hata satırındaki değil, ASIL nedeni bul: kapanmamış tırnak/parantez/JSX etiketi genellikle hata satırının YUKARISINDADIR. Dosyayı dikkatle tara.' +
-                numberedSnippet(check.error, filesMap)
+                numberedSnippet(check.error, filesMap),
+              { escalate: escB.escalate }
             )
           } else if (check.error) {
             // Son tirmanma: hatali dosyayi komple yeniden urettir ve derlemeyi
@@ -2027,7 +2069,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     set({ enhancePrompts: v })
   },
 
-  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean }) => {
+  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean }) => {
     const trimmed = text.trim()
     if (!trimmed || get().sending) return
     if (!get().modelInfo) {
@@ -2141,6 +2183,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     const allFiles = Object.values(useArtifactsStore.getState().files)
     const buildErr = get().lastBuildError
     const fixFlow = !!buildErr && FIX_WORDS.test(trimmed)
+    // 5.5: "düzelt api" — kullanıcı bu düzeltmeyi açıkça hibrit API'ye
+    // gönderiyor (yazması onaydır; apiAsk açıkken tırmanışın kapısı budur).
+    const apiRequested = fixFlow && /\bapi\b/i.test(trimmed)
     // Ciplak duzelt-kelimesi ama ortada ne hata ne dosya var: insaya donusmesin
     // (canli test: bos oturuma "duzelt" yazilinca plan cikarip proje kurdu).
     if (!fixFlow && FIX_WORDS.test(trimmed) && trimmed.length <= 24 && allFiles.length === 0) {
@@ -2374,6 +2419,7 @@ ${rules.slice(0, 1500)}
       purpose?: 'chat' | 'prose'
       answerLang?: 'tr' | 'en'
       ephemeral?: boolean
+      escalate?: boolean
     } = isChatTurn
       ? // Sohbet: doğal-dil örneklemesi (Qwen3 kartı: 0.6/0.95). Kod sıcaklığı
         // (0.2) + tekrar cezaları Türkçe cevapları bozuyordu. maxTokens tavanı
@@ -2390,6 +2436,9 @@ ${rules.slice(0, 1500)}
             { temperature: 0.1, maxTokens: 2560 }
           : { temperature: 0.2, maxTokens: 4096 }
     if (sampling.purpose) sampling.answerLang = get().language === 'tr' ? 'tr' : 'en'
+    // 5.5 çift-modlu cerrah: yerel modelin çözemediği hata turu API'ye
+    // tırmandırılabilir ('fix' modunda API yalnız bu bayrakla çalışır).
+    if (opts?.escalate || apiRequested) sampling.escalate = true
     // Planlı dosya turu: tek dosya ~4k tokene sığmalı; sınır, kapanmayan
     // fence içinde sonsuza dek gezinen üretime karşı güvenlik tavanı.
     // Şablon-dolgu turlarında içerik 0.55'te üretilir: 0.2 tekrar döngüsüne

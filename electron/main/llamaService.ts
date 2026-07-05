@@ -26,6 +26,7 @@ import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
 import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
 import { shouldUseApi, promptApi } from './apiEngine'
+import { appendRepairLog } from './agentService'
 
 export type { LoadProgressCallback } from './engineTypes'
 
@@ -284,14 +285,19 @@ Rules:
     !!input.currentFiles &&
     input.currentFiles.length > 0 &&
     /(^|\n)\s*düzelt\b|BUILD ERROR|RUNTIME ERROR|does NOT compile|GÖRSEL denetim/i.test(input.prompt)
-  if (shouldUseApi(isFixTurn)) {
+  const escalate = !!input.options?.escalate
+  if (shouldUseApi(isFixTurn, escalate)) {
     apiAbort = new AbortController()
     try {
-      console.log('[NexoraAI] tur API motoruna yönlendirildi (hibrit 4.1)')
+      console.log(`[NexoraAI] tur API motoruna yönlendirildi (hibrit${escalate ? ', tırmanış 5.5' : ' 4.1'})`)
+      // Telemetri (5.5): hangi kademe hangi vakayı aldı — zayıf sınıflar saha
+      // verisinden çıksın diye her yönlendirme kararı kalıcı günlüğe yazılır.
+      void appendRepairLog({ layer: escalate ? 'api-escalated' : 'api-turn' })
       return await promptApi(getFullSystemPrompt(), prompt, onChunk, apiAbort.signal)
     } catch (err) {
       // API başarısızsa sessizce yerele düş — kullanıcı asla motorsuz kalmaz.
       console.warn('[NexoraAI] API motoru başarısız, yerele düşülüyor:', (err as Error).message)
+      void appendRepairLog({ layer: 'api-fallback-local', diag: (err as Error).message.slice(0, 200) })
     } finally {
       apiAbort = null
     }
