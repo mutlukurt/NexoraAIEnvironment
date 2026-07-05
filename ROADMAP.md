@@ -38,7 +38,7 @@ A small model's weakness isn't intelligence, it's freedom. The less freedom, the
 - [ ] **4.1 Hybrid API mode** — optional OpenAI-compatible / Anthropic endpoint for weak hardware; local stays the default.
 - [ ] **4.2 Windows & macOS packaging**
 - [x] **4.3 Multi-project workspaces + in-project search** — *Shipped: sidebar PROJELER section lists generated + linked projects (newest first, linked badge), one-click load via the safe scanner; code view search box matches paths and content case-insensitively with path:line previews. GUI-verified.*
-- [ ] **4.4 Remote model-catalog manifest** — update the Hardware Advisor's catalog without shipping a new app version.
+- [x] **4.4 Remote model-catalog manifest** — update the Hardware Advisor's catalog without shipping a new app version. *Shipped: advisor.plan() fetches model-catalog.json from the repo (validated, 4s timeout), caches it, and merges over the embedded catalog (remote updates/adds, embedded keys always kept). Offline: cache → embedded → local buildPlan fallback. Verified: live GitHub manifest fetched in-app, override reflected in the plan, all embedded models preserved, cached to disk.*
 - [ ] **4.5 Local mini-benchmark** — a 2-minute on-device eval (generate a section → compile → score) so the Advisor shows real quality scores measured on *your* machine, not just speed grades.
 - [ ] **4.6 Local image generation** — stable-diffusion.cpp so generated sites get real, theme-matched images instead of placeholders.
 
