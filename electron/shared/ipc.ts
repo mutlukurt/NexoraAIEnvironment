@@ -56,6 +56,16 @@ export interface ChatSendInput {
     temperature?: number
     topP?: number
     maxTokens?: number
+    /**
+     * Turun amacı (canlı-test bulgusu, 2026-07-05): sohbet/brief gibi düz-metin
+     * turları kod tarifiyle (kod personası + tekrar cezaları + düşünme kapalı)
+     * gidince Türkçe cevaplar saçmalıyordu. 'chat'/'prose' turlarında motor
+     * sohbet sistem prompt'una geçer, cezaları kaldırır ve düşünmeyi serbest
+     * bırakır. Boş = kod turu (mevcut davranış).
+     */
+    purpose?: 'chat' | 'prose'
+    /** Sohbet sistem prompt'unun cevap dili. */
+    answerLang?: 'tr' | 'en'
   }
 }
 

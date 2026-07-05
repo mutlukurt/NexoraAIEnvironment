@@ -562,6 +562,12 @@ function orderPlanFiles(files: Array<{ path: string; desc: string }>): Array<{ p
 // ardından (Önce Plan açıksa) plan turu o briefle koşar.
 let enhanceTurnActive = false
 let enhanceBypassNext = false
+// Enhance sonrası yeniden gönderilen brief HER ZAMAN build isteğidir — brief
+// metni "yap/oluştur" fiili içermeyince looksLikeBuildRequest kapısına takılıp
+// sohbet turu sanılıyordu (canlı test: model brief'i papağan gibi tekrarladı,
+// plan hiç gelmedi; önceki testte brief'teki "Giriş Yap" ifadesi şans eseri
+// kapıyı geçirmişti).
+let forceBuildNext = false
 
 // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
 // + genel "hata/error" göndermeleri.
@@ -737,6 +743,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             ]
           }))
           enhanceBypassNext = true
+          forceBuildNext = true
           void get().sendMessage(improved)
         }
         return
@@ -1547,7 +1554,8 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // gönderim (bypass) normal akışa — Önce Plan açıksa plana — girer.
     // Bu mesaj gerçekten bir proje/build isteği mi? Sohbet/soru ise enhance ve
     // plan tetiklenmez (canlı-test bulgusu: "kendini tanıt" → site brief'i).
-    const buildReq = looksLikeBuildRequest(trimmed)
+    const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed)
+    forceBuildNext = false
     const isEnhanceTurn =
       get().enhancePrompts &&
       !enhanceBypassNext &&
@@ -1614,12 +1622,10 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
     // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
     let outgoing = trimmed
-    // Sohbet turu: kod üretim sistem prompt'unu bir konuşma direktifiyle bastır
-    // (canlı-test bulgusu: basit soru → model kod/proje üretiyordu).
-    if (isChatTurn) {
-      const answerLangEarly = get().language === 'tr' ? 'TÜRKÇE' : 'English'
-      outgoing = `The user is chatting or asking a question — this is NOT a request to build a project. Reply briefly and helpfully in ${answerLangEarly}. Do NOT output any code, files or edit blocks; just answer conversationally.\n\nUser: ${trimmed}`
-    }
+    // Sohbet turu: soru OLDUĞU GİBİ gider — İngilizce sargı + kod personası
+    // çelişkisi küçük modelleri saçmalatıyordu (canlı-test matrisi). Konuşma
+    // modu motor tarafında options.purpose='chat' ile kurulur: sade sohbet
+    // sistem prompt'u, cezasız örnekleme, düşünme serbest.
     if (visionAnalysis) {
       outgoing = `${trimmed}
 
@@ -1711,14 +1717,25 @@ ${rules.slice(0, 1500)}
     // Faza göre örnekleme (roadmap 1.3): plan ve brief yazımı yaratıcılık
     // ister (0.7), kod üretimi determinizm (0.2), hata düzeltme en düşüğünü
     // (0.1 — cerrah eli titremez). Tek sıcaklık her faza aynı anda uymaz.
-    const sampling: { temperature: number; topP?: number; maxTokens?: number } =
-      isEnhanceTurn
-        ? { temperature: 0.6, topP: 0.95 }
+    const sampling: {
+      temperature: number
+      topP?: number
+      maxTokens?: number
+      purpose?: 'chat' | 'prose'
+      answerLang?: 'tr' | 'en'
+    } = isChatTurn
+      ? // Sohbet: doğal-dil örneklemesi (Qwen3 kartı: 0.6/0.95). Kod sıcaklığı
+        // (0.2) + tekrar cezaları Türkçe cevapları bozuyordu. maxTokens tavanı
+        // düşünen modellerin sınırsız düşünme spiraline karşı emniyet.
+        { temperature: 0.6, topP: 0.95, maxTokens: 3072, purpose: 'chat' }
+      : isEnhanceTurn
+        ? { temperature: 0.6, topP: 0.95, purpose: 'prose' }
         : isPlanTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
           ? { temperature: 0.1 }
           : { temperature: 0.2 }
+    if (sampling.purpose) sampling.answerLang = get().language === 'tr' ? 'tr' : 'en'
     // Planlı dosya turu: tek dosya ~4k tokene sığmalı; sınır, kapanmayan
     // fence içinde sonsuza dek gezinen üretime karşı güvenlik tavanı.
     // Şablon-dolgu turlarında içerik 0.55'te üretilir: 0.2 tekrar döngüsüne

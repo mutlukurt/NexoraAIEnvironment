@@ -42,6 +42,15 @@ export interface PromptOptions {
    * orada renderer'daki streaming watchdog korumaya devam eder).
    */
   grammar?: string
+  /**
+   * Düz-metin turu işareti (sohbet/brief). Kod turlarının tarifi (kod
+   * personası, tekrar cezaları, enable_thinking:false) doğal dile uygulanınca
+   * Türkçe cevaplar bozuluyordu — bu turlarda motor sohbet sistem prompt'una
+   * geçer, cezaları kaldırır ve düşünen modellerin düşünmesine izin verir.
+   */
+  purpose?: 'chat' | 'prose'
+  /** Sohbet sistem prompt'unun cevap dili. */
+  answerLang?: 'tr' | 'en'
 }
 
 export interface InferenceEngine {

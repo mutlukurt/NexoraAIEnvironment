@@ -376,6 +376,27 @@ export function familyNote(family?: ModelFamily): string {
   return family ? (FAMILY_NOTES[family] ?? '') : ''
 }
 
+/**
+ * Sohbet/düz-metin turu sistem prompt'u (canlı-test bulgusu, 2026-07-05):
+ * kod personası ("senior React engineer, output TWO fenced code blocks")
+ * altında doğal-dil sorusu cevaplamak küçük modelleri saçmalatıyor —
+ * "berberler ne iş yapar" sorusuna kod-modu tarifleriyle "yasadışı ürün
+ * üretir / trafik yönetir" tarzı halüsinasyonlar ölçüldü. Sohbet ve brief
+ * turları bu SADE persona ile gider; kod turları normal prompt'ta kalır.
+ */
+export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' = 'chat'): string {
+  const langLine =
+    lang === 'en'
+      ? 'Answer in English.'
+      : 'Answer in natural, fluent TURKISH (Türkçe).'
+  if (purpose === 'prose') {
+    // Brief/özet gibi yazım görevleri: görevin tarifi kullanıcı mesajında,
+    // persona yalnızca "düz metin yaz, kod yazma" çerçevesini kurar.
+    return `You are NexoraAI, a helpful assistant inside a local desktop app that builds websites and apps. This turn is a plain-text WRITING task — follow the instructions in the user message exactly. Output plain text only: no code, no fenced blocks, no file paths. ${langLine}`
+  }
+  return `You are NexoraAI, a friendly and knowledgeable assistant inside a local desktop app that builds websites and apps from natural language. Right now the user is chatting or asking a question — this is NOT a build request. Answer conversationally, briefly and accurately. Do not output code, files or edit blocks. ${langLine}`
+}
+
 export function getProfile(id: string): PromptProfile {
   return PROFILES.find((p) => p.id === id) ?? PROFILES[PROFILES.length - 1]
 }

@@ -31,6 +31,7 @@ import type {
   PromptOptions
 } from './engineTypes'
 import { findNodeBinary } from './llamaWorkerEngine'
+import { chatSystemPrompt } from '../shared/prompts'
 
 const BIN_TAG = 'b9870'
 const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
@@ -375,26 +376,39 @@ async function chatRequest(
   onToken: ((t: string) => void) | null,
   signal?: AbortSignal
 ): Promise<{ text: string; usage: Usage | null; aborted: boolean }> {
+  // Düz-metin (sohbet/brief) turları ile kod turlarının tarifi AYRILIR
+  // (canlı-test matrisi, 2026-07-05): kod tarifindeki tekrar cezaları Türkçe
+  // gibi eklemeli dillerde ekleri cezalandırıp uydurma kelimelere itiyor,
+  // enable_thinking:false ise düşünen modelleri (Qwen3/Gemma) sakatlıyor —
+  // aynı soru kod tarifiyle "berberler trafik yönetir", düz tarifle "saç
+  // kesimi, saç bakımı" verdi. Cezalar ve düşünme-kapatma yalnızca kod/gramer
+  // turlarında kalır.
+  const prose = !!options?.purpose
   const body: Record<string, unknown> = {
     messages,
     stream: !!onToken,
     temperature: options?.temperature ?? 0.2,
-    top_p: options?.topP ?? 0.9,
-    // Worker ile aynı örnekleme pariteleri:
-    repeat_penalty: 1.15,
-    repeat_last_n: 128,
-    frequency_penalty: 0.05
+    top_p: options?.topP ?? 0.9
+  }
+  if (!prose) {
+    // Worker ile aynı örnekleme pariteleri (yalnızca kod turları):
+    body.repeat_penalty = 1.15
+    body.repeat_last_n = 128
+    body.frequency_penalty = 0.05
+  } else {
+    // Qwen3 model kartının önerdiği doğal-dil örneklemesine yakın.
+    body.top_k = 20
   }
   if (typeof options?.maxTokens === 'number') body.max_tokens = options.maxTokens
   if (onToken) body.stream_options = { include_usage: true }
   if (banCjk && cjkBias) body.logit_bias = cjkBias
   if (options?.grammar) body.grammar = options.grammar
-  // Düşünmeyi (reasoning) KAPAT (roadmap 2.5, canlı-test bulgusu): Gemma-4 /
-  // Qwen3 gibi düşünen modeller cevaptan önce uzun "thinking" tokenları
-  // üretiyor; küçük yerel model + kod üretim hattında bu yalnızca gecikme ve
-  // maxTokens tavanını dolduran boş içerik demek. Template kwarg'ı destekleyen
-  // modellerde düşünmeyi kapatır; desteklemeyende (Qwen2.5-Coder) yok sayılır.
-  body.chat_template_kwargs = { enable_thinking: false }
+  // Düşünmeyi (reasoning) yalnızca KOD/GRAMER turlarında kapat: orada thinking
+  // sadece gecikme + maxTokens yiyen boş içerik demek (Gemma boş-çıktı vakası).
+  // Sohbet/brief turlarında düşünme SERBEST — Qwen3 canlı matriste düşünmeden
+  // saçmaladı, düşünerek doğru cevap verdi. Kwarg'ı desteklemeyen modeller
+  // (Qwen2.5-Coder) her iki durumda da yok sayar.
+  if (!prose) body.chat_template_kwargs = { enable_thinking: false }
 
   const res = await fetch(baseUrl + '/v1/chat/completions', {
     method: 'POST',
@@ -580,7 +594,13 @@ export const serverEngine: InferenceEngine = {
         text
     }
 
-    const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: promptText }]
+    // Sohbet/brief turunda kod personası yerine sade sohbet sistemi: kod
+    // formatı talimatları ("output TWO fenced code blocks") doğal-dil
+    // cevabıyla çelişip küçük modeli saçmalatıyor (canlı-test matrisi).
+    // Yalnızca BU isteğin sistemi değişir; oturum geçmişi ve kod turlarının
+    // prompt cache öneki aynı kalır.
+    const sysForTurn = options?.purpose ? chatSystemPrompt(options.answerLang, options.purpose) : systemPrompt
+    const messages: ChatMsg[] = [{ role: 'system', content: sysForTurn }, ...history, { role: 'user', content: promptText }]
     abortCtl = new AbortController()
     try {
       let streamedAny = false
@@ -605,7 +625,7 @@ export const serverEngine: InferenceEngine = {
               '[NOTE: earlier conversation was dropped due to context limits; this message is the source of truth.]\n\n' + text
           }
           r = await chatRequest(
-            [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptText }],
+            [{ role: 'system', content: sysForTurn }, { role: 'user', content: promptText }],
             options,
             !CJK_RE.test(promptText),
             onToken,

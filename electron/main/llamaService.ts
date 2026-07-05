@@ -184,7 +184,10 @@ export async function chat(
   // web dosyası yamamaya çalıştı).
   const isIterationTurn =
     (input.currentFiles && input.currentFiles.length > 0) || !!input.expectFile || !!input.expectPlan
-  const detected = isIterationTurn ? null : detectProfile(input.prompt)
+  // Sohbet turu proje profili DEĞİŞTİRMEZ: "python nedir?" gibi bir soru
+  // aktif projenin profilini FastAPI'ye çevirip oturumu sıfırlamamalı.
+  const isProseTurn = !!input.options?.purpose
+  const detected = isIterationTurn || isProseTurn ? null : detectProfile(input.prompt)
   if (detected && detected.id !== activeProfileId) {
     activeProfileId = detected.id
     console.log('[NexoraAI] prompt profile ->', getProfile(activeProfileId).label)
@@ -239,8 +242,16 @@ Rules:
   // Agent ipucu yalnızca istek gerektirdiğinde eklenir — kalıcı olarak sistem
   // prompt'una koymak küçük modellerin şablon satırlarını kopyalamasına yol
   // açıyordu ([FETCH] <url> ... satırlarının dosya olarak üretilmesi vakası).
-  if (detectAgentIntent(input.prompt)) {
+  // Sohbet/brief turunda hiç eklenmez: soru cevaplanacak, eylem yapılmayacak.
+  if (!isProseTurn && detectAgentIntent(input.prompt)) {
     prompt += '\n\n' + AGENT_HINT
+  }
+
+  // Worker yedek motoru istek-başına sistem prompt'u değiştiremez (oturum
+  // node-llama-cpp içinde kod personasıyla kurulu). Sohbet turunda soruyu
+  // kısa bir konuşma direktifiyle sarmak oradaki tek koruma.
+  if (input.options?.purpose === 'chat' && engine === workerEngine) {
+    prompt = `The user is chatting or asking a question — NOT requesting a build. Answer briefly and conversationally in the user's language. No code, no files.\n\n${prompt}`
   }
 
   // GBNF gramerleri (roadmap 2.1 + 2.2): format örnekleyici seviyesinde
