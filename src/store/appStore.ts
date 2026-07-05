@@ -518,6 +518,8 @@ async function postGenVerify(
 // Imza basina en cok 2 deneme (sayfa her yenilemede ayni hatayi raporlayabilir).
 let runtimeErrorUnsub: (() => void) | null = null
 const runtimeFixCounts = new Map<string, number>()
+/** Toplayıcı-devre-dışı uyarısı oturum başına bir kez gösterilir. */
+let collectorWarned = false
 
 function ensureRuntimeErrorSub(
   get: () => AppState,
@@ -1523,6 +1525,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   runVisualReview: async (url: string) => {
+    // Toplayıcı sağlığı (canlı test bulgusu 2026-07-05): 8095-8099'un hepsi
+    // doluysa runtime hata yakalama SESSİZCE ölüyordu — kullanıcı, sayfa neden
+    // kendi kendine onarılmıyor bilmiyordu. Çalıştır'dan hemen sonra bir kez
+    // dürüstçe söylenir.
+    if (!collectorWarned) {
+      try {
+        const st = await window.nexora.agent.runtimeStatus?.()
+        if (st && st.port == null) {
+          collectorWarned = true
+          const tr = get().language === 'tr'
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: tr
+                  ? '⚠️ Otomatik hata yakalama şu an DEVRE DIŞI: yerel toplayıcı portlarının tümü (8095–8099) başka süreçlerce dolu. Sayfadaki çalışma-zamanı hataları kendiliğinden onarılamayacak — açık başka NexoraAI kopyası varsa kapatıp uygulamayı yeniden başlatın.'
+                  : '⚠️ Automatic error capture is currently DISABLED: all local collector ports (8095–8099) are taken by other processes. Runtime errors on the page cannot self-repair — close any other NexoraAI instance and restart the app.'
+              }
+            ]
+          }))
+        }
+      } catch { /* durum sorgulanamadı — uyarı sonraki Çalıştır'da denenir */ }
+    }
     // Uygulama kendi işine bakar (roadmap 3.3): Çalıştır'dan sonra sayfanın
     // ekran görüntüsü kendi vizyon modeline gösterilir; somut görsel kusur
     // varsa GİZLİ bir düzelt turu başlar — kullanıcı hiçbir şey yazmaz.

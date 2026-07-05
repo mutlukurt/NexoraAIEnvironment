@@ -31,6 +31,7 @@ import {
   buildCheck,
   startRuntimeCollector,
   setRuntimeErrorCallback,
+  runtimeCollectorPort,
   importProjectFolder,
   appendRepairLog,
   listProjects,
@@ -282,6 +283,9 @@ function registerIpc(): void {
     mainWindow?.webContents.send(IPC.AGENT_RUNTIME_ERROR, e)
   })
   startRuntimeCollector()
+  // Renderer, Çalıştır sonrası toplayıcının ayakta olup olmadığını sorar;
+  // null port = otomatik hata yakalama yok, kullanıcıya dürüstçe söylenir.
+  ipcMain.handle(IPC.RUNTIME_STATUS, () => ({ port: runtimeCollectorPort() }))
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
     const res = await startDev(input.projectName, input.files, (msg) => {

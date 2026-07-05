@@ -462,18 +462,30 @@ export default defineConfig({
 // ---------------------------------------------------------------------------
 
 export const RUNTIME_ERROR_PORT = 8095
+/** 8095 doluysa denenecek ardışık port sayısı (8095–8099). */
+const RUNTIME_PORT_TRIES = 5
+/** Toplayıcının GERÇEKTEN bağlandığı port; null = toplayıcı çalışmıyor. */
+let boundRuntimePort: number | null = null
+
+export function runtimeCollectorPort(): number | null {
+  return boundRuntimePort
+}
 
 // DİKKAT: port GERÇEK değeriyle enjekte edilmeli. Önceki sürümde kaçışlı
 // yer tutucu (${'...'}) ham metin olarak sayfaya gidiyordu — hook geçersiz
 // URL'e POST atıyor, runtime öz-onarım sessizce hiç çalışmıyordu. Gerçek
 // projeye yazılan index.html diff'inde yakalandı (3.1 canlı testi).
-const RUNTIME_HOOK = `<script>/* nexora-runtime */(function(){var s=new Set();function r(m,st){var k=String(m).slice(0,120);if(s.has(k))return;s.add(k);try{fetch('http://127.0.0.1:${RUNTIME_ERROR_PORT}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||'')})})}catch(e){}}window.addEventListener('error',function(e){r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')))});window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'')});})();</script>`
+// Kanca, sync ANINDAKİ bağlı portla üretilir (8095 dolu → 8096… vakası):
+// canlı testte ikinci uygulama kopyası 8095'i tutunca toplayıcı hiç
+// başlamıyor, hata POST'ları başka sürecin toplayıcısına gidiyordu.
+const runtimeHook = (): string => `<script>/* nexora-runtime */(function(){var s=new Set();function r(m,st){var k=String(m).slice(0,120);if(s.has(k))return;s.add(k);try{fetch('http://127.0.0.1:${boundRuntimePort ?? RUNTIME_ERROR_PORT}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||'')})})}catch(e){}}window.addEventListener('error',function(e){r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')))});window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'')});})();</script>`
 
 function injectRuntimeHook(html: string): string {
   if (html.includes('nexora-runtime')) return html
-  if (html.includes('</head>')) return html.replace('</head>', RUNTIME_HOOK + '\n</head>')
-  if (html.includes('<body')) return html.replace(/<body([^>]*)>/, '<body$1>' + RUNTIME_HOOK)
-  return RUNTIME_HOOK + '\n' + html
+  const hook = runtimeHook()
+  if (html.includes('</head>')) return html.replace('</head>', hook + '\n</head>')
+  if (html.includes('<body')) return html.replace(/<body([^>]*)>/, '<body$1>' + hook)
+  return hook + '\n' + html
 }
 
 let runtimeSrv: import('http').Server | null = null
@@ -483,11 +495,13 @@ export function setRuntimeErrorCallback(cb: (e: { message: string; stack: string
   runtimeErrorCb = cb
 }
 
+let runtimeStarting = false
+
 export function startRuntimeCollector(): void {
-  if (runtimeSrv) return
+  if (runtimeSrv || runtimeStarting) return
+  runtimeStarting = true
   void import('http').then((http) => {
-    if (runtimeSrv) return
-    const srv = http.createServer((req, res) => {
+    const handler = (req: import('http').IncomingMessage, res: import('http').ServerResponse): void => {
       res.setHeader('Access-Control-Allow-Origin', '*')
       res.setHeader('Access-Control-Allow-Headers', '*')
       if (req.method === 'POST') {
@@ -505,16 +519,45 @@ export function startRuntimeCollector(): void {
       } else {
         res.end('ok')
       }
-    })
-    srv.on('error', (err) => { console.warn('[agentService] runtime toplayici baslatilamadi:', (err as Error).message); runtimeSrv = null })
-    srv.listen(RUNTIME_ERROR_PORT, '127.0.0.1')
-    runtimeSrv = srv
+    }
+    // Canlı test bulgusu (2026-07-05): 8095'i ikinci bir uygulama kopyası ya da
+    // yetim süreç tutuyorsa toplayıcı SESSİZCE devre dışı kalıyor ve sıfır-dokunuş
+    // onarım hiç çalışmıyordu. EADDRINUSE'ta sıradaki porta düşülür; kanca
+    // (runtimeHook) her sync'te bağlı portla üretildiği için POST'lar hep
+    // doğru adrese gider. Hepsi doluysa boundRuntimePort=null kalır — renderer
+    // bunu sorgulayıp kullanıcıya görünür uyarı düşer.
+    const tryPort = (i: number): void => {
+      const port = RUNTIME_ERROR_PORT + i
+      const srv = http.createServer(handler)
+      srv.on('error', (err) => {
+        try { srv.close() } catch { /* zaten kapalı */ }
+        if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE' && i + 1 < RUNTIME_PORT_TRIES) {
+          console.warn(`[agentService] runtime toplayici: ${port} dolu, ${port + 1} deneniyor`)
+          tryPort(i + 1)
+        } else {
+          console.warn('[agentService] runtime toplayici baslatilamadi:', (err as Error).message)
+          runtimeSrv = null
+          boundRuntimePort = null
+          runtimeStarting = false
+        }
+      })
+      srv.on('listening', () => {
+        runtimeSrv = srv
+        boundRuntimePort = port
+        runtimeStarting = false
+        if (i > 0) console.warn(`[agentService] runtime toplayici yedek portta: ${port}`)
+      })
+      srv.listen(port, '127.0.0.1')
+    }
+    tryPort(0)
   })
 }
 
 export function stopRuntimeCollector(): void {
   try { runtimeSrv?.close() } catch { /* ignore */ }
   runtimeSrv = null
+  boundRuntimePort = null
+  runtimeStarting = false
 }
 
 export async function syncWorkspace(projectName: string, files: ProjectFileInput[]): Promise<string> {

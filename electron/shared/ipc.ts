@@ -125,7 +125,8 @@ export const IPC = {
   HISTORY_RESTORE_GREEN: 'history:restore-green',
   REPAIR_LOG: 'repair:log',
   PROJECT_LIST: 'project:list',
-  PROJECT_OPEN: 'project:open'
+  PROJECT_OPEN: 'project:open',
+  RUNTIME_STATUS: 'agent:runtime-status'
 } as const
 
 /** Git tabanlı üretim geçmişi (roadmap 3.4). */

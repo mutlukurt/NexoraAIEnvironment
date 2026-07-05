@@ -102,6 +102,8 @@ export interface NexoraApi {
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
     onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
     onRuntimeError: (cb: (event: { message: string; stack: string }) => void) => () => void
+    /** Toplayıcının bağlı olduğu port; null = otomatik hata yakalama devre dışı. */
+    runtimeStatus: () => Promise<{ port: number | null }>
   }
   vision: {
     pickImage: () => Promise<{ path: string } | null>
@@ -214,7 +216,8 @@ const api: NexoraApi = {
       const handler = (_e: unknown, data: { message: string; stack: string }) => cb(data)
       ipcRenderer.on(IPC.AGENT_RUNTIME_ERROR, handler as never)
       return () => ipcRenderer.off(IPC.AGENT_RUNTIME_ERROR, handler as never)
-    }
+    },
+    runtimeStatus: () => ipcRenderer.invoke(IPC.RUNTIME_STATUS)
   },
   vision: {
     pickImage: () => ipcRenderer.invoke(IPC.VISION_PICK_IMAGE),
