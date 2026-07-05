@@ -527,19 +527,71 @@ let runtimeErrorUnsub: (() => void) | null = null
 const runtimeFixCounts = new Map<string, number>()
 /** Toplayıcı-devre-dışı uyarısı oturum başına bir kez gösterilir. */
 let collectorWarned = false
+/** 5.4: ağ/HMR bildirimleri imza başına bir kez (sayfa yenilenince kanca zaten tekilleştirir). */
+const notifiedSignatures = new Set<string>()
 
 function ensureRuntimeErrorSub(
   get: () => AppState,
   set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
 ): void {
   if (runtimeErrorUnsub || !window.nexora?.agent?.onRuntimeError) return
-  runtimeErrorUnsub = window.nexora.agent.onRuntimeError((e: { message: string; stack: string }) => {
+  runtimeErrorUnsub = window.nexora.agent.onRuntimeError((e: { message: string; stack: string; kind?: string }) => {
     const sig = e.message.slice(0, 120)
     const n = runtimeFixCounts.get(sig) ?? 0
     // Mesgulken ya da proje yokken karisma; sayfa hatayi yeniden raporlar.
     // (Model guard'ı Kat 0'dan SONRA: modelsiz onarım model istemez.)
     if (get().sending || get().generating) return
     if (Object.keys(useArtifactsStore.getState().files).length === 0) return
+    const kind = e.kind ?? 'error'
+    const isTrTop = get().language === 'tr'
+    // ---- 5.4: AĞ hataları — bilgilendir, model turu yakma -----------------
+    // 4xx/5xx ya da kırık kaynak (img/script) çoğu zaman içerik/yol sorunudur;
+    // otomatik model turu başlatmak (dış API çökmesi gibi) düzeltilemez şeyleri
+    // kovalatır. İmza başına BİR kez dürüst bildirim + telemetri; kullanıcı
+    // isterse "düzelt" der (lastBuildError'a yazılır ki tanı modele gitsin).
+    if (kind === 'network') {
+      if (notifiedSignatures.has(sig)) return
+      notifiedSignatures.add(sig)
+      logRepair({ layer: 'net-error', diag: e.message.slice(0, 200) })
+      set((s) => ({
+        lastBuildError: `Network/resource error captured live from the page:\n${e.message}`,
+        messages: [
+          ...s.messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: isTrTop
+              ? `📡 Canlı sayfada ağ hatası: ${e.message}\nKırık bir dosya yolu/istek olabilir — düzeltmemi istersen "düzelt" yazman yeterli.`
+              : `📡 Network error on the live page: ${e.message}\nCould be a broken path/request — type "fix" if you want me to repair it.`
+          }
+        ]
+      }))
+      return
+    }
+    // ---- 5.4: HMR/derleme overlay'i — "düzelt" akışına bağla --------------
+    // Kullanıcı (ya da harici bir editör) dosyayı elle bozarsa window.onerror
+    // HİÇ tetiklenmez; tek işaret vite'ın overlay'idir. Derleme hatası zaten
+    // build-error protokolüne sahiptir: lastBuildError + tek kelimelik düzelt.
+    if (kind === 'hmr') {
+      if (notifiedSignatures.has(sig)) return
+      notifiedSignatures.add(sig)
+      logRepair({ layer: 'hmr-error', diag: e.message.slice(0, 200) })
+      set((s) => ({
+        lastBuildError: e.message,
+        messages: [
+          ...s.messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: isTrTop
+              ? `⚠️ Canlı sayfa derleme hatası gösteriyor (vite overlay):\n${e.message.slice(0, 300)}\n"düzelt" yazman yeterli — tanıyı modele ben iletirim.`
+              : `⚠️ The live page shows a compile error (vite overlay):\n${e.message.slice(0, 300)}\nType "fix" — I will hand the diagnosis to the model.`
+          }
+        ]
+      }))
+      return
+    }
+    // ---- 'error' + 'console' → mevcut otomatik onarım borusu --------------
     if (n >= 2) {
       if (n === 2) {
         runtimeFixCounts.set(sig, n + 1)

@@ -478,7 +478,40 @@ export function runtimeCollectorPort(): number | null {
 // Kanca, sync ANINDAKİ bağlı portla üretilir (8095 dolu → 8096… vakası):
 // canlı testte ikinci uygulama kopyası 8095'i tutunca toplayıcı hiç
 // başlamıyor, hata POST'ları başka sürecin toplayıcısına gidiyordu.
-const runtimeHook = (): string => `<script>/* nexora-runtime */(function(){var s=new Set();function r(m,st){var k=String(m).slice(0,120);if(s.has(k))return;s.add(k);try{fetch('http://127.0.0.1:${boundRuntimePort ?? RUNTIME_ERROR_PORT}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||'')})})}catch(e){}}window.addEventListener('error',function(e){r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')))});window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'')});})();</script>`
+//
+// 5.4 — genişletilmiş duyular (kind alanı): 'error' = window.onerror +
+// unhandledrejection (eski davranış), 'console' = console.error (yalnızca
+// /error/i içerenler — React error boundary raporları dahil, kütüphane
+// gevezeliği hariç), 'network' = fetch 4xx/5xx + ağ reddi + <img>/<script>
+// kaynak yükleme hataları, 'hmr' = vite'ın derleme hata overlay'i
+// (MutationObserver — kullanıcı elle bozduğunda window.onerror HİÇ tetiklenmez,
+// tek işaret overlay'dir). Sayfa başına 20 rapor tavanı + imza tekilleştirme;
+// toplayıcıya giden kendi POST'larımız asla raporlanmaz (özyineleme kilidi).
+const runtimeHook = (): string => {
+  const port = boundRuntimePort ?? RUNTIME_ERROR_PORT
+  return (
+    `<script>/* nexora-runtime */(function(){` +
+    `var s=new Set(),n=0;` +
+    `function r(m,st,k){var key=(k||'error')+'|'+String(m).slice(0,120);if(s.has(key)||n>=20)return;s.add(key);n++;` +
+    `try{fetch('http://127.0.0.1:${port}/',{method:'POST',mode:'no-cors',headers:{'content-type':'application/json'},body:JSON.stringify({message:String(m),stack:String(st||''),kind:k||'error'})})}catch(e){}}` +
+    `window.addEventListener('error',function(e){var t=e.target;` +
+    `if(t&&t!==window&&(t.src||t.href)){r('Resource failed: <'+(t.tagName||'').toLowerCase()+'> '+String(t.src||t.href).slice(0,180),'','network');return}` +
+    `r(e.message,(e.error&&e.error.stack)||((e.filename||'')+':'+(e.lineno||'')),'error')},true);` +
+    `window.addEventListener('unhandledrejection',function(e){r((e.reason&&e.reason.message)||String(e.reason),(e.reason&&e.reason.stack)||'','error')});` +
+    `var ce=console.error;console.error=function(){try{var a=Array.prototype.slice.call(arguments);` +
+    `var m=a.map(function(x){return x&&x.message?x.message:(typeof x==='string'?x:'')}).join(' ');` +
+    `if(/error/i.test(m)){var st='';for(var i=0;i<a.length;i++){if(a[i]&&a[i].stack){st=a[i].stack;break}}r(m.slice(0,300),st,'console')}}catch(err){}` +
+    `return ce.apply(console,arguments)};` +
+    `var f=window.fetch;window.fetch=function(u){var url=(u&&u.url)||String(u);` +
+    `if(url.indexOf('127.0.0.1:809')>=0)return f.apply(window,arguments);` +
+    `return f.apply(window,arguments).then(function(res){if(res&&res.status>=400){r('HTTP '+res.status+' '+url.slice(0,180),'','network')}return res},` +
+    `function(err){r('Network failed: '+url.slice(0,180),'','network');throw err})};` +
+    `new MutationObserver(function(){var o=document.querySelector('vite-error-overlay');if(!o)return;var m='vite compile error';` +
+    `try{var b=o.shadowRoot&&(o.shadowRoot.querySelector('.message-body')||o.shadowRoot.querySelector('.message'));if(b&&b.textContent)m=b.textContent}catch(e){}` +
+    `r('HMR: '+String(m).slice(0,400),'','hmr')}).observe(document.documentElement,{childList:true,subtree:true});` +
+    `})();</script>`
+  )
+}
 
 function injectRuntimeHook(html: string): string {
   if (html.includes('nexora-runtime')) return html
@@ -489,9 +522,10 @@ function injectRuntimeHook(html: string): string {
 }
 
 let runtimeSrv: import('http').Server | null = null
-let runtimeErrorCb: ((e: { message: string; stack: string }) => void) | null = null
+/** 5.4: kind = 'error' | 'console' | 'network' | 'hmr' — renderer politikayı türe göre seçer. */
+let runtimeErrorCb: ((e: { message: string; stack: string; kind: string }) => void) | null = null
 
-export function setRuntimeErrorCallback(cb: (e: { message: string; stack: string }) => void): void {
+export function setRuntimeErrorCallback(cb: (e: { message: string; stack: string; kind: string }) => void): void {
   runtimeErrorCb = cb
 }
 
@@ -509,9 +543,10 @@ export function startRuntimeCollector(): void {
         req.on('data', (c) => { b += c; if (b.length > 20000) req.destroy() })
         req.on('end', () => {
           try {
-            const j = JSON.parse(b) as { message?: unknown; stack?: unknown }
+            const j = JSON.parse(b) as { message?: unknown; stack?: unknown; kind?: unknown }
             if (j && typeof j.message === 'string') {
-              runtimeErrorCb?.({ message: j.message.slice(0, 500), stack: String(j.stack ?? '').slice(0, 1500) })
+              const kind = typeof j.kind === 'string' && ['error', 'console', 'network', 'hmr'].includes(j.kind) ? j.kind : 'error'
+              runtimeErrorCb?.({ message: j.message.slice(0, 500), stack: String(j.stack ?? '').slice(0, 1500), kind })
             }
           } catch { /* bozuk govde — yok say */ }
           res.end('ok')
