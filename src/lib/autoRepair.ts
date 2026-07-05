@@ -14,6 +14,29 @@ export interface RepairFix {
   note: string
 }
 
+/**
+ * Türkçe kesme işareti sanitizasyonu — ÖNLEME katmanı (kabul testi bulgusu):
+ * 3B, `{ q: 'Atlas Berber'ın hizmetleri nedir?', a: '...' }` gibi aynı satırda
+ * birden çok, içi kesme işaretli tek-tırnak string üretiyor; string erken
+ * kapanıp derleme patlıyor. Kural: string İÇİNDEKİ kesme işareti hemen ardından
+ * harf/rakam gelir ("Berber'ın"); KAPATAN tırnaksa gelmez (`',` `' }`).
+ * İçinde kesme olan tek-tırnak string'ler çift tırnağa çevrilir (çift tırnak
+ * içerenler dokunulmaz). Bu sınıf artık diske hiç ULAŞAMAZ.
+ */
+export function fixTurkishApostrophes(content: string): string {
+  if (!content.includes("'")) return content
+  return content
+    .split('\n')
+    .map((line) => {
+      if (!line.includes("'") || line.includes('\\')) return line
+      return line.replace(
+        /'((?:[^'"\n]|'(?=[\p{L}0-9]))*)'(?![\p{L}0-9])/gu,
+        (m, inner: string) => (inner.includes("'") ? '"' + inner + '"' : m)
+      )
+    })
+    .join('\n')
+}
+
 const REACT_HOOKS = new Set([
   'useState', 'useEffect', 'useMemo', 'useRef', 'useCallback', 'useContext', 'useReducer', 'useLayoutEffect'
 ])
@@ -126,26 +149,17 @@ export function autoRepair(
   }
 
   // ---- Sınıf 2: kesme işaretiyle erken kapanan string ------------------
+  // Kabul testi dersi: satırda BİRDEN ÇOK string olabilir — dar satır-kalıbı
+  // yerine dosya geneline güvenli sanitizasyon uygulanır.
   if (/Unterminated string|Unexpected token/.test(diagnosis)) {
-    const line = lineFromDiagnosis(diagnosis)
-    if (line) {
-      const lines = file.content.split('\n')
-      const idx = line - 1
-      if (idx >= 0 && idx < lines.length) {
-        const L = lines[idx]
-        // 'İstanbul'un ...' kalıbı: tek tırnaklı string içinde kesme işareti →
-        // çift tırnağa çevir (içinde çift tırnak yoksa).
-        const m = L.match(/'([^']*'[^']*)'/)
-        if (m && !m[1].includes('"')) {
-          lines[idx] = L.replace(/'([^']*'[^']*)'/, `"$1"`)
-          fixes.push({
-            path: target,
-            content: lines.join('\n'),
-            note: `satır ${line}: kesme işaretli string çift tırnağa çevrildi`
-          })
-          return fixes
-        }
-      }
+    const patched = fixTurkishApostrophes(file.content)
+    if (patched !== file.content) {
+      fixes.push({
+        path: target,
+        content: patched,
+        note: 'kesme işaretli tek-tırnak stringler çift tırnağa çevrildi'
+      })
+      return fixes
     }
   }
 

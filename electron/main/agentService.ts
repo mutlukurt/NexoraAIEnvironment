@@ -602,6 +602,21 @@ export async function scanProjectDir(root: string): Promise<{ files: ProjectFile
   return { files, skipped }
 }
 
+/**
+ * Onarım telemetrisi (sahip isteği: "hataları tek tek kovalamayalım") —
+ * merdivenin her kritik kararı diske yazılır; zayıf hata sınıflarını log
+ * söyler, korpusa eklenir, deterministik düzeltici yazılır.
+ */
+export async function appendRepairLog(entry: Record<string, unknown>): Promise<void> {
+  try {
+    const p = join(homedir(), 'NexoraAI', 'repair-log.jsonl')
+    await mkdir(dirname(p), { recursive: true })
+    await writeFile(p, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n', { flag: 'a' })
+  } catch {
+    /* telemetri en-iyi-çaba */
+  }
+}
+
 export async function importProjectFolder(): Promise<ProjectImportResult> {
   // Test dikişi: otomatik GUI testleri yerel OS diyaloğunu süremez; env ile
   // klasör verilirse diyalog atlanır (normal kullanımda tanımsızdır).

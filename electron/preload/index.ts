@@ -129,6 +129,10 @@ export interface NexoraApi {
     /** Görsel öz-denetim (roadmap 3.3): dev sayfasını görünmez pencerede yakala. */
     page: (input: { url: string }) => Promise<{ ok: boolean; path?: string; visionReady?: boolean; blankRatio?: number; error?: string }>
   }
+  repair: {
+    /** Onarım telemetrisi: merdiven kararları repair-log.jsonl'a yazılır. */
+    log: (entry: Record<string, unknown>) => Promise<{ ok: boolean }>
+  }
   history: {
     commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string; green?: boolean }) => Promise<{ ok: boolean; hash?: string; skipped?: string; error?: string }>
     list: (projectName: string) => Promise<import('../shared/ipc').HistoryEntryIpc[]>
@@ -234,6 +238,9 @@ const api: NexoraApi = {
   },
   capture: {
     page: (input: { url: string }) => ipcRenderer.invoke(IPC.AGENT_CAPTURE_PAGE, input)
+  },
+  repair: {
+    log: (entry: Record<string, unknown>) => ipcRenderer.invoke(IPC.REPAIR_LOG, entry)
   },
   history: {
     commit: (input: { projectName: string; files: Array<{ path: string; content: string }>; message: string }) =>

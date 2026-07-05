@@ -18,6 +18,7 @@ import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest } from '@/lib/sectionPlan'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
+import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 
@@ -259,6 +260,14 @@ Rewrite ${path} from scratch as ONE complete, correct file: keep the intended im
  * Onarım Merdiveni — Kat 0 uygulayıcısı: tanıyı modelsiz onarmayı dene.
  * Uygulanan düzeltme notlarını döndürür (boş = bu sınıf kodla onarılamıyor).
  */
+const logRepair = (entry: Record<string, unknown>): void => {
+  try {
+    void window.nexora.repair?.log(entry)
+  } catch {
+    /* telemetri en-iyi-çaba */
+  }
+}
+
 async function tryAutoRepair(diagnosis: string): Promise<string[]> {
   const { autoRepair } = await import('@/lib/autoRepair')
   const files = Object.fromEntries(
@@ -267,6 +276,11 @@ async function tryAutoRepair(diagnosis: string): Promise<string[]> {
   const fixes = autoRepair(diagnosis, files)
   for (const f of fixes) {
     useArtifactsStore.getState().upsertFile(f.path, f.content)
+  }
+  if (fixes.length > 0) {
+    logRepair({ layer: 'kat0', notes: fixes.map((f) => f.note), diag: diagnosis.slice(0, 200) })
+  } else {
+    logRepair({ layer: 'kat0-miss', diag: diagnosis.slice(0, 200) })
   }
   return fixes.map((f) => f.note)
 }
@@ -290,6 +304,7 @@ async function rollbackToGreen(
       ])
     )
     useArtifactsStore.getState().replaceAll(files, null)
+    logRepair({ layer: 'rollback-green', hash: r.hash })
     const isTr = get().language === 'tr'
     set((s) => ({
       messages: [
@@ -440,6 +455,7 @@ async function postGenVerify(
         Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
       )
       lastFixTurnApplied = -1
+      logRepair({ layer: 'model-fix', diag: diagnosis.slice(0, 200) })
       await get().sendMessage(
         'düzelt — üretimden hemen sonra yapılan otomatik denetim yukarıdaki hatayı yakaladı. Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
           numberedSnippet(diagnosis, filesForSnippet),
@@ -464,6 +480,7 @@ async function postGenVerify(
             }
           ]
         }))
+        logRepair({ layer: 'noop-escalate', diag: diagnosis.slice(0, 200) })
         round = Math.max(round, 1) // bir sonraki tur >=2: regenerate
       }
     }
@@ -837,6 +854,12 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
         language,
         updatedAt: Date.now()
       }).content
+      // ÖNLEME (kabul testi bulgusu): kesme işaretli tek-tırnak stringler
+      // ("Atlas Berber'ın ...") dosya diske/çalışma alanına girmeden çift
+      // tırnağa çevrilir — bu derleme-kıran sınıf artık hiç oluşamaz.
+      if (/\.(tsx|ts|jsx|js)$/.test(f.path)) {
+        fileContent = fixTurkishApostrophes(fileContent)
+      }
     }
     const existing = useArtifactsStore.getState().files[f.path]
     if (!existing || existing.content !== fileContent) {

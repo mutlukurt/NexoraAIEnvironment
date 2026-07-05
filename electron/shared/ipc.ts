@@ -120,7 +120,8 @@ export const IPC = {
   HISTORY_COMMIT: 'history:commit',
   HISTORY_LIST: 'history:list',
   HISTORY_RESTORE: 'history:restore',
-  HISTORY_RESTORE_GREEN: 'history:restore-green'
+  HISTORY_RESTORE_GREEN: 'history:restore-green',
+  REPAIR_LOG: 'repair:log'
 } as const
 
 /** Git tabanlı üretim geçmişi (roadmap 3.4). */

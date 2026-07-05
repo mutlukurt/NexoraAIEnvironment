@@ -31,7 +31,8 @@ import {
   buildCheck,
   startRuntimeCollector,
   setRuntimeErrorCallback,
-  importProjectFolder
+  importProjectFolder,
+  appendRepairLog
 } from './agentService'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware } from './advisorService'
@@ -364,6 +365,11 @@ function registerIpc(): void {
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
+  })
+
+  ipcMain.handle(IPC.REPAIR_LOG, async (_e, entry: Record<string, unknown>) => {
+    await appendRepairLog(entry)
+    return { ok: true }
   })
 
   // Git tabanlı üretim geçmişi (roadmap 3.4).
