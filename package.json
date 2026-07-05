@@ -17,6 +17,7 @@
     "gen-lucide": "node scripts/gen-lucide.js",
     "dist": "npm run build && electron-builder --linux deb",
     "dist:dir": "npm run build && electron-builder --linux --dir",
+    "test:corpus": "node tests/error-corpus.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"
