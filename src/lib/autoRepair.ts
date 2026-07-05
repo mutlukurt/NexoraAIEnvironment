@@ -148,6 +148,30 @@ export function autoRepair(
     }
   }
 
+  // ---- Sınıf 1e: uydurulmuş KÜÇÜK-harf veri değişkeni (info.map vakası) --
+  // 3B şablon doldururken var olmayan bir dizi değişkenine .map atabiliyor;
+  // bunu modelle "icat ettirmek" güvenilmez. Deterministik çare: boş dizi
+  // stub'ı — sayfa BEYAZ KALMAZ, bölüm boş render olur; görsel öz-denetim
+  // boş bölümü ayrıca işaretler. "Asla bozuk bırakma" ilkesinin gereği.
+  if (ident && /^[a-z]/.test(ident) && !REACT_HOOKS.has(ident)) {
+    const usesMap = new RegExp(`\\b${ident}\\s*\\.\\s*(map|filter|forEach|length)\\b`).test(file.content)
+    const declared = new RegExp(`\\b(const|let|var|function)\\s+${ident}\\b`).test(file.content) ||
+      new RegExp(`[{,]\\s*${ident}\\s*[},:]`).test(file.content.split('\n').filter((l) => l.includes('import')).join('\n'))
+    if (usesMap && !declared) {
+      const lines = file.content.split('\n')
+      let insertAt = 0
+      for (let i = 0; i < lines.length; i++) {
+        if (/^\s*import\b/.test(lines[i])) insertAt = i + 1
+      }
+      lines.splice(insertAt, 0, `const ${ident}: Array<Record<string, unknown>> = [] // NexoraAI onarımı: tanımsız veri değişkeni boş dizi olarak stub'landı`)
+      return [{
+        path: target,
+        content: lines.join('\n'),
+        note: `tanımsız '${ident}' değişkeni boş dizi stub'ıyla onarıldı (sayfa beyaz kalmaz)`
+      }]
+    }
+  }
+
   // ---- Sınıf 2: kesme işaretiyle erken kapanan string ------------------
   // Kabul testi dersi: satırda BİRDEN ÇOK string olabilir — dar satır-kalıbı
   // yerine dosya geneline güvenli sanitizasyon uygulanır.
