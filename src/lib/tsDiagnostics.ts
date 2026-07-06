@@ -144,6 +144,10 @@ export async function tsScan(files: FileMap, loadLibs: () => Promise<LibMap>): P
     const findings: TsFinding[] = []
     for (const p of Object.keys(files)) {
       if (!CODE_RE.test(p)) continue
+      // Yapılandırma dosyaları (vite.config.ts vb.) node globalleri kullanır
+      // (__dirname) ve lib haritamız tarayıcı odaklıdır — src dışı dosyalar
+      // derleyici geçişinden muaf (canlı gürültü: her raporda TS2304 __dirname).
+      if (!p.startsWith('src/')) continue
       const program = service.getProgram()
       const sf = program?.getSourceFile(p)
       if (!sf) continue
