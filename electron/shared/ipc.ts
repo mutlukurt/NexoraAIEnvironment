@@ -1,8 +1,22 @@
+/** 7.1: canlı görev listesi kartının tek adımı. */
+export interface TaskStep {
+  label: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  /** Kısa not: başarısızlık nedeni ya da "2. denemede" gibi bağlam. */
+  detail?: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   streaming?: boolean
+  /**
+   * 7.1: mesaj bir görev listesi kartıysa content yerine bu çizilir.
+   * active=true iken adımlar canlı güncellenir; note bitiş özeti taşır
+   * ("⏹ durduruldu" gibi). Oturum kaydında mesajla birlikte kalıcıdır.
+   */
+  tasks?: { title: string; steps: TaskStep[]; active: boolean; note?: string }
 }
 
 export interface ModelInfo {

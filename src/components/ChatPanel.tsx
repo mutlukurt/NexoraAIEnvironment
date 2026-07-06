@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ChatMessage } from '@shared/ipc'
 import { useAppStore } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { parseStreaming, isEditBlock, editStreamInfo } from '@/lib/parseCode'
@@ -100,6 +101,79 @@ function ArtifactCard({ files, streaming, t, language }: { files: { path: string
       <div className="flex flex-col divide-y divide-ink-line/60">
         {files.map((f) => (
           <FileRow key={f.path} path={f.path} done={!streaming || f.complete} edited={f.edited} editLive={f.editLive} onOpen={() => openFile(f.path)} t={t} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 7.1: canlı görev listesi kartı — ajan çok adımlı işte planını gösterir. */
+function TaskListCard({ tasks }: { tasks: NonNullable<ChatMessage['tasks']> }) {
+  const doneCount = tasks.steps.filter((s) => s.status === 'done').length
+  const failCount = tasks.steps.filter((s) => s.status === 'failed').length
+  const total = tasks.steps.length
+  const pct = total ? Math.round(((doneCount + failCount) / total) * 100) : 0
+
+  const StepIcon = ({ status }: { status: string }) =>
+    status === 'done' ? (
+      <span className="grid h-4.5 w-4.5 shrink-0 place-items-center rounded-full bg-emerald-500/10 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">✓</span>
+    ) : status === 'failed' ? (
+      <span className="grid h-4.5 w-4.5 shrink-0 place-items-center rounded-full bg-red-500/10 text-[10px] font-bold text-red-600 dark:text-red-400 border border-red-500/20">✗</span>
+    ) : status === 'running' ? (
+      <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-ink-line border-t-brand-400" />
+    ) : (
+      <span className="h-4 w-4 shrink-0 rounded-full border-2 border-ink-line" />
+    )
+
+  return (
+    <div className="w-full overflow-hidden rounded-2xl border border-ink-line bg-ink-card/95 shadow-sm">
+      <div className="flex items-center gap-2 border-b border-ink-line bg-ink-card px-4 py-3">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-500/10 text-brand-600 dark:text-brand-400 border border-brand-500/20 text-xs">📋</span>
+        <span className="min-w-0 flex-1 truncate text-xs font-bold text-ink-mut">{tasks.title}</span>
+        {tasks.active ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-brand-600 dark:text-brand-400">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-400" />
+            {doneCount}/{total}
+          </span>
+        ) : (
+          <span
+            className={
+              'shrink-0 rounded-lg border px-2 py-0.5 text-[10px] font-bold ' +
+              (failCount > 0
+                ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
+                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400')
+            }
+          >
+            {tasks.note ?? `${doneCount}/${total}`}
+          </span>
+        )}
+      </div>
+      {tasks.active && (
+        <div className="h-0.5 w-full bg-ink-hi">
+          <div className="h-full bg-brand-400 transition-all duration-300" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <div className="flex flex-col divide-y divide-ink-line/60">
+        {tasks.steps.map((st, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-2">
+            <StepIcon status={st.status} />
+            <span
+              className={
+                'min-w-0 flex-1 truncate font-mono text-xs ' +
+                (st.status === 'pending' ? 'text-ink-dim' : st.status === 'running' ? 'text-ink-text font-semibold' : 'text-ink-mut')
+              }
+            >
+              {st.label}
+            </span>
+            {st.detail && (
+              <span
+                title={st.detail}
+                className={'shrink-0 max-w-[45%] truncate text-[10px] font-semibold ' + (st.status === 'failed' ? 'text-red-600 dark:text-red-400/90' : 'text-ink-dim')}
+              >
+                {st.detail}
+              </span>
+            )}
+          </div>
         ))}
       </div>
     </div>
@@ -603,10 +677,23 @@ export default function ChatPanel() {
         ) : (
           <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full py-4">
             {messages.map((m, i) => (
-              <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+              <div
+                key={m.id}
+                className={
+                  m.role === 'user'
+                    ? 'flex justify-end'
+                    : // 7.1: aktif görev kartı kaydırmada üste yapışır — kullanıcı
+                      // sohbet akarken bile motorun hangi adımda olduğunu görür.
+                      'flex justify-start' + (m.tasks?.active ? ' sticky top-0 z-20' : '')
+                }
+              >
                 {m.role === 'user' ? (
                   <div className="max-w-[80%] rounded-2xl rounded-tr-none border border-brand-500/25 bg-brand-500/15 px-5 py-3 text-[14.5px] text-ink-text">
                     <span className="whitespace-pre-wrap break-words leading-relaxed font-semibold">{m.content}</span>
+                  </div>
+                ) : m.tasks ? (
+                  <div className="w-full max-w-[92%]">
+                    <TaskListCard tasks={m.tasks} />
                   </div>
                 ) : (
                   <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">

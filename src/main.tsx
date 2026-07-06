@@ -115,8 +115,66 @@ if (typeof window !== 'undefined' && !window.nexora) {
     },
     artifacts: {
       export: async () => ({ ok: true })
-    }
+    },
+    // Aşağısı: bileşenler mount'ta bu API'leri çağırıyor — eksik olan her
+    // namespace tarayıcı modunda React ağacını kökten düşürüyordu (Sidebar
+    // projects.list, WelcomeSetup advisor.detect…). Zararsız no-op stub'lar.
+    agent: {
+      buildCheck: async () => ({ ok: true, skipped: true }),
+      behaviorTest: async () => ({ ok: false }),
+      debugInspect: async () => ({ ok: false }),
+      devStart: async () => ({ ok: true }),
+      devStop: async () => ({ ok: true }),
+      devUrl: async () => ({ url: null }),
+      fetch: async () => ({ ok: true }),
+      font: async () => ({ ok: true }),
+      run: async () => ({ ok: true }),
+      onBuildError: () => () => {},
+      onRuntimeError: () => () => {},
+      repairStats: async () => ({ ok: true, events: [] }),
+      reproCheck: async () => ({ ok: false }),
+      runtimeStatus: async () => ({ ok: true, port: 0 })
+    },
+    // DİKKAT: dönüş şekilleri gerçek IPC ile birebir — sessions.list ve
+    // projects.list DOĞRUDAN dizi döner ({ok, ...} sarmalayıcısı yok);
+    // yanlış şekil "sessions.map is not a function" ile ağacı düşürüyordu.
+    sessions: {
+      list: async () => [],
+      load: async () => null,
+      save: async () => ({ ok: true }),
+      remove: async () => ({ ok: true })
+    },
+    rules: { get: async () => ({ content: '' }), set: async () => ({ ok: true }) },
+    history: {
+      commit: async () => ({ ok: true }),
+      list: async () => [],
+      restore: async () => ({ ok: false }),
+      restoreGreen: async () => ({ ok: false }),
+    },
+    projects: {
+      import: async () => ({ ok: false }),
+      list: async () => [],
+      open: async () => ({ ok: false })
+    },
+    advisor: {
+      // WelcomeSetup mount'ta detect+plan bekliyor — gerçekçi sahte donanım
+      // dönmezse alan erişimleri React ağacını düşürüyor.
+      detect: async () => ({
+        ramGb: 16, freeRamGb: 9, cpuModel: 'Mock CPU', cpuCores: 8,
+        gpu: null, platform: 'linux'
+      }),
+      plan: async () => { throw new Error('mock: uzak katalog yok') }
+    },
+    vision: {
+      analyze: async () => ({ ok: false }),
+      onStatus: () => () => {},
+      pickImage: async () => null
+    },
+    capture: { page: async () => ({ ok: false }) },
+    bench: { run: async () => ({ ok: false }), get: async () => ({}) }
   };
+  (window as any).nexora.model.onLoadProgress = () => () => {};
+  (window as any).nexora.model.setApiConfig = async () => ({ ok: true });
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

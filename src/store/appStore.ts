@@ -8,8 +8,10 @@ import type {
   AgentBuildErrorEvent,
   SessionMeta,
   SessionData,
-  SessionFileEntry
+  SessionFileEntry,
+  TaskStep
 } from '@shared/ipc'
+import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
@@ -209,6 +211,23 @@ export function scheduleSessionSave(): void {
     sessionSaveTimer = null
     void useAppStore.getState().saveSessionNow()
   }, 1500)
+}
+
+// --- Canlı görev listesi kartı (roadmap 7.1) ---
+// Saf dönüşümler taskList.ts'de; buradaki üç sarmalayıcı store'a bağlar.
+// Kart bir ChatMessage'dır: oturum kaydına bedavaya biner, transcript'te
+// doğru yerde durur ve ChatPanel active iken üste yapıştırır.
+function taskCardStart(title: string, steps: TaskStep[]): string {
+  const id = nanoid()
+  useAppStore.setState((s) => ({ messages: [...s.messages, makeTaskCard(id, title, steps)] }))
+  return id
+}
+function taskCardStep(msgId: string, index: number, patch: Partial<TaskStep>): void {
+  useAppStore.setState((s) => ({ messages: patchTaskStep(s.messages, msgId, index, patch) }))
+}
+function taskCardFinish(msgId: string, note?: string): void {
+  useAppStore.setState((s) => ({ messages: finishTaskCard(s.messages, msgId, note) }))
+  scheduleSessionSave()
 }
 /** Otomatik yeniden deneme sayacı (en fazla 2; yeni hata olayında sıfırlanır). */
 let autoFixRounds = 0
@@ -2004,7 +2023,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (report.remaining.length > 0) {
       logRepair({ layer: 'scan-remaining', notes: report.remaining.map((f) => `${f.cls}@${f.path}`) })
     }
-    say(formatScanReport(report, isTr))
+    // 7.1: onarım oturumu görev kartı olarak — onarılan her bulgu ✓,
+    // model isteyenler ✗ + neden. Uzun rapor metni karta taşındı; kart
+    // oturum kaydında kalıcı (formatScanReport temiz/rapor modunda sürüyor).
+    const scanCardId = taskCardStart(
+      isTr ? `Tarama onarımı — ${report.findings.length} bulgu` : `Scan repair — ${report.findings.length} finding(s)`,
+      [
+        ...report.fixed.map((f) => ({
+          label: `${f.finding.path}${f.finding.line ? ':' + f.finding.line : ''}`,
+          status: 'done' as const,
+          detail: f.note
+        })),
+        ...report.remaining.map((f) => ({
+          label: `${f.path}${f.line ? ':' + f.line : ''}`,
+          status: 'failed' as const,
+          detail: (isTr ? 'model turu ister — ' : 'needs the model — ') + f.message.slice(0, 90)
+        }))
+      ]
+    )
+    taskCardFinish(
+      scanCardId,
+      isTr
+        ? `${report.fixed.length} modelsiz onarıldı${report.remaining.length ? ` · kalan ${report.remaining.length} için "düzelt" yeter` : ''}`
+        : `${report.fixed.length} repaired without a model${report.remaining.length ? ` · type "fix" for the rest` : ''}`
+    )
   },
 
   runBehaviorReview: async (url: string) => {
@@ -2263,7 +2305,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     useArtifactsStore.getState().replaceAll(files, data.selectedPath)
     sessionCreatedAt = data.createdAt
     set({
-      messages: data.messages.map((m: ChatMessage) => ({ ...m, streaming: false })),
+      // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
+      messages: deactivateTaskCards(data.messages.map((m: ChatMessage) => ({ ...m, streaming: false }))),
       currentSessionId: data.id,
       activeTab: 'chat',
       profileId: DEFAULT_PROFILE_ID,
@@ -2331,21 +2374,24 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
 
     plannedBuildActive = true
     plannedBuildAbort = false
-    set((s) => ({
-      messages: [
-        ...s.messages,
-        {
-          id: nanoid(),
-          role: 'assistant',
-          // Satirlar "N. yol" bicimindeyse parser dosya karti sanip
-          // "olusturuldu" rozetleri ciziyordu (canli testte gorundu) —
-          // madde imi path-parser'i tetiklemez.
-          content: `📋 Plan onaylandı — ${files.length} dosya sırayla, tek tek üretilecek:\n${files
-            .map((f, i) => `• ${i + 1}) ${f.path}`)
-            .join('\n')}`
+    // 7.1: statik "plan onaylandı" listesi yerine CANLI görev kartı — her
+    // dosya çalışırken running, bitince done/failed olur; kullanıcı motorun
+    // planın neresinde olduğunu izler. Otomatik dosyalar (App.tsx/index.css)
+    // kod tarafından çoktan yazıldı — kartta baştan ✓ görünürler.
+    const isTr = get().language === 'tr'
+    const stepIndexByPath = new Map<string, number>()
+    const cardId = taskCardStart(
+      isTr ? `Planlı üretim — ${files.length} dosya` : `Planned build — ${files.length} files`,
+      files.map((f, i) => {
+        stepIndexByPath.set(f.path, i)
+        const isAuto = /\(otomatik\)/i.test(f.desc)
+        return {
+          label: f.path,
+          status: isAuto ? ('done' as const) : ('pending' as const),
+          detail: isAuto ? (isTr ? 'otomatik — kod yazdı' : 'automatic — written by code') : undefined
         }
-      ]
-    }))
+      })
+    )
 
     let built = autoFiles.length
     const failedPaths: string[] = []
@@ -2353,6 +2399,8 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       for (let i = 0; i < genFiles.length; i++) {
         if (plannedBuildAbort) break
         const f = genFiles[i]
+        const stepIdx = stepIndexByPath.get(f.path) ?? -1
+        taskCardStep(cardId, stepIdx, { status: 'running' })
         const filePrompt = buildPlannedFilePrompt(p.request, genFiles, i)
         await get().sendMessage(filePrompt, { expectFile: f.path, creative: /\[şablon:/.test(f.desc) || !!findSectionTemplate(f.path, f.desc) })
         // Dosya-bazlı retry: tur bu dosyayı üretmediyse bir kez daha dene.
@@ -2361,18 +2409,37 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
         const incomplete = (a?: { content: string }) =>
           !a || a.content.trim().length < 30 || /\{\{[A-Z0-9_]+\}\}/.test(a.content)
         let art = useArtifactsStore.getState().files[f.path]
+        let retried = false
         if (incomplete(art) && !plannedBuildAbort) {
+          taskCardStep(cardId, stepIdx, { detail: isTr ? '2. deneme…' : 'retrying…' })
+          retried = true
           const note = art && /\{\{[A-Z0-9_]+\}\}/.test(art.content)
             ? '\n\n(Your previous output still contains unfilled {{MARKER}} placeholders — rewrite the file with EVERY marker replaced by real content for the brief.)'
             : '\n\n(The previous turn did not produce this file — write it COMPLETELY now.)'
           await get().sendMessage(filePrompt + note, { expectFile: f.path })
           art = useArtifactsStore.getState().files[f.path]
         }
-        if (art && art.content.trim().length >= 30) built++
-        else failedPaths.push(f.path)
+        if (art && art.content.trim().length >= 30) {
+          built++
+          taskCardStep(cardId, stepIdx, {
+            status: 'done',
+            detail: retried ? (isTr ? '2. denemede' : 'on 2nd try') : undefined
+          })
+        } else {
+          failedPaths.push(f.path)
+          taskCardStep(cardId, stepIdx, { status: 'failed', detail: isTr ? 'üretilemedi' : 'not produced' })
+        }
       }
     } finally {
       plannedBuildActive = false
+      taskCardFinish(
+        cardId,
+        plannedBuildAbort
+          ? isTr ? '⏹ durduruldu' : '⏹ stopped'
+          : failedPaths.length > 0
+            ? isTr ? `⚠ ${failedPaths.length} dosya üretilemedi` : `⚠ ${failedPaths.length} file(s) failed`
+            : isTr ? '✓ tamamlandı' : '✓ complete'
+      )
     }
 
     const head = plannedBuildAbort ? '⏹ Planlı üretim durduruldu' : '✅ Planlı üretim tamamlandı'
