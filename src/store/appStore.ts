@@ -597,6 +597,48 @@ async function runValueProbe(diagnosis: string, primaryPath: string): Promise<st
  * "düzelt api" ipucu gösterilir — yazması onaydır. API kapalı/eksikse karar
  * her zaman yereldir (bayrak zararsızdır ama ipucu da gösterilmez).
  */
+/**
+ * 6.6 onarım-sonrası repro: "düzeltildi" pasif bir umut değil AKTİF kanıt.
+ * HMR'ın oturması beklenir, sayfa taze yüklenir; aynı imza hâlâ üretiliyorsa
+ * dürüstçe söylenir (bir sonraki rapor 5.5 tırmanışını tetikler), üretilmiyorsa
+ * onarım repro ile mühürlenir. Sonuç her iki yönde telemetriye yazılır.
+ */
+async function verifyRepairByRepro(
+  signature: string,
+  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void,
+  get: () => AppState
+): Promise<void> {
+  try {
+    await new Promise((r) => setTimeout(r, 2500))
+    const du = await window.nexora.agent.devUrl()
+    if (!du?.url) return
+    probing = true
+    const res = await window.nexora.agent.reproCheck(du.url, signature)
+    probing = false
+    if (!res.ok) return
+    logRepair({ layer: res.reproduced ? 'repro-failed' : 'repro-verified', diag: signature.slice(0, 120) })
+    const isTr = get().language === 'tr'
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: res.reproduced
+            ? isTr
+              ? '⚠️ Repro denetimi: hata taze yüklemede HÂLÂ üretiliyor — onarım yeterli olmadı, bir sonraki rapor merdiveni tırmandıracak.'
+              : '⚠️ Repro check: the error STILL reproduces on a fresh load — the repair was not enough; the next report will climb the ladder.'
+            : isTr
+              ? '✅ Repro denetimi: hata taze yüklemede artık üretilmiyor — onarım kanıtla doğrulandı.'
+              : '✅ Repro check: the error no longer reproduces on a fresh load — the repair is verified by evidence.'
+        }
+      ]
+    }))
+  } catch {
+    probing = false
+  }
+}
+
 function apiEscalation(sig: string): { escalate: boolean; hint: string | null } {
   const st = useSettingsStore.getState()
   const ready = st.apiMode === 'fix' && !!st.apiBaseUrl && !!st.apiModel
@@ -738,10 +780,41 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
             }
           ]
         }))
+        // 6.6 onarım-sonrası repro: "onarıldı" iddiası AKTİF kanıtlanır —
+        // sayfa taze yüklenir, aynı imza hâlâ üretiliyorsa dürüstçe söylenir.
+        void verifyRepairByRepro(e.message, set, get)
         return
       }
       // Model katı: yüklü model yoksa sessizce dur (Kat 0 zaten denendi).
       if (!get().modelInfo) return
+      // 6.6 ön-repro kapısı: model turu YAKMADAN önce hata taze yüklemede
+      // yeniden üretilmeli. Üretilemeyen sinyal (bayat HMR raporu, düzeltme
+      // ortasında yakalanmış anlık durum) tur harcatmaz — deneme hakkı iade.
+      try {
+        const duPre = await window.nexora.agent.devUrl()
+        if (duPre?.url) {
+          probing = true
+          const pre = await window.nexora.agent.reproCheck(duPre.url, e.message)
+          probing = false
+          if (pre.ok && pre.reproduced === false) {
+            runtimeFixCounts.set(sig, n) // hak iadesi
+            logRepair({ layer: 'repro-transient', diag: sig })
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                {
+                  id: nanoid(),
+                  role: 'assistant',
+                  content: 'ℹ️ Rapor edilen hata taze yüklemede YENİDEN ÜRETİLEMEDİ (geçici/bayat sinyal olabilir) — model turu harcanmadı.'
+                }
+              ]
+            }))
+            return
+          }
+        }
+      } catch {
+        probing = false /* repro koşamadı — normal akış devam */
+      }
       // Konumlama (roadmap 5.3): stack kesik olsa bile "sorun ŞURADA" —
       // kullanıcı raporu yüzdeli şüphelileri görür, model turu doğru
       // dosyanın satır-numaralı bağlamını alır.
@@ -843,7 +916,7 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
           }))
         }
       }
-      void get().sendMessage(
+      await get().sendMessage(
         'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda.' +
           locHint +
           probeLine +
@@ -851,6 +924,8 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
           numberedSnippet(snippetSeed, filesMap),
         { hideUser: true, escalate: esc.escalate }
       )
+      // 6.6: model turunun "düzelttim"i de repro ile mühürlenir.
+      void verifyRepairByRepro(e.message, set, get)
     })()
   })
 }

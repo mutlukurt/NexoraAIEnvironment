@@ -40,6 +40,7 @@ import {
 import { runBenchmark, readBenchmarks } from './benchService'
 import { inspectRuntimeException } from './debugInspect'
 import { runBehaviorTest } from './behaviorTest'
+import { reproCheck } from './reproCheck'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware, getAdvisorPlan } from './advisorService'
 import { setApiConfig, type ApiConfig } from './apiEngine'
@@ -299,6 +300,11 @@ function registerIpc(): void {
 
   // Davranışsal doğrulama (roadmap 6.5): siteyi tester gibi gez.
   ipcMain.handle(IPC.BEHAVIOR_TEST, (_e, input: { url: string }) => runBehaviorTest(input.url))
+
+  // Önce-repro onarım (roadmap 6.6): hata hâlâ üretiliyor mu?
+  ipcMain.handle(IPC.REPRO_CHECK, (_e, input: { url: string; signature: string }) =>
+    reproCheck(input.url, input.signature)
+  )
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
     const res = await startDev(input.projectName, input.files, (msg) => {

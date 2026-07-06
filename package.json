@@ -26,7 +26,8 @@
     "test:sourcemap": "node tests/source-map.mjs",
     "test:tsdiag": "node tests/ts-diagnostics.mjs",
     "test:anchor": "node tests/anchor-edits.mjs",
-    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:sourcemap && npm run test:tsdiag && npm run test:anchor && npm run test:ground",
+    "test:reprosig": "node tests/repro-sig.mjs",
+    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:sourcemap && npm run test:tsdiag && npm run test:anchor && npm run test:reprosig && npm run test:ground",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"

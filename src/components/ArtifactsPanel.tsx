@@ -240,7 +240,12 @@ export default function ArtifactsPanel() {
     // sınıflar localhost'a hiç ulaşmadan onarılır (temizse mesaj yok).
     try { await useAppStore.getState().runProjectScan({ quiet: true }) } catch { /* tarama Run'ı engellemez */ }
     setExportMsg(language === 'tr' ? 'Proje hazırlanıyor (npm install + dev sunucusu)…' : 'Preparing project (npm install + dev server)…')
-    const fileList = Object.values(files).map((f) => ({ path: f.path, content: f.content }))
+    // 6.6 canlı bulgusu (repro-failed'ın yakaladığı gerçek bug): `files` bu
+    // handler'ın render kapanışından gelir — az önceki taramanın onardığı
+    // içerik onda YOKTUR; bayat kopya diske sync'lenip "onarıldı ama disk
+    // eski" durumu doğuruyordu. Store'dan TAZE oku.
+    const freshFiles = useArtifactsStore.getState().files
+    const fileList = Object.values(freshFiles).map((f) => ({ path: f.path, content: f.content }))
     const res = await window.nexora.agent.devStart({ projectName: getProjectName(), files: fileList })
     setDevBusy(false)
     if (res.ok && res.url) {

@@ -110,6 +110,8 @@ export interface NexoraApi {
     debugInspect: (url: string) => Promise<import('../shared/ipc').DebugInspectResult>
     /** 6.5: siteyi tester gibi gez — tıkla, doldur, ölç, bölüm karelerini üret. */
     behaviorTest: (url: string) => Promise<import('../shared/ipc').BehaviorReport>
+    /** 6.6: imzalı hata taze yüklemede hâlâ üretiliyor mu? */
+    reproCheck: (url: string, signature: string) => Promise<{ ok: boolean; reproduced?: boolean; evidence?: string; error?: string }>
   }
   bench: {
     /** Yüklü modeli sabit görevle ölç (roadmap 4.5); sonuç kalıcı yazılır. */
@@ -232,7 +234,8 @@ const api: NexoraApi = {
     },
     runtimeStatus: () => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
     debugInspect: (url: string) => ipcRenderer.invoke(IPC.DEBUG_INSPECT, { url }),
-    behaviorTest: (url: string) => ipcRenderer.invoke(IPC.BEHAVIOR_TEST, { url })
+    behaviorTest: (url: string) => ipcRenderer.invoke(IPC.BEHAVIOR_TEST, { url }),
+    reproCheck: (url: string, signature: string) => ipcRenderer.invoke(IPC.REPRO_CHECK, { url, signature })
   },
   bench: {
     run: () => ipcRenderer.invoke(IPC.BENCH_RUN),
