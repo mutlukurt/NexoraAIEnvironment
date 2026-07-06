@@ -134,8 +134,29 @@ export const IPC = {
   PROJECT_OPEN: 'project:open',
   RUNTIME_STATUS: 'agent:runtime-status',
   BENCH_RUN: 'bench:run',
-  BENCH_GET: 'bench:get'
+  BENCH_GET: 'bench:get',
+  DEBUG_INSPECT: 'debug:inspect'
 } as const
+
+/** 6.1 gerçek runtime debugger: çökme anındaki frame + yerel değişkenler. */
+export interface DebugFrameInfo {
+  fn: string
+  url: string
+  /** CDP'nin verdiği (dönüştürülmüş modüldeki) 1-tabanlı satır. */
+  line: number | null
+  /** Inline source map çözüldüyse orijinal kaynak yolu + 1-tabanlı satırı. */
+  source: string | null
+  origLine: number | null
+  /** Çökme anındaki yerel değişkenler (ad → kısa değer metni). */
+  locals: Record<string, string>
+}
+
+export interface DebugInspectResult {
+  ok: boolean
+  message?: string
+  frames?: DebugFrameInfo[]
+  error?: string
+}
 
 /** Yerel mini-benchmark sonucu (roadmap 4.5). */
 export interface BenchResultInfo {

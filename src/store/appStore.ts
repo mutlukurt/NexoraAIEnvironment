@@ -785,10 +785,47 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
           messages: [...s.messages, { id: nanoid(), role: 'assistant', content: esc.hint! }]
         }))
       }
-      // 5.7 değer probu: property çökmesinde (undefined.map) model tahminle
-      // değil ÖLÇÜMLE başlasın — şüpheli değer çökme anından okunur.
+      // 6.1 GERÇEK debugger: çökme anı CDP ile okunur — gerçek call frame,
+      // gerçek yerel değişken değerleri, source-map'li orijinal satır ve
+      // dosyaya SIFIR dokunuş. 5.7'nin dosya-yamalı probu yedek olarak kalır
+      // (exception üretmeyen ölçümler / debugger kurulamayan ortamlar).
       let probeLine = ''
-      if (loc.primary && /Cannot read propert/i.test(e.message)) {
+      probing = true // ölçüm sırasında sayfanın tekrar-raporları hak yakmasın
+      try {
+        const du = await window.nexora.agent.devUrl()
+        if (du?.url) {
+          const insp = await window.nexora.agent.debugInspect(du.url)
+          if (insp.ok && insp.frames && insp.frames.length > 0) {
+            const f = insp.frames[0]
+            const kaynak = (f.source ?? f.url).replace(/^https?:\/\/[^/]+\//, '').replace(/^.*?(?=src\/)/, '')
+            const yer = `${kaynak}:${f.origLine ?? f.line ?? '?'}`
+            const yereller = Object.entries(f.locals)
+              .slice(0, 8)
+              .map(([k, v]) => `${k} = ${v}`)
+              .join(', ')
+            probeLine = ` DEBUGGER ÖLÇÜMÜ (çökme anı, gerçek değerler): ${yer} içinde ${f.fn}() — ${yereller || 'yerel yok'}.`
+            logRepair({ layer: 'debugger-hit', diag: `${yer} | ${yereller}`.slice(0, 200) })
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                {
+                  id: nanoid(),
+                  role: 'assistant',
+                  content: `🔎 Debugger (çökme anı): ${yer} — ${f.fn}() ${yereller ? '· ' + yereller : ''}`
+                }
+              ]
+            }))
+          } else {
+            logRepair({ layer: 'debugger-miss', diag: (insp.error ?? '').slice(0, 120) })
+          }
+        }
+      } catch {
+        /* debugger kurulamadı — prob yedeği dener */
+      } finally {
+        probing = false
+      }
+      // Yedek: 5.7 değer probu (yalnızca debugger bir şey ölçemediyse).
+      if (!probeLine && loc.primary && /Cannot read propert/i.test(e.message)) {
         const data = await runValueProbe(`${e.message}\n${cleanStack}`, loc.primary.path)
         if (data) {
           probeLine = ` PROB VERİSİ (çökme anında ölçüldü): ${data}.`
