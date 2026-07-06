@@ -138,10 +138,11 @@ export default function ArtifactsPanel() {
   // Önizleme kaldırıldı: projeyi görmenin yolu "Çalıştır" (gerçek vite +
   // localhost + tarayıcı). Sandbox iframe'in kısıtlarıyla boğuşmak yerine
   // kullanıcı gerçek çıktıya bakar.
-  const tabs: { id: 'code' | 'tree' | 'history'; label: string }[] = [
+  const tabs: { id: 'code' | 'tree' | 'history' | 'engine'; label: string }[] = [
     { id: 'code', label: language === 'tr' ? 'Kod' : 'Code' },
     { id: 'tree', label: language === 'tr' ? 'Ağaç' : 'Tree' },
-    { id: 'history', label: language === 'tr' ? 'Geçmiş' : 'History' }
+    { id: 'history', label: language === 'tr' ? 'Geçmiş' : 'History' },
+    { id: 'engine', label: language === 'tr' ? 'Motor' : 'Engine' }
   ]
 
   const handleExport = async () => {
@@ -442,7 +443,9 @@ export default function ArtifactsPanel() {
       {/* Geçmiş, BOŞ çalışma alanında da erişilebilir olmalı: taze oturumda
           eski projenin zaman çizelgesine dönmek tam da bu görünümün işi
           (canlı test: boş-durum dalı Geçmiş sekmesini gölgeliyordu). */}
-      {view === 'history' ? (
+      {view === 'engine' ? (
+        <EngineTimeline language={language} />
+      ) : view === 'history' ? (
         <HistoryTimeline language={language} />
       ) : fileCount === 0 ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center">
@@ -508,5 +511,78 @@ export default function ArtifactsPanel() {
         {t.localInfo}
       </footer>
     </section>
+  )
+}
+
+/**
+ * 6.8 Debug Paneli: motorun canlı olay akışı — Yakala → Tanıla → Konumla →
+ * Ölç → Onar → Doğrula zincirinin her kararı kart olarak. logRepair'den
+ * beslenir; kullanıcı sohbette çay falı okumak yerine motorun düşünüşünü izler.
+ */
+const ENGINE_LAYER_META: Record<string, { emoji: string; step: string; stepEn: string }> = {
+  'net-error': { emoji: '📡', step: 'Yakala', stepEn: 'Capture' },
+  'hmr-error': { emoji: '🛠', step: 'Yakala', stepEn: 'Capture' },
+  'kat0-miss': { emoji: '🧭', step: 'Tanıla', stepEn: 'Diagnose' },
+  'scan-remaining': { emoji: '🔍', step: 'Tanıla', stepEn: 'Diagnose' },
+  'debugger-hit': { emoji: '🔎', step: 'Ölç', stepEn: 'Measure' },
+  'debugger-miss': { emoji: '🔎', step: 'Ölç', stepEn: 'Measure' },
+  'probe-hit': { emoji: '🔬', step: 'Ölç', stepEn: 'Measure' },
+  'probe-timeout': { emoji: '🔬', step: 'Ölç', stepEn: 'Measure' },
+  kat0: { emoji: '🔧', step: 'Onar', stepEn: 'Fix' },
+  'scan-kat0': { emoji: '🔧', step: 'Onar', stepEn: 'Fix' },
+  'model-fix': { emoji: '🤖', step: 'Onar', stepEn: 'Fix' },
+  'repro-verified': { emoji: '✅', step: 'Doğrula', stepEn: 'Verify' },
+  'repro-failed': { emoji: '⚠️', step: 'Doğrula', stepEn: 'Verify' },
+  'repro-transient': { emoji: 'ℹ️', step: 'Doğrula', stepEn: 'Verify' },
+  'behavior-pass': { emoji: '🧪', step: 'Doğrula', stepEn: 'Verify' },
+  'behavior-fail': { emoji: '🧪', step: 'Doğrula', stepEn: 'Verify' },
+  'turn-rollback': { emoji: '↩️', step: 'Koru', stepEn: 'Protect' },
+  'rollback-green': { emoji: '🟢', step: 'Koru', stepEn: 'Protect' },
+  'api-turn': { emoji: '🚀', step: 'Tırman', stepEn: 'Escalate' },
+  'api-escalated': { emoji: '🚀', step: 'Tırman', stepEn: 'Escalate' },
+  'api-fallback-local': { emoji: '🚀', step: 'Tırman', stepEn: 'Escalate' },
+  'priors-applied': { emoji: '🧠', step: 'Öğren', stepEn: 'Learn' }
+}
+
+function EngineTimeline({ language }: { language: 'tr' | 'en' }) {
+  const events = useAppStore((s) => s.engineEvents)
+  const tr = language === 'tr'
+  return (
+    <div className="flex-1 overflow-y-auto bg-ink-card px-5 py-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-ink-mut">
+        {tr ? 'Motor — canlı olay akışı' : 'Engine — live event stream'}
+      </p>
+      <p className="mt-1 text-[11px] font-medium text-ink-dim">
+        {tr
+          ? 'Yakala → Tanıla → Ölç → Onar → Doğrula: motorun bu oturumdaki her kararı. Kalıcı istatistikler Ayarlar’daki Motor Karnesi’nde.'
+          : 'Capture → Diagnose → Measure → Fix → Verify: every engine decision this session. Lifetime stats live in the Settings scorecard.'}
+      </p>
+      {events.length === 0 ? (
+        <p className="mt-6 text-xs font-semibold text-ink-dim">
+          {tr ? 'Henüz olay yok — Tara’ya bas ya da projeyi Çalıştır, motor işledikçe burası akar.' : 'No events yet — hit Scan or Run; this streams as the engine works.'}
+        </p>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          {events.map((e) => {
+            const meta = ENGINE_LAYER_META[e.layer] ?? { emoji: '•', step: e.layer, stepEn: e.layer }
+            return (
+              <div key={e.id} className="flex items-start gap-2.5 rounded-lg border border-ink-line/50 bg-ink-bg/50 px-3 py-2">
+                <span className="mt-0.5 text-sm leading-none">{meta.emoji}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-bold text-ink-text">
+                    {tr ? meta.step : meta.stepEn}
+                    <span className="ml-2 rounded bg-ink-hi px-1.5 py-0.5 font-mono text-[9px] font-semibold text-ink-dim">{e.layer}</span>
+                    <span className="ml-2 font-mono text-[9px] font-medium text-ink-dim">
+                      {new Date(e.ts).toLocaleTimeString(tr ? 'tr-TR' : 'en-US')}
+                    </span>
+                  </p>
+                  {e.detail && <p className="mt-0.5 truncate font-mono text-[10px] text-ink-mut" title={e.detail}>{e.detail}</p>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }

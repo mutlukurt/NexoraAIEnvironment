@@ -87,6 +87,8 @@ interface AppState {
   modelLoadProgress: { stage: 'model' | 'context'; progress: number } | null
   /** "Çalıştır" denetiminin yakaladığı son derleme hatası — "düzelt" denince modele iliştirilir. */
   lastBuildError: string | null
+  /** 6.8 Debug Paneli: motorun canlı olay akışı (logRepair'den beslenir). */
+  engineEvents: Array<{ id: string; ts: number; layer: string; detail: string }>
   /** Sohbete iliştirilmiş referans görsel (bir sonraki mesajla işlenir). */
   pendingImage: { path: string; name: string } | null
   attachImage: () => Promise<void>
@@ -276,6 +278,26 @@ const logRepair = (entry: Record<string, unknown>): void => {
     void window.nexora.repair?.log(entry)
   } catch {
     /* telemetri en-iyi-çaba */
+  }
+  // 6.8 Debug Paneli: aynı olay canlı zaman çizelgesine düşer — motorun her
+  // kararı tek noktadan (buradan) geçtiği için panel sıfır ek enstrümantasyonla
+  // beslenir. Kullanıcı çay falı yerine motorun düşünüşünü izler.
+  try {
+    const detail = [
+      Array.isArray(entry.notes) ? (entry.notes as string[]).join('; ') : '',
+      typeof entry.diag === 'string' ? entry.diag.split('\n')[0] : ''
+    ]
+      .filter(Boolean)
+      .join(' — ')
+      .slice(0, 180)
+    useAppStore.setState((s) => ({
+      engineEvents: [
+        { id: nanoid(), ts: Date.now(), layer: String(entry.layer ?? '?'), detail },
+        ...s.engineEvents
+      ].slice(0, 200)
+    }))
+  } catch {
+    /* panel beslenemedi — dosya telemetrisi yeterli */
   }
 }
 
@@ -1726,6 +1748,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelLoadProgress: null,
   lastBuildError: null,
   pendingImage: null,
+  engineEvents: [],
 
   attachImage: async () => {
     const res = await window.nexora.vision.pickImage()
