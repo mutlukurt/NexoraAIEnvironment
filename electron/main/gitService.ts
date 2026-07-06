@@ -106,6 +106,23 @@ export async function historyRestoreGreen(
   return { ...r, hash }
 }
 
+/**
+ * 7.3 inceleme paneli: ref'teki dosyaları SALT-OKUR getir (HEAD /
+ * nexora-green / hash). Bağlı klasörlerde kullanıcının kendi reposundan da
+ * okumak teknik olarak mümkün ama 3.4 sözleşmesi gereği dokunmuyoruz bile —
+ * okuma masumdur; yine de dizin farkını linkedFolderFor belirler.
+ */
+export async function historyFilesAt(
+  projectName: string,
+  ref: string
+): Promise<{ ok: boolean; files?: ProjectFileInput[]; error?: string }> {
+  if (!(await hasGit())) return { ok: false, error: 'git bulunamadı' }
+  const linked = linkedFolderFor(projectName)
+  const dir = linked ?? workspaceDir(projectName)
+  const { filesAtRef } = await import('./gitRead')
+  return filesAtRef(dir, ref)
+}
+
 export async function historyList(projectName: string): Promise<HistoryEntry[]> {
   if (linkedFolderFor(projectName) || !(await hasGit())) return []
   const dir = workspaceDir(projectName)

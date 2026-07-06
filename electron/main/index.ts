@@ -48,7 +48,7 @@ import { setApiConfig, type ApiConfig } from './apiEngine'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
 import { getRules, setRules } from './rulesService'
-import { historyCommit, historyList, historyRestore, historyRestoreGreen } from './gitService'
+import { historyCommit, historyList, historyRestore, historyRestoreGreen, historyFilesAt } from './gitService'
 import { capturePage } from './captureService'
 import {
   IPC,
@@ -467,6 +467,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC.HISTORY_RESTORE_GREEN, async (_e, projectName: string) => {
     try {
       return await historyRestoreGreen(projectName)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+  // 7.3 inceleme paneli: ref'teki dosyalar (salt-okur).
+  ipcMain.handle(IPC.HISTORY_FILES_AT, async (_e, projectName: string, ref: string) => {
+    try {
+      return await historyFilesAt(projectName, ref)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }

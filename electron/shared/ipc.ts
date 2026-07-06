@@ -146,6 +146,7 @@ export const IPC = {
   HISTORY_LIST: 'history:list',
   HISTORY_RESTORE: 'history:restore',
   HISTORY_RESTORE_GREEN: 'history:restore-green',
+  HISTORY_FILES_AT: 'history:files-at',
   REPAIR_LOG: 'repair:log',
   PROJECT_LIST: 'project:list',
   PROJECT_OPEN: 'project:open',

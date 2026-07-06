@@ -150,6 +150,7 @@ if (typeof window !== 'undefined' && !window.nexora) {
       list: async () => [],
       restore: async () => ({ ok: false }),
       restoreGreen: async () => ({ ok: false }),
+      filesAt: async () => ({ ok: false, error: 'tarayıcı modunda git yok' })
     },
     projects: {
       import: async () => ({ ok: false }),

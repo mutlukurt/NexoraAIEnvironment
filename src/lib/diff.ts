@@ -93,6 +93,17 @@ export function computePendingDiffs(
       before = {}
     }
   }
+  return computeDiffs(before, files)
+}
+
+/**
+ * 7.3: genel taban→şimdi diff'i — taban ister tur anlık görüntüsü ister git
+ * ref'inin dosyaları olsun, inceleme paneli aynı çekirdekten geçer.
+ */
+export function computeDiffs(
+  before: Record<string, { content: string }>,
+  files: Record<string, { content: string }>
+): FileDiff[] {
   const paths = [...new Set([...Object.keys(before), ...Object.keys(files)])].sort()
   const out: FileDiff[] = []
   for (const path of paths) {
@@ -117,6 +128,58 @@ export function computePendingDiffs(
     })
   }
   return out
+}
+
+/**
+ * 7.3 hunk çıkarımı: ardışık add/del koşuları bir hunk'tır (op indeks aralığı).
+ * İnceleme paneli her hunk'a kendi "geri al" düğmesini bağlar.
+ */
+export interface Hunk {
+  /** ops içinde ilk değişen op (dahil). */
+  start: number
+  /** ops içinde son değişen op'tan bir sonrası (hariç). */
+  end: number
+  addCount: number
+  delCount: number
+}
+
+export function extractHunks(ops: DiffOp[]): Hunk[] {
+  const hunks: Hunk[] = []
+  let i = 0
+  while (i < ops.length) {
+    if (ops[i].type === 'same') {
+      i++
+      continue
+    }
+    const start = i
+    let addCount = 0
+    let delCount = 0
+    while (i < ops.length && ops[i].type !== 'same') {
+      if (ops[i].type === 'add') addCount++
+      else delCount++
+      i++
+    }
+    hunks.push({ start, end: i, addCount, delCount })
+  }
+  return hunks
+}
+
+/**
+ * 7.3 hunk geri alma: verilen aralıktaki değişiklik TERSİNE çevrilmiş yeni
+ * "şimdi" içeriğini üretir — aralık içinde eklenenler düşer, silinenler geri
+ * gelir; aralık dışı her şey olduğu gibi kalır. (start=0,end=ops.length) tüm
+ * dosyayı tabana döndürür.
+ */
+export function contentWithHunkReverted(ops: DiffOp[], start: number, end: number): string {
+  const out: string[] = []
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]
+    const inHunk = i >= start && i < end
+    if (op.type === 'same') out.push(op.text)
+    else if (op.type === 'add' && !inHunk) out.push(op.text)
+    else if (op.type === 'del' && inHunk) out.push(op.text)
+  }
+  return out.join('\n')
 }
 
 /** Görünüm satırları: uzun değişmemiş blokları "… N satır …" olarak katla. */

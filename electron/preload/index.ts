@@ -166,6 +166,7 @@ export interface NexoraApi {
     list: (projectName: string) => Promise<import('../shared/ipc').HistoryEntryIpc[]>
     restore: (projectName: string, hash: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; error?: string }>
     restoreGreen: (projectName: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; hash?: string; error?: string }>
+    filesAt: (projectName: string, ref: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; error?: string }>
   }
 }
 
@@ -296,7 +297,8 @@ const api: NexoraApi = {
       ipcRenderer.invoke(IPC.HISTORY_COMMIT, input),
     list: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_LIST, projectName),
     restore: (projectName: string, hash: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE, projectName, hash),
-    restoreGreen: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE_GREEN, projectName)
+    restoreGreen: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE_GREEN, projectName),
+    filesAt: (projectName: string, ref: string) => ipcRenderer.invoke(IPC.HISTORY_FILES_AT, projectName, ref)
   }
 }
 
