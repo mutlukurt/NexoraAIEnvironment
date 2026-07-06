@@ -249,6 +249,9 @@ export default function ArtifactsPanel() {
       // Görsel öz-denetim (roadmap 3.3): sayfa ayağa kalktıktan sonra uygulama
       // kendi çıktısına bakar; kusur görürse gizli düzelt turu başlatır.
       setTimeout(() => void useAppStore.getState().runVisualReview(res.url!), 4000)
+      // Davranışsal doğrulama (6.5): görsel denetimden sonra siteyi GEZ —
+      // tıkla, doldur, ölç; rapor + bölüm kareleri sohbete düşer.
+      setTimeout(() => void useAppStore.getState().runBehaviorReview(res.url!), 12000)
     } else {
       setExportMsg(res.error ?? (language === 'tr' ? 'Başlatılamadı' : 'Failed to start'))
     }

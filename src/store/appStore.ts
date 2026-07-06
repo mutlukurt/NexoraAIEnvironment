@@ -113,6 +113,8 @@ interface AppState {
   openProject: (dir: string, name: string) => Promise<void>
   /** Görsel öz-denetim (roadmap 3.3): Run sonrası sayfayı vizyon modeline göster. */
   runVisualReview: (url: string) => Promise<void>
+  /** 6.5: siteyi tester gibi gez, raporu sohbete yaz (Çalıştır sonrası otomatik). */
+  runBehaviorReview: (url: string) => Promise<void>
   /**
    * Debug Engine (roadmap 5.1/5.2): projeyi çalıştırmadan tara.
    * apply=false → yalnızca rapor (içe aktarma otomatik taraması dosyaya
@@ -1890,6 +1892,55 @@ export const useAppStore = create<AppState>((set, get) => ({
       logRepair({ layer: 'scan-remaining', notes: report.remaining.map((f) => `${f.cls}@${f.path}`) })
     }
     say(formatScanReport(report, isTr))
+  },
+
+  runBehaviorReview: async (url: string) => {
+    // 6.5: "doğrulandı" = "çalışıyor". Motor siteyi kullanıcı gibi gezer;
+    // rapor dürüstçe sohbete düşer, kusurlar "düzelt" protokolüne bağlanır.
+    try {
+      if (get().sending || get().generating) return
+      const r = await window.nexora.agent.behaviorTest(url)
+      const isTr = get().language === 'tr'
+      if (!r.ok) return // sayfa açılamadı/zaman aşımı — görsel denetim zaten konuştu
+      const fails: string[] = []
+      const rows: string[] = []
+      if (r.images) {
+        const okImgs = r.images.total - r.images.broken.length
+        rows.push(`görseller ${okImgs}/${r.images.total} ${r.images.broken.length === 0 ? '✓' : '✗'}`)
+        if (r.images.broken.length > 0) fails.push(`${r.images.broken.length} görsel yüklenmedi: ${r.images.broken.join(', ')}`)
+      }
+      if (r.nav && r.nav.length > 0) {
+        const okNav = r.nav.filter((n: { target: boolean }) => n.target).length
+        rows.push(`menü bağlantıları ${okNav}/${r.nav.length} ${okNav === r.nav.length ? '✓' : '✗'}`)
+        for (const n of r.nav.filter((x: { target: boolean }) => !x.target)) fails.push(`nav hedefi yok: ${n.href} (id'li bölüm bulunamadı)`)
+      }
+      if (r.buttons && r.buttons.total > 0) {
+        rows.push(`butonlar ${r.buttons.clicked}/${r.buttons.total} tıklandı${r.buttons.errors > 0 ? `, ${r.buttons.errors} hata ✗` : ' ✓'}`)
+        if (r.buttons.errors > 0) fails.push(`buton tıklamaları ${r.buttons.errors} konsol hatası üretti`)
+      }
+      if (r.form?.present) rows.push('form dolduruldu+gönderildi ✓')
+      if (r.consoleErrors && r.consoleErrors.length > 0) {
+        rows.push(`konsol: ${r.consoleErrors.length} hata ✗`)
+        fails.push(`gezinti sırasında konsol hataları: ${r.consoleErrors[0]}`)
+      } else {
+        rows.push('konsol temiz ✓')
+      }
+      const shotLine = r.shots && r.shots.length > 0 ? `\n📸 ${r.shots.length} bölüm karesi: ${r.shots[0].slice(0, r.shots[0].lastIndexOf('/'))}` : ''
+      const head = fails.length === 0 ? (isTr ? '🧪 Davranış testi GEÇTİ — siteyi gezdim:' : '🧪 Behavior test PASSED — I walked the site:') : isTr ? '🧪 Davranış testi kusur buldu:' : '🧪 Behavior test found defects:'
+      const failLines = fails.length > 0 ? '\n' + fails.map((f) => '  ⚠️ ' + f).join('\n') + (isTr ? '\n"düzelt" yazman yeterli — izi modele ben iletirim.' : '\nType "fix" — I will hand the trace to the model.') : ''
+      if (fails.length > 0) {
+        set({ lastBuildError: 'BEHAVIOR TEST — defects found while USING the page:\n' + fails.join('\n') })
+      }
+      set((s) => ({
+        messages: [
+          ...s.messages,
+          { id: nanoid(), role: 'assistant', content: `${head}\n${rows.join(' · ')}${shotLine}${failLines}` }
+        ]
+      }))
+      logRepair({ layer: fails.length === 0 ? 'behavior-pass' : 'behavior-fail', notes: fails.slice(0, 4) })
+    } catch {
+      /* davranış testi çalışamadı — görsel denetim ve kanca duyuları devrede */
+    }
   },
 
   runVisualReview: async (url: string) => {

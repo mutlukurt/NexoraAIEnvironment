@@ -39,6 +39,7 @@ import {
 } from './agentService'
 import { runBenchmark, readBenchmarks } from './benchService'
 import { inspectRuntimeException } from './debugInspect'
+import { runBehaviorTest } from './behaviorTest'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware, getAdvisorPlan } from './advisorService'
 import { setApiConfig, type ApiConfig } from './apiEngine'
@@ -295,6 +296,9 @@ function registerIpc(): void {
 
   // Gerçek runtime debugger (roadmap 6.1): çökme anını CDP ile oku.
   ipcMain.handle(IPC.DEBUG_INSPECT, (_e, input: { url: string }) => inspectRuntimeException(input.url))
+
+  // Davranışsal doğrulama (roadmap 6.5): siteyi tester gibi gez.
+  ipcMain.handle(IPC.BEHAVIOR_TEST, (_e, input: { url: string }) => runBehaviorTest(input.url))
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
     const res = await startDev(input.projectName, input.files, (msg) => {

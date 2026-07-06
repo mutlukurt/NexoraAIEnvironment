@@ -108,6 +108,8 @@ export interface NexoraApi {
     runtimeStatus: () => Promise<{ port: number | null }>
     /** 6.1: dev sayfasını debugger takılı aç, çökme anının frame+yerellerini oku. */
     debugInspect: (url: string) => Promise<import('../shared/ipc').DebugInspectResult>
+    /** 6.5: siteyi tester gibi gez — tıkla, doldur, ölç, bölüm karelerini üret. */
+    behaviorTest: (url: string) => Promise<import('../shared/ipc').BehaviorReport>
   }
   bench: {
     /** Yüklü modeli sabit görevle ölç (roadmap 4.5); sonuç kalıcı yazılır. */
@@ -229,7 +231,8 @@ const api: NexoraApi = {
       return () => ipcRenderer.off(IPC.AGENT_RUNTIME_ERROR, handler as never)
     },
     runtimeStatus: () => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
-    debugInspect: (url: string) => ipcRenderer.invoke(IPC.DEBUG_INSPECT, { url })
+    debugInspect: (url: string) => ipcRenderer.invoke(IPC.DEBUG_INSPECT, { url }),
+    behaviorTest: (url: string) => ipcRenderer.invoke(IPC.BEHAVIOR_TEST, { url })
   },
   bench: {
     run: () => ipcRenderer.invoke(IPC.BENCH_RUN),

@@ -135,8 +135,22 @@ export const IPC = {
   RUNTIME_STATUS: 'agent:runtime-status',
   BENCH_RUN: 'bench:run',
   BENCH_GET: 'bench:get',
-  DEBUG_INSPECT: 'debug:inspect'
+  DEBUG_INSPECT: 'debug:inspect',
+  BEHAVIOR_TEST: 'debug:behavior-test'
 } as const
+
+/** 6.5 davranışsal doğrulama raporu: motor siteyi kullanıcı gibi gezdi. */
+export interface BehaviorReport {
+  ok: boolean
+  error?: string
+  images?: { total: number; broken: string[] }
+  nav?: Array<{ href: string; target: boolean; moved: boolean }>
+  buttons?: { total: number; clicked: number; errors: number }
+  form?: { present: boolean }
+  consoleErrors?: string[]
+  /** Bölüm bölüm ekran şeridi (PNG yolları). */
+  shots?: string[]
+}
 
 /** 6.1 gerçek runtime debugger: çökme anındaki frame + yerel değişkenler. */
 export interface DebugFrameInfo {
