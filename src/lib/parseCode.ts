@@ -281,6 +281,8 @@ export interface EditApplyResult {
   content: string
   applied: number
   failed: number
+  /** 6.3: eşleşmeyen SEARCH metinleri — gerçeklik geri beslemesi bunlardan kurulur. */
+  failures: string[]
 }
 
 /** Bir blok cerrahi düzenleme mi? (```edit yolu ya da içinde SEARCH işareti) */
@@ -352,15 +354,49 @@ function parseEditSegments(block: string): EditSegment[] {
  * satır bazında trim'li (girinti farklarına hoşgörülü) kayan pencere.
  * Eşleşmeyen segment dosyayı BOZMAZ, yalnızca failed sayacına yazılır.
  */
+/**
+ * 6.3 çapa: satır-numarası öneki temizliği. Model, kendisine verilen satır
+ * numaralı pasajdan ("  12| kod") kopyalarken önekleri de taşıyabiliyor —
+ * SEARCH satırlarının çoğunluğu "NN|" taşıyorsa önekler soyulur.
+ */
+function stripLineNumberPrefixes(text: string): string {
+  const lines = text.split('\n')
+  const prefixed = lines.filter((l) => /^\s*\d+\|\s?/.test(l)).length
+  if (prefixed === 0 || prefixed * 2 < lines.filter((l) => l.trim()).length) return text
+  return lines.map((l) => l.replace(/^\s*\d+\|\s?/, '')).join('\n')
+}
+
+/** İki metnin bigram Dice benzerliği (0-1) — kısa tek satırlar için yeterli. */
+function diceSimilarity(a: string, b: string): number {
+  const grams = (s: string): Set<string> => {
+    const t = s.replace(/\s+/g, ' ').trim().toLowerCase()
+    const out = new Set<string>()
+    for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2))
+    return out
+  }
+  const A = grams(a)
+  const B = grams(b)
+  if (A.size === 0 || B.size === 0) return 0
+  let hit = 0
+  for (const g of A) if (B.has(g)) hit++
+  return (2 * hit) / (A.size + B.size)
+}
+
 export function applySearchReplace(original: string, block: string): EditApplyResult {
   let content = original
   let applied = 0
   let failed = 0
+  const failures: string[] = []
 
-  for (const seg of parseEditSegments(block)) {
+  for (let seg of parseEditSegments(block)) {
     if (!seg.search.trim()) {
       failed++
       continue
+    }
+    // 6.3 ön-normalizasyon: satır-numarası önekli SEARCH/REPLACE soyulur.
+    const cleanedSearch = stripLineNumberPrefixes(seg.search)
+    if (cleanedSearch !== seg.search) {
+      seg = { search: cleanedSearch, replace: stripLineNumberPrefixes(seg.replace) }
     }
     if (content.includes(seg.search)) {
       content = content.replace(seg.search, seg.replace)
@@ -448,10 +484,75 @@ export function applySearchReplace(original: string, block: string): EditApplyRe
         continue
       }
     }
+
+    // 5. kademe (6.3 AST-ruhlu çapa): tek satırlık `key: 'değer'` düzeltmesi.
+    // 14B gecesi dersi: model veri dizisindeki desc satırını kopyalamak yerine
+    // çevresini uydurdu ve 3 tur ıskaladı. SEARCH tek satır `key: '...'` ise,
+    // dosyada AYNI anahtarı taşıyan satırlar arasından değeri EN BENZER olan
+    // (Dice ≥ 0.55 ve ikinciden belirgin şekilde iyi) hedef alınır.
+    const kvMatch = seg.search.trim().match(/^([\w$]+)\s*:\s*(['"])(.+)\2,?$/)
+    if (kvMatch && !seg.search.trim().includes('\n')) {
+      const [, key, , value] = kvMatch
+      const oLines2 = content.split('\n')
+      const keyRe = new RegExp(`^\\s*${key}\\s*:\\s*(['"]).*\\1,?\\s*$`)
+      const candidates: Array<{ i: number; score: number }> = []
+      for (let i = 0; i < oLines2.length; i++) {
+        if (!keyRe.test(oLines2[i])) continue
+        const v = oLines2[i].match(/(['"])(.*)\1/)?.[2] ?? ''
+        candidates.push({ i, score: diceSimilarity(v, value) })
+      }
+      candidates.sort((a, b) => b.score - a.score)
+      const best = candidates[0]
+      const second = candidates[1]
+      if (best && best.score >= 0.55 && (!second || best.score - second.score >= 0.15)) {
+        const indent = oLines2[best.i].match(/^\s*/)?.[0] ?? ''
+        oLines2.splice(best.i, 1, indent + seg.replace.trim())
+        content = oLines2.join('\n')
+        applied++
+        continue
+      }
+    }
+
     failed++
+    failures.push(seg.search)
   }
 
-  return { content, applied, failed }
+  return { content, applied, failed, failures }
+}
+
+/**
+ * 6.3 gerçeklik geri beslemesi: ıskalanan SEARCH için dosyanın EN YAKIN
+ * gerçek bölgesini (satır-benzerliği skoruyla) bulur ve satır numaralı,
+ * birebir kopyalanabilir bir pasaj döndürür. 14B gecesinin dersi: model
+ * ıskaladığında ona "eşleşmedi" demek yetmez — bir daha uydurur; GERÇEK
+ * baytları göstermek gerekir.
+ */
+export function realityFeedback(searchText: string, fileContent: string, path: string): string {
+  const sLines = searchText.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (sLines.length === 0) return ''
+  const oLines = fileContent.split('\n')
+  // En ayırt edici SEARCH satırı (en uzun) ile dosyada en benzer satırı bul.
+  const anchor = [...sLines].sort((a, b) => b.length - a.length)[0]
+  let bestI = 0
+  let bestScore = -1
+  for (let i = 0; i < oLines.length; i++) {
+    const sc = diceSimilarity(oLines[i], anchor)
+    if (sc > bestScore) {
+      bestScore = sc
+      bestI = i
+    }
+  }
+  const from = Math.max(0, bestI - 5)
+  const to = Math.min(oLines.length, bestI + 6)
+  const excerpt = oLines
+    .slice(from, to)
+    .map((l, i) => `${String(from + i + 1).padStart(4)}| ${l}`)
+    .join('\n')
+  return (
+    `\nSEARCH bloğun ${path} içinde EŞLEŞMEDİ — dosyada öyle satırlar yok. ` +
+    `Dosyanın GERÇEK içeriği (hedefe en yakın bölge, satır numaralı):\n${excerpt}\n` +
+    `Yeni SEARCH bloğunu bu pasajdan (satır numaraları OLMADAN) BİREBİR kopyala.`
+  )
 }
 
 export function parseContent(content: string): ContentSegment[] {

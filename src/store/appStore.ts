@@ -885,6 +885,8 @@ let applyTimer: ReturnType<typeof setTimeout> | null = null
 let oversizedEditAborting = false
 let oversizedEditRetries = 0
 let editRetryInFlight = false
+/** 6.3: gerçeklik geri beslemeli otomatik yeniden deneme — kullanıcı turu başına 1. */
+let realityRetries = 0
 let violationStop = false
 let updateTurn = false
 let preTurnPaths: Set<string> = new Set()
@@ -1032,7 +1034,7 @@ function editViolation(): void {
 interface ApplyOutcome {
   fileCount: number
   /** Final geçişte uygulanan cerrahi düzenlemelerin dosya bazında dökümü. */
-  edits: Array<{ path: string; applied: number; failed: number }>
+  edits: Array<{ path: string; applied: number; failed: number; failures: string[] }>
   /** Final geçişte tam olarak yazılan dosyalar (formatlama için). */
   written: string[]
 }
@@ -1087,7 +1089,7 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
       if (res.failed > 0) {
         console.warn(`[NexoraAI] ${f.path}: ${res.failed} düzenleme bloğu eşleşmedi`)
       }
-      edits.push({ path: f.path, applied: res.applied, failed: res.failed })
+      edits.push({ path: f.path, applied: res.applied, failed: res.failed, failures: res.failures })
       continue
     }
     const language: FileLanguage = langToLanguage(f.lang) ?? detectLanguage(f.path)
@@ -1316,6 +1318,44 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             { id: nanoid(), role: 'assistant', content: '🔧 Düzeltme raporu:\n' + rows.map((r) => '• ' + r).join('\n') }
           ]
         }))
+        // 6.3 gerçeklik geri beslemesi: ıskalanan blok varsa modele "eşleşmedi"
+        // demek yetmez — bir daha uydurur (14B gecesi: aynı hayali SEARCH 3 tur).
+        // Dosyanın GERÇEK baytları satır numarasıyla gösterilip TEK otomatik
+        // düzeltici tur atılır (kullanıcı turu başına bir hak).
+        const totalFailedNow = outcome.edits.reduce((a, e) => a + e.failed, 0)
+        if (totalFailedNow > 0 && realityRetries < 1 && !oversizedEditAborting) {
+          realityRetries++
+          void (async () => {
+          const { realityFeedback } = await import('@/lib/parseCode')
+          const notes: string[] = []
+          for (const e of outcome.edits) {
+            if (e.failures.length === 0) continue
+            const f = useArtifactsStore.getState().files[e.path]
+            if (!f) continue
+            for (const searchText of e.failures.slice(0, 3)) {
+              notes.push(realityFeedback(searchText, f.content, e.path))
+            }
+          }
+          if (notes.length > 0) {
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                {
+                  id: nanoid(),
+                  role: 'assistant',
+                  content: '🎯 Eşleşmeyen bloklar için dosyanın gerçek satırları modele gösterilip otomatik yeniden deneniyor…'
+                }
+              ]
+            }))
+            editRetryInFlight = true
+            void get().sendMessage(
+              'Az önceki edit bloklarından bazıları EŞLEŞMEDİ — SEARCH içeriğini dosyadan kopyalamak yerine uydurdun. Aşağıda her ıskalanan blok için dosyanın GERÇEK içeriği var; SADECE eşleşmeyen düzeltmeleri, SEARCH satırlarını bu pasajlardan birebir kopyalayarak yeniden yaz:' +
+                notes.join('\n'),
+              { hideUser: true }
+            )
+          }
+          })()
+        }
       }
 
       // Bekçi kesmesi: tamamlanan küçük bloklar yukarıda uygulandı. İlk ihlalde
@@ -2211,7 +2251,10 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     lastApplyAt = 0
     // Kullanıcıdan gelen her yeni istek bekçi hakkını tazeler; otomatik
     // yeniden deneme turu ise mevcut hakkı tüketmeye devam eder.
-    if (!editRetryInFlight) oversizedEditRetries = 0
+    if (!editRetryInFlight) {
+      oversizedEditRetries = 0
+      realityRetries = 0
+    }
     editRetryInFlight = false
     oversizedEditAborting = false
     violationStop = false
