@@ -36,6 +36,7 @@ const CLASS_ORDER: Record<ScanFinding['cls'], number> = {
   'hook-missing-import': 3,
   'jsx-undefined': 3,
   'data-undefined': 3,
+  'ts-semantic': 3,
   'template-marker': 4,
   'package-json': 4
 }

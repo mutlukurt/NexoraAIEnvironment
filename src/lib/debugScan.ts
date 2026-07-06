@@ -27,6 +27,7 @@ export interface ScanFinding {
     | 'data-undefined'
     | 'template-marker'
     | 'package-json'
+    | 'ts-semantic'
   message: string
   /** Kat 0'ın (autoRepair) beklediği biçimde sentetik tanı. */
   diagnosis: string
@@ -151,9 +152,13 @@ function exportsName(content: string, name: string): boolean {
 
 /**
  * Projenin tamamını tara. Sözdizimi denetimi async (Babel chunk'ı lazy),
- * kalan denetimler saf senkron metin analizi — toplam milisaniyeler.
+ * metin analizi saf senkron; 6.2 ile sona DERLEYİCİ geçişi eklendi:
+ * TypeScript language service bellek-içi haritada koşar ve regex katmanının
+ * göremediği sınıfları (olmayan property, yanlış argüman, "şunu mu demek
+ * istedin") derleyici doğruluğunda raporlar. TS katmanı yüklenemezse motor
+ * regex bulgularıyla yaşamaya devam eder (test ortamı böyle hermetik kalır).
  */
-export async function scanProject(files: FileMap): Promise<ScanFinding[]> {
+export async function scanProject(files: FileMap, opts?: { ts?: boolean }): Promise<ScanFinding[]> {
   const findings: ScanFinding[] = []
   const paths = Object.keys(files)
   const codeFiles = Object.values(files).filter((f) => CODE_RE.test(f.path))
@@ -314,6 +319,33 @@ export async function scanProject(files: FileMap): Promise<ScanFinding[]> {
         diagnosis: `Unexpected token in JSON\n  File: package.json`,
         deterministic: false
       })
+    }
+  }
+
+  // ---- 8) Derleyici geçişi (6.2) — TS language service ---------------------
+  if (opts?.ts !== false) {
+    try {
+      const [{ tsScan }, { loadTsLibs }] = await Promise.all([
+        import('./tsDiagnostics'),
+        import('./tsLibs')
+      ])
+      const tsFindings = await tsScan(files, loadTsLibs)
+      for (const t of tsFindings) {
+        // Regex katmanı aynı noktayı zaten bulduysa (±1 satır) derleyici
+        // kopyası rapora girmez — tek bulgu, tek onarım.
+        const dup = findings.some((f) => f.path === t.path && f.line !== null && Math.abs(f.line - t.line) <= 1)
+        if (dup) continue
+        findings.push({
+          path: t.path,
+          line: t.line,
+          cls: 'ts-semantic',
+          message: `TS${t.code}: ${t.message}`,
+          diagnosis: t.diagnosis,
+          deterministic: t.deterministic
+        })
+      }
+    } catch {
+      /* derleyici katmanı yok/çöktü — regex bulgularıyla devam */
     }
   }
 
