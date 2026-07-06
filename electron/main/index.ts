@@ -46,6 +46,7 @@ import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionServi
 import { detectHardware, getAdvisorPlan } from './advisorService'
 import { setApiConfig, type ApiConfig } from './apiEngine'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
+import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
 import { getRules, setRules } from './rulesService'
 import { historyCommit, historyList, historyRestore, historyRestoreGreen } from './gitService'
 import { capturePage } from './captureService'
@@ -386,6 +387,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_e, id: string) => {
     await deleteSession(id)
     return { ok: true }
+  })
+
+  // Artifact belgeleri (7.2): plan / görev listesi / walkthrough — sürümlemeli.
+  ipcMain.handle(IPC.ARTIFACT_DOC_SAVE, async (_e, input: { sessionId: string; name: string; content: string }) => {
+    return saveArtifactDoc(input.sessionId, input.name, input.content)
+  })
+  ipcMain.handle(IPC.ARTIFACT_DOC_LIST, async (_e, sessionId: string) => {
+    return listArtifactDocs(sessionId)
+  })
+  ipcMain.handle(IPC.ARTIFACT_DOC_READ, async (_e, input: { sessionId: string; name: string; version?: number }) => {
+    return readArtifactDoc(input.sessionId, input.name, input.version)
   })
 
   // Klasör Aç (roadmap 3.1): var olan projeyi çalışma alanına bağla.

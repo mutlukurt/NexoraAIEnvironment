@@ -137,6 +137,11 @@ export interface NexoraApi {
     load: (id: string) => Promise<import('../shared/ipc').SessionData | null>
     remove: (id: string) => Promise<{ ok: boolean }>
   }
+  artifactDocs: {
+    save: (input: { sessionId: string; name: string; content: string }) => Promise<{ ok: boolean; version?: number; error?: string }>
+    list: (sessionId: string) => Promise<import('../shared/ipc').ArtifactDocMeta[]>
+    read: (input: { sessionId: string; name: string; version?: number }) => Promise<string | null>
+  }
   rules: {
     get: (projectName: string) => Promise<{ content: string }>
     set: (projectName: string, content: string) => Promise<{ ok: boolean }>
@@ -263,6 +268,13 @@ const api: NexoraApi = {
     save: (data) => ipcRenderer.invoke(IPC.SESSIONS_SAVE, data),
     load: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_LOAD, id),
     remove: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_DELETE, id)
+  },
+  artifactDocs: {
+    save: (input: { sessionId: string; name: string; content: string }) =>
+      ipcRenderer.invoke(IPC.ARTIFACT_DOC_SAVE, input),
+    list: (sessionId: string) => ipcRenderer.invoke(IPC.ARTIFACT_DOC_LIST, sessionId),
+    read: (input: { sessionId: string; name: string; version?: number }) =>
+      ipcRenderer.invoke(IPC.ARTIFACT_DOC_READ, input)
   },
   rules: {
     get: (projectName: string) => ipcRenderer.invoke(IPC.RULES_GET, projectName),

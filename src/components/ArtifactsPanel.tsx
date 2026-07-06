@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
 import FileTree from '@/components/FileTree'
@@ -138,11 +138,12 @@ export default function ArtifactsPanel() {
   // Önizleme kaldırıldı: projeyi görmenin yolu "Çalıştır" (gerçek vite +
   // localhost + tarayıcı). Sandbox iframe'in kısıtlarıyla boğuşmak yerine
   // kullanıcı gerçek çıktıya bakar.
-  const tabs: { id: 'code' | 'tree' | 'history' | 'engine'; label: string }[] = [
+  const tabs: { id: 'code' | 'tree' | 'history' | 'engine' | 'docs'; label: string }[] = [
     { id: 'code', label: language === 'tr' ? 'Kod' : 'Code' },
     { id: 'tree', label: language === 'tr' ? 'Ağaç' : 'Tree' },
     { id: 'history', label: language === 'tr' ? 'Geçmiş' : 'History' },
-    { id: 'engine', label: language === 'tr' ? 'Motor' : 'Engine' }
+    { id: 'engine', label: language === 'tr' ? 'Motor' : 'Engine' },
+    { id: 'docs', label: language === 'tr' ? 'Belgeler' : 'Docs' }
   ]
 
   const handleExport = async () => {
@@ -445,6 +446,8 @@ export default function ArtifactsPanel() {
           (canlı test: boş-durum dalı Geçmiş sekmesini gölgeliyordu). */}
       {view === 'engine' ? (
         <EngineTimeline language={language} />
+      ) : view === 'docs' ? (
+        <ArtifactDocsView language={language} />
       ) : view === 'history' ? (
         <HistoryTimeline language={language} />
       ) : fileCount === 0 ? (
@@ -583,6 +586,162 @@ function EngineTimeline({ language }: { language: 'tr' | 'en' }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * 7.2 Belgeler: oturumun artifact belgeleri (plan / görev listesi /
+ * walkthrough) — kanıt sohbet kaydırmasında değil, okunabilir belgede.
+ * Bağımlılıksız mini markdown çizici: başlık, alıntı, onay kutusu, madde,
+ * görsel (file://), kod bloğu. dangerouslySetInnerHTML YOK.
+ */
+const DOC_LABELS: Record<string, { tr: string; en: string; emoji: string }> = {
+  'implementation_plan.md': { tr: 'Uygulama Planı', en: 'Implementation Plan', emoji: '🗺️' },
+  'task.md': { tr: 'Görev Listesi', en: 'Task List', emoji: '📋' },
+  'walkthrough.md': { tr: 'Walkthrough', en: 'Walkthrough', emoji: '📄' }
+}
+
+function MarkdownLite({ text }: { text: string }) {
+  const nodes: ReactNode[] = []
+  const lines = text.split('\n')
+  let inCode = false
+  let codeBuf: string[] = []
+  lines.forEach((line, i) => {
+    if (line.trim().startsWith('```')) {
+      if (inCode) {
+        nodes.push(
+          <pre key={i} className="my-2 overflow-x-auto rounded-lg bg-ink-bg/70 border border-ink-line/60 p-3 font-mono text-[11px] text-ink-mut">
+            {codeBuf.join('\n')}
+          </pre>
+        )
+        codeBuf = []
+      }
+      inCode = !inCode
+      return
+    }
+    if (inCode) {
+      codeBuf.push(line)
+      return
+    }
+    const img = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/)
+    if (img) {
+      const src = /^(file|https?):/.test(img[2]) ? img[2] : 'file://' + img[2]
+      nodes.push(
+        <img key={i} src={src} alt={img[1]} className="my-2 max-h-64 rounded-lg border border-ink-line/60" />
+      )
+      return
+    }
+    // Satır içi biçim: `kod`, **kalın** — basit ve güvenli parça çizimi
+    const renderInline = (s: string): ReactNode[] =>
+      s.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, j) =>
+        part.startsWith('`') ? (
+          <code key={j} className="rounded bg-ink-hi px-1 py-0.5 font-mono text-[11px] text-ink-text">{part.slice(1, -1)}</code>
+        ) : part.startsWith('**') ? (
+          <strong key={j} className="font-bold text-ink-text">{part.slice(2, -2)}</strong>
+        ) : (
+          part
+        )
+      )
+    if (line.startsWith('# ')) nodes.push(<h1 key={i} className="mt-1 text-base font-extrabold text-ink-text">{renderInline(line.slice(2))}</h1>)
+    else if (line.startsWith('## ')) nodes.push(<h2 key={i} className="mt-4 text-sm font-extrabold text-ink-text">{renderInline(line.slice(3))}</h2>)
+    else if (line.startsWith('### ')) nodes.push(<h3 key={i} className="mt-3 text-xs font-extrabold text-ink-mut uppercase tracking-wide">{renderInline(line.slice(4))}</h3>)
+    else if (line.startsWith('> ')) nodes.push(<p key={i} className="my-1 border-l-2 border-brand-500/50 pl-3 text-xs italic text-ink-mut">{renderInline(line.slice(2))}</p>)
+    else if (/^-\s\[( |x|!)\]\s/.test(line)) {
+      const mark = line[3]
+      nodes.push(
+        <p key={i} className="my-0.5 flex items-start gap-2 text-xs text-ink-mut">
+          <span className={mark === 'x' ? 'text-emerald-500 font-bold' : mark === '!' ? 'text-red-500 font-bold' : 'text-ink-dim'}>
+            {mark === 'x' ? '✓' : mark === '!' ? '✗' : '○'}
+          </span>
+          <span className="min-w-0">{renderInline(line.slice(6))}</span>
+        </p>
+      )
+    } else if (line.startsWith('- ')) nodes.push(<p key={i} className="my-0.5 pl-3 text-xs text-ink-mut">• {renderInline(line.slice(2))}</p>)
+    else if (/^_.*_$/.test(line.trim())) nodes.push(<p key={i} className="my-1 text-[11px] text-ink-dim">{line.trim().slice(1, -1)}</p>)
+    else if (line.trim()) nodes.push(<p key={i} className="my-1 text-xs leading-relaxed text-ink-mut">{renderInline(line)}</p>)
+  })
+  return <div>{nodes}</div>
+}
+
+function ArtifactDocsView({ language }: { language: 'tr' | 'en' }) {
+  const tr = language === 'tr'
+  const sessionId = useAppStore((s) => s.currentSessionId)
+  const [docs, setDocs] = useState<Array<{ name: string; updatedAt: number; versions: number }>>([])
+  const [selected, setSelected] = useState<string | null>(null)
+  const [content, setContent] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  const refresh = async () => {
+    try {
+      setDocs(sessionId ? await window.nexora.artifactDocs.list(sessionId) : [])
+    } catch {
+      setDocs([])
+    }
+    setLoaded(true)
+  }
+  useEffect(() => {
+    void refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!selected || !sessionId) return
+    void window.nexora.artifactDocs.read({ sessionId, name: selected }).then((c: string | null) => setContent(c))
+  }, [selected, sessionId])
+
+  return (
+    <div className="flex flex-1 min-h-0 overflow-hidden bg-ink-card">
+      <div className="flex w-56 shrink-0 flex-col border-r border-ink-line/80 p-3 gap-2">
+        <p className="px-1 text-[10px] font-bold uppercase tracking-widest text-ink-dim">
+          {tr ? 'Bu oturumun belgeleri' : 'This session’s documents'}
+        </p>
+        {loaded && docs.length === 0 && (
+          <p className="px-1 text-[11px] leading-relaxed text-ink-dim">
+            {tr
+              ? 'Henüz belge yok. Plan onaylayıp üretim bitince Uygulama Planı, Görev Listesi ve Walkthrough burada belirir.'
+              : 'No documents yet. Approve a plan and finish a build — the plan, task list and walkthrough appear here.'}
+          </p>
+        )}
+        {docs.map((d) => {
+          const meta = DOC_LABELS[d.name] ?? { tr: d.name, en: d.name, emoji: '📄' }
+          return (
+            <button
+              key={d.name}
+              onClick={() => setSelected(d.name)}
+              className={
+                'rounded-xl border px-3 py-2.5 text-left transition ' +
+                (selected === d.name
+                  ? 'border-brand-500/40 bg-brand-500/10'
+                  : 'border-ink-line/70 bg-ink-panel hover:bg-ink-hi/60')
+              }
+            >
+              <span className="block text-xs font-bold text-ink-text">
+                {meta.emoji} {tr ? meta.tr : meta.en}
+              </span>
+              <span className="mt-0.5 block text-[10px] text-ink-dim">
+                {new Date(d.updatedAt).toLocaleTimeString(tr ? 'tr-TR' : 'en-US')}
+                {d.versions > 0 ? ` · ${d.versions} ${tr ? 'eski sürüm' : 'older version(s)'}` : ''}
+              </span>
+            </button>
+          )
+        })}
+        <button
+          onClick={() => void refresh()}
+          className="mt-auto rounded-lg border border-ink-line/70 px-3 py-1.5 text-[11px] font-bold text-ink-mut transition hover:bg-ink-hi"
+        >
+          {tr ? 'Yenile' : 'Refresh'}
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-5">
+        {selected && content != null ? (
+          <MarkdownLite text={content} />
+        ) : (
+          <p className="text-xs text-ink-dim">
+            {tr ? 'Okumak için soldan bir belge seç.' : 'Pick a document on the left to read it.'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

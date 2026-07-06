@@ -12,6 +12,7 @@ import type {
   TaskStep
 } from '@shared/ipc'
 import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
+import { composeWalkthrough, composeTaskDoc, composePlanDoc, type WalkthroughInput } from '@/lib/walkthrough'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
@@ -228,6 +229,49 @@ function taskCardStep(msgId: string, index: number, patch: Partial<TaskStep>): v
 function taskCardFinish(msgId: string, note?: string): void {
   useAppStore.setState((s) => ({ messages: finishTaskCard(s.messages, msgId, note) }))
   scheduleSessionSave()
+  // 7.2: kapanan her görev kartı task.md olarak oturumun yanına iner —
+  // tek boğaz noktası (6.8 logRepair dersi): besleme eklendikçe belge bedava.
+  const card = useAppStore.getState().messages.find((m) => m.id === msgId)
+  if (card?.tasks) {
+    void saveArtifactDocForSession(
+      'task.md',
+      composeTaskDoc(card.tasks.title, card.tasks.steps, card.tasks.note, new Date().toISOString())
+    )
+  }
+}
+
+// --- Artifact belgeleri (roadmap 7.2) ---
+// Belgeler ~/NexoraAI/Sessions/<id>.artifacts/ altında yaşar; oturum kimliği
+// henüz doğmadıysa (ilk kullanıcı mesajından hemen sonra) önce kayıt zorlanır.
+async function saveArtifactDocForSession(name: string, content: string): Promise<void> {
+  try {
+    let id = useAppStore.getState().currentSessionId
+    if (!id) {
+      await useAppStore.getState().saveSessionNow()
+      id = useAppStore.getState().currentSessionId
+    }
+    if (!id) return // hiç kullanıcı mesajı yok — belge bağlanacak oturum yok
+    await window.nexora.artifactDocs.save({ sessionId: id, name, content })
+  } catch {
+    /* belge yazılamadıysa akışı bozma — sohbet ve kart zaten doğruyu söylüyor */
+  }
+}
+
+/**
+ * Walkthrough bağlamı: planlı üretim bitince kurulur, üretim-sonrası
+ * doğrulama ve davranış testi kanıtlarını ekledikçe belge yeniden yazılır
+ * (eski hali .resolved.N olarak kalır). Yeni oturumda sıfırlanır.
+ */
+let pendingWalkthrough: WalkthroughInput | null = null
+
+async function writeWalkthrough(notice?: string): Promise<void> {
+  if (!pendingWalkthrough) return
+  await saveArtifactDocForSession('walkthrough.md', composeWalkthrough(pendingWalkthrough))
+  if (notice) {
+    useAppStore.setState((s) => ({
+      messages: [...s.messages, { id: nanoid(), role: 'assistant', content: notice }]
+    }))
+  }
 }
 /** Otomatik yeniden deneme sayacı (en fazla 2; yeni hata olayında sıfırlanır). */
 let autoFixRounds = 0
@@ -388,6 +432,7 @@ async function postGenVerify(
   postVerifyActive = true
   let regenerated = false
   let verifiedClean = false
+  let lastDiagnosis = ''
   const repairedDiags = new Set<string>()
   try {
     for (let round = 0; round < 4; round++) {
@@ -419,6 +464,7 @@ async function postGenVerify(
           /* denetim koşamadıysa sessizce geç — Çalıştır'daki denetim her zaman var */
         }
       }
+      if (diagnosis) lastDiagnosis = diagnosis
 
       if (!diagnosis) {
         verifiedClean = true
@@ -538,6 +584,16 @@ async function postGenVerify(
     }
   } finally {
     postVerifyActive = false
+    // 7.2: bekleyen walkthrough varsa doğrulama sonucu belgeye işlenir —
+    // "doğrulandı" sohbet iddiası değil, okunabilir kanıt belgesi olur.
+    if (pendingWalkthrough) {
+      pendingWalkthrough.verify = { clean: verifiedClean, detail: lastDiagnosis || undefined }
+      void writeWalkthrough(
+        get().language === 'tr'
+          ? '📄 Walkthrough hazır — Dosyalar & Kod → Belgeler sekmesinden okuyabilirsin. (Çalıştır sonrası davranış kanıtı da eklenir.)'
+          : '📄 Walkthrough ready — read it under Files & Code → Docs. (Behavior evidence is added after Run.)'
+      )
+    }
     // Git zaman çizelgesi (roadmap 3.4): bu üretim turunun SON hâli (otomatik
     // düzeltmeler dahil) bir commit olur. Ateşle-unut: git yoksa ya da proje
     // bağlı klasörse main süreç sessizce atlar; sohbet akışını asla bekletmez.
@@ -1881,6 +1937,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.nexora.chat.newSession()
     useArtifactsStore.getState().clearAll()
     sessionCreatedAt = 0
+    pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
     set({
       messages: [],
       currentSessionId: null,
@@ -2093,6 +2150,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         ]
       }))
       logRepair({ layer: fails.length === 0 ? 'behavior-pass' : 'behavior-fail', notes: fails.slice(0, 4) })
+      // 7.2: davranış kanıtı walkthrough'a işlenir — satırlar, kusurlar ve
+      // ekran şeridi belgeye gömülür; önceki sürüm .resolved.N olarak kalır.
+      if (pendingWalkthrough) {
+        pendingWalkthrough.behavior = { rows, fails, shots: r.shots ?? [] }
+        void writeWalkthrough(
+          isTr
+            ? '📄 Walkthrough güncellendi — davranış testi kanıtı ve ekran kareleri belgeye eklendi (Dosyalar & Kod → Belgeler).'
+            : '📄 Walkthrough updated — behavior evidence and screenshots embedded (Files & Code → Docs).'
+        )
+      }
     } catch {
       /* davranış testi çalışamadı — görsel denetim ve kanca duyuları devrede */
     }
@@ -2304,6 +2371,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     )
     useArtifactsStore.getState().replaceAll(files, data.selectedPath)
     sessionCreatedAt = data.createdAt
+    pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
     set({
       // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
       messages: deactivateTaskCards(data.messages.map((m: ChatMessage) => ({ ...m, streaming: false }))),
@@ -2379,6 +2447,12 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // planın neresinde olduğunu izler. Otomatik dosyalar (App.tsx/index.css)
     // kod tarafından çoktan yazıldı — kartta baştan ✓ görünürler.
     const isTr = get().language === 'tr'
+    // 7.2: onaylanan plan artifact belgesi olarak oturumun yanına iner —
+    // yeniden planlamada eski sürüm .resolved.N olarak kalır.
+    void saveArtifactDocForSession(
+      'implementation_plan.md',
+      composePlanDoc(p.request, p.planText, new Date().toISOString(), isTr)
+    )
     const stepIndexByPath = new Map<string, number>()
     const cardId = taskCardStart(
       isTr ? `Planlı üretim — ${files.length} dosya` : `Planned build — ${files.length} files`,
@@ -2459,6 +2533,21 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // Roadmap 2.3: dosya basina degil, dizinin SONUNDA bir dogrulama gecisi —
     // dosyalar arasi tutarsizliklar da (eksik import vb.) burada yakalanir.
     if (!plannedBuildAbort && built > 0) {
+      // 7.2: walkthrough bağlamı kurulur — postGenVerify doğrulama sonucunu,
+      // Çalıştır sonrası davranış testi kanıtları ekler; her yazım sürümlenir.
+      const descByPath = new Map(files.map((f) => [f.path, f.desc]))
+      const card = get().messages.find((m) => m.id === cardId)
+      pendingWalkthrough = {
+        request: p.request,
+        when: new Date().toISOString(),
+        lang: isTr ? 'tr' : 'en',
+        files: (card?.tasks?.steps ?? []).map((st) => ({
+          path: st.label,
+          desc: descByPath.get(st.label),
+          status: st.status,
+          detail: st.detail
+        }))
+      }
       void postGenVerify(get, set)
     }
   },

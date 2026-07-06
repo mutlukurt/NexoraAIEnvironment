@@ -135,6 +135,9 @@ export const IPC = {
   SESSIONS_SAVE: 'sessions:save',
   SESSIONS_LOAD: 'sessions:load',
   SESSIONS_DELETE: 'sessions:delete',
+  ARTIFACT_DOC_SAVE: 'artifact-doc:save',
+  ARTIFACT_DOC_LIST: 'artifact-doc:list',
+  ARTIFACT_DOC_READ: 'artifact-doc:read',
   RULES_GET: 'rules:get',
   RULES_SET: 'rules:set',
   PROJECT_IMPORT: 'project:import',
@@ -241,6 +244,15 @@ export interface SessionData extends SessionMeta {
   messages: ChatMessage[]
   files: Record<string, SessionFileEntry>
   selectedPath: string | null
+}
+
+/** 7.2: oturumun yanındaki artifact belgesi (plan / görev listesi / walkthrough). */
+export interface ArtifactDocMeta {
+  name: string
+  updatedAt: number
+  /** Kenara alınmış eski sürüm sayısı (.resolved.N). */
+  versions: number
+  sizeBytes: number
 }
 
 export interface ModelLoadProgressEvent {

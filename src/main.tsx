@@ -171,7 +171,32 @@ if (typeof window !== 'undefined' && !window.nexora) {
       pickImage: async () => null
     },
     capture: { page: async () => ({ ok: false }) },
-    bench: { run: async () => ({ ok: false }), get: async () => ({}) }
+    bench: { run: async () => ({ ok: false }), get: async () => ({}) },
+    // 7.2: bellek-içi artifact belge deposu — sürümleme dahil gerçek IPC
+    // semantiğini taklit eder ki Belgeler sekmesi tarayıcı modunda test edilebilsin.
+    artifactDocs: (() => {
+      const store = new Map<string, { content: string; updatedAt: number; versions: string[] }>()
+      const key = (sid: string, name: string) => sid + '/' + name
+      return {
+        save: async ({ sessionId, name, content }: { sessionId: string; name: string; content: string }) => {
+          const k = key(sessionId, name)
+          const cur = store.get(k)
+          if (cur && cur.content === content) return { ok: true, version: 0 }
+          const versions = cur ? [...cur.versions, cur.content] : []
+          store.set(k, { content, updatedAt: Date.now(), versions })
+          return { ok: true, version: versions.length }
+        },
+        list: async (sessionId: string) =>
+          [...store.entries()]
+            .filter(([k]) => k.startsWith(sessionId + '/'))
+            .map(([k, v]) => ({ name: k.slice(sessionId.length + 1), updatedAt: v.updatedAt, versions: v.versions.length, sizeBytes: v.content.length })),
+        read: async ({ sessionId, name, version }: { sessionId: string; name: string; version?: number }) => {
+          const v = store.get(key(sessionId, name))
+          if (!v) return null
+          return version != null ? (v.versions[version] ?? null) : v.content
+        }
+      }
+    })()
   };
   (window as any).nexora.model.onLoadProgress = () => () => {};
   (window as any).nexora.model.setApiConfig = async () => ({ ok: true });
