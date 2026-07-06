@@ -688,6 +688,17 @@ export async function scanProjectDir(root: string): Promise<{ files: ProjectFile
  * merdivenin her kritik kararı diske yazılır; zayıf hata sınıflarını log
  * söyler, korpusa eklenir, deterministik düzeltici yazılır.
  */
+/** 6.7 öğrenen motor: telemetri günlüğünü sınıf-bazlı istatistiğe çevir. */
+export async function readRepairStats(): Promise<import('../shared/errorClass').RepairStats> {
+  const { aggregateRepairStats } = await import('../shared/errorClass')
+  try {
+    const raw = await readFile(join(homedir(), 'NexoraAI', 'repair-log.jsonl'), 'utf8')
+    return aggregateRepairStats(raw.split('\n').filter(Boolean))
+  } catch {
+    return aggregateRepairStats([])
+  }
+}
+
 export async function appendRepairLog(entry: Record<string, unknown>): Promise<void> {
   try {
     const p = join(homedir(), 'NexoraAI', 'repair-log.jsonl')

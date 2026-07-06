@@ -34,6 +34,7 @@ import {
   runtimeCollectorPort,
   importProjectFolder,
   appendRepairLog,
+  readRepairStats,
   listProjects,
   openProjectDir
 } from './agentService'
@@ -305,6 +306,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.REPRO_CHECK, (_e, input: { url: string; signature: string }) =>
     reproCheck(input.url, input.signature)
   )
+
+  // Öğrenen motor (roadmap 6.7): telemetri → sınıf istatistikleri.
+  ipcMain.handle(IPC.REPAIR_STATS, () => readRepairStats())
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
     const res = await startDev(input.projectName, input.files, (msg) => {

@@ -754,9 +754,22 @@ ${e.message}
 ${cleanStack}
 HINT: "X is not defined" usually means a missing import in the file shown in the stack. Fix the ROOT CAUSE in that file with a SMALL edit block.`
     void (async () => {
+      // 6.7 öğrenen motor: sınıf önselleri — telemetri kanıt biriktirmişse
+      // merdiven ona göre yönlenir (muhafazakâr eşikler: kanıtsız davranış
+      // değişmez). skipKat0 = Kat 0 bu sınıfı hiç tutturamadı; eager = yerel
+      // model bu sınıfta repro'yu hiç geçemedi → izinliyse ilk denemede API.
+      let priors = { skipKat0: false, escalateEagerly: false }
+      try {
+        const stats = await window.nexora.agent.repairStats()
+        const { ladderPriors } = await import('@shared/errorClass')
+        priors = ladderPriors(stats, `${e.message}\n${cleanStack}`)
+        if (priors.skipKat0 || priors.escalateEagerly) {
+          logRepair({ layer: 'priors-applied', notes: [priors.skipKat0 ? 'kat0-atla' : '', priors.escalateEagerly ? 'erken-tırmanış' : ''].filter(Boolean) })
+        }
+      } catch { /* istatistik okunamadı — önselsiz akış */ }
       // Onarım Merdiveni Kat 0: beyaz-sayfa sınıfının ezici çoğunluğu eksik
       // import'tur — modele hiç gitmeden, milisaniyede kodla onar.
-      const notes = await tryAutoRepair(`${e.message}\n${cleanStack}`)
+      const notes = priors.skipKat0 ? [] : await tryAutoRepair(`${e.message}\n${cleanStack}`)
       if (notes.length > 0) {
         // Onarım DİSKE inmeli: dev sunucu diskten servis eder; sync sonrası
         // vite HMR sayfayı kendiliğinden toparlar.
@@ -854,7 +867,9 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
         ? ` En olası konum: ${loc.primary.path}${loc.primary.line ? ':' + loc.primary.line : ''} (%${Math.round(loc.primary.confidence * 100)}${loc.identifier ? `, '${loc.identifier}'` : ''}).`
         : ''
       // 5.5: ikinci deneme = yerel model ilkinde çözemedi → tırmanış kararı.
-      const esc = n >= 1 ? apiEscalation(sig) : { escalate: false, hint: null }
+      // 6.7: sınıf önseli "erken tırmanış" diyorsa ilk denemede de sorulur
+      // (apiEscalation kullanıcı iznini/apiAsk'ı yine kendisi denetler).
+      const esc = n >= 1 || priors.escalateEagerly ? apiEscalation(sig) : { escalate: false, hint: null }
       if (esc.hint) {
         set((s) => ({
           messages: [...s.messages, { id: nanoid(), role: 'assistant', content: esc.hint! }]

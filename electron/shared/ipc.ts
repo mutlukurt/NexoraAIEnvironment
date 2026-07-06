@@ -137,7 +137,8 @@ export const IPC = {
   BENCH_GET: 'bench:get',
   DEBUG_INSPECT: 'debug:inspect',
   BEHAVIOR_TEST: 'debug:behavior-test',
-  REPRO_CHECK: 'debug:repro-check'
+  REPRO_CHECK: 'debug:repro-check',
+  REPAIR_STATS: 'debug:repair-stats'
 } as const
 
 /** 6.5 davranışsal doğrulama raporu: motor siteyi kullanıcı gibi gezdi. */

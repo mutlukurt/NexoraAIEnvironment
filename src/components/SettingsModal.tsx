@@ -7,6 +7,14 @@ import { getProjectName } from '@/lib/agentActions'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
+  // Motor Karnesi (6.7): telemetri istatistikleri — mount'ta VE panel her
+  // açılışta tazelenir (canlı ders: _settingsOpen bayrağına güvenme, modal
+  // görünürlüğü ebeveynden de yönetilebiliyor; kapıda bekleyen effect hiç
+  // koşmuyordu).
+  const [stats, setStats] = useState<import('@shared/errorClass').RepairStats | null>(null)
+  useEffect(() => {
+    void window.nexora.agent.repairStats?.().then(setStats).catch(() => setStats(null))
+  }, [open])
   const customPrompt = useSettingsStore((s) => s.customSystemPrompt)
   const setCustom = useSettingsStore((s) => s.setCustomSystemPrompt)
   const enableGpu = useSettingsStore((s) => s.enableGpu)
@@ -146,6 +154,55 @@ export default function SettingsModal() {
                   </>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* Motor Karnesi (6.7): GERÇEK kullanımdan bul/onar/doğrula oranları */}
+          <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+            <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+              {language === 'tr' ? 'Motor Karnesi' : 'Engine Scorecard'}
+            </span>
+            <span className="mt-1 block text-[11px] font-medium leading-normal text-ink-dim">
+              {language === 'tr'
+                ? 'Debug Engine\'in bu cihazdaki gerçek saha performansı (onarım telemetrisinden).'
+                : "The Debug Engine's real field performance on this device (from repair telemetry)."}
+            </span>
+            {stats && stats.totalEvents > 0 ? (
+              <div className="mt-3 space-y-1.5 text-[11px] font-medium text-ink-mut">
+                <p>
+                  {language === 'tr' ? 'Toplam onarım olayı' : 'Total repair events'}: <b className="text-ink-text">{stats.totalEvents}</b>
+                </p>
+                {(() => {
+                  const hit = (stats.layers['kat0'] ?? 0) + (stats.layers['scan-kat0'] ?? 0)
+                  const miss = stats.layers['kat0-miss'] ?? 0
+                  const rv = stats.layers['repro-verified'] ?? 0
+                  const rf = stats.layers['repro-failed'] ?? 0
+                  const bp = stats.layers['behavior-pass'] ?? 0
+                  const bf = stats.layers['behavior-fail'] ?? 0
+                  const pct = (a: number, b: number) => (a + b > 0 ? Math.round((a / (a + b)) * 100) + '%' : '—')
+                  return (
+                    <>
+                      <p>{language === 'tr' ? 'Modelsiz onarım isabeti (Kat 0)' : 'Model-free repair hit rate (rung 0)'}: <b className="text-ink-text">{pct(hit, miss)}</b> ({hit}/{hit + miss})</p>
+                      <p>{language === 'tr' ? 'Repro doğrulama oranı' : 'Repro verification rate'}: <b className="text-ink-text">{pct(rv, rf)}</b> ({rv}✓ {rf}✗)</p>
+                      <p>{language === 'tr' ? 'Davranış testi geçme' : 'Behavior test pass'}: <b className="text-ink-text">{pct(bp, bf)}</b></p>
+                    </>
+                  )
+                })()}
+                <div className="mt-2 border-t border-ink-line/40 pt-2">
+                  {Object.entries(stats.classes)
+                    .sort((a, b) => b[1].kat0Miss + b[1].kat0Hit - (a[1].kat0Miss + a[1].kat0Hit))
+                    .slice(0, 5)
+                    .map(([cls, c]) => (
+                      <p key={cls} className="text-[10px] text-ink-dim">
+                        {cls}: kat0 {c.kat0Hit}✓/{c.kat0Miss}✗ · repro {c.reproVerified}✓/{c.reproFailed}✗{c.apiEscalated > 0 ? ` · api ${c.apiEscalated}` : ''}
+                      </p>
+                    ))}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-[11px] font-medium text-ink-dim">
+                {language === 'tr' ? 'Henüz telemetri yok — motor çalıştıkça burası dolacak.' : 'No telemetry yet — this fills as the engine works.'}
+              </p>
             )}
           </div>
 

@@ -112,6 +112,8 @@ export interface NexoraApi {
     behaviorTest: (url: string) => Promise<import('../shared/ipc').BehaviorReport>
     /** 6.6: imzalı hata taze yüklemede hâlâ üretiliyor mu? */
     reproCheck: (url: string, signature: string) => Promise<{ ok: boolean; reproduced?: boolean; evidence?: string; error?: string }>
+    /** 6.7: telemetriden sınıf-bazlı onarım istatistikleri (öğrenen motor + karne). */
+    repairStats: () => Promise<import('../shared/errorClass').RepairStats>
   }
   bench: {
     /** Yüklü modeli sabit görevle ölç (roadmap 4.5); sonuç kalıcı yazılır. */
@@ -235,7 +237,8 @@ const api: NexoraApi = {
     runtimeStatus: () => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
     debugInspect: (url: string) => ipcRenderer.invoke(IPC.DEBUG_INSPECT, { url }),
     behaviorTest: (url: string) => ipcRenderer.invoke(IPC.BEHAVIOR_TEST, { url }),
-    reproCheck: (url: string, signature: string) => ipcRenderer.invoke(IPC.REPRO_CHECK, { url, signature })
+    reproCheck: (url: string, signature: string) => ipcRenderer.invoke(IPC.REPRO_CHECK, { url, signature }),
+    repairStats: () => ipcRenderer.invoke(IPC.REPAIR_STATS)
   },
   bench: {
     run: () => ipcRenderer.invoke(IPC.BENCH_RUN),
