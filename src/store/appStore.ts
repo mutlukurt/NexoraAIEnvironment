@@ -890,6 +890,15 @@ let realityRetries = 0
 let violationStop = false
 let updateTurn = false
 let preTurnPaths: Set<string> = new Set()
+/**
+ * 6.4 tur transaction'ı: UPDATE turu başlarken var olan dosyaların içerik
+ * anlık görüntüsü. Canlı-uygulama UX'i aynen kalır (dosyalar editöre akar);
+ * tur YARIDA KESİLİRSE mevcut dosyalardaki değişiklikler ATOMİK geri alınır
+ * (254-div spirali dersi: kesilen tur store'a çöp bırakabiliyordu). Yeni
+ * oluşturulan dosyalar bilerek korunur — planlı üretimde Durdur+devam etme
+ * iş akışı (11/12 dosya senaryosu) yaşamaya devam eder.
+ */
+let turnSnapshot: Map<string, string> | null = null
 
 // Plan modu: bu üretim bir plan turu mu; bir sonraki gönderim planı atlasın mı.
 let planTurnActive = false
@@ -2442,6 +2451,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // dosyanın körlemesine baştan yazılması da yasaktır.
     updateTurn = !isPlanTurn && !opts?.expectFile && allFiles.length > 0
     preTurnPaths = new Set(allFiles.map((f) => f.path))
+    // 6.4: transaction anlık görüntüsü — yalnızca iterasyon turlarında
+    // (yeni-dosya/plan turlarında null: kesinti dosya kaybettirmez, korur).
+    turnSnapshot = updateTurn ? new Map(allFiles.map((f) => [f.path, f.content])) : null
 
     // "Düzelt" akışı: Çalıştır denetimi bir derleme hatası yakaladıysa ve
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
@@ -2654,6 +2666,7 @@ ${rules.slice(0, 1500)}
   },
 
   abort: async () => {
+    const wasActive = get().sending || get().generating
     plannedBuildAbort = true
     await window.nexora.chat.abort()
     cancelScheduledApply()
@@ -2663,6 +2676,38 @@ ${rules.slice(0, 1500)}
       messages: s.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m))
     }))
     useArtifactsStore.getState().finishStreaming()
+    // 6.4 tur transaction'ı: yarıda kesilen iterasyon turunun MEVCUT dosyalara
+    // yazdıkları atomik geri alınır (canlı-uygulama akışı çöp bırakamaz);
+    // bu turda YENİ oluşturulan dosyalar korunur.
+    if (wasActive && turnSnapshot) {
+      const filesNow = useArtifactsStore.getState().files
+      let reverted = 0
+      for (const [path, original] of turnSnapshot) {
+        const cur = filesNow[path]?.content
+        if (cur !== undefined && cur !== original) {
+          useArtifactsStore.getState().upsertFile(path, original)
+          reverted++
+        }
+      }
+      turnSnapshot = null
+      if (reverted > 0) {
+        logRepair({ layer: 'turn-rollback', notes: [`${reverted} dosya geri alındı`] })
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content:
+                get().language === 'tr'
+                  ? `↩️ Yarıda kesilen turun mevcut dosyalardaki değişiklikleri geri alındı (${reverted} dosya) — bu turda yeni oluşturulan dosyalar korundu.`
+                  : `↩️ The interrupted turn's changes to existing files were rolled back (${reverted} file(s)) — files newly created this turn were kept.`
+            }
+          ]
+        }))
+        scheduleSessionSave()
+      }
+    }
   },
 
   clearError: () => set({ error: null }),
