@@ -23,6 +23,17 @@ export interface Settings {
   apiMode: 'off' | 'fix' | 'all'
   /** 5.5: tırmanış API'ye gitmeden ÖNCE sor — onay "düzelt api" yazmaktır. */
   apiAsk: boolean
+  /**
+   * 7.5 Katman 2 — onay politikası: 'read' hiçbir komut/indirme çalıştırmaz
+   * (ajan yalnız önerir), 'auto' güvenli sınıf serbest + sınırda sorar
+   * (VARSAYILAN), 'full' sınırda olanları da onaysız koşturur — koşulsuz
+   * yasaklar ('deny' sınıfı) Tam Erişim'de bile çalışmaz.
+   */
+  trustTier: 'read' | 'auto' | 'full'
+  /** Satır başına bir önek: bu komutlar sormadan koşar (deny'ı AŞAMAZ). */
+  trustAllowList: string[]
+  /** Satır başına bir önek: bu komutlar hiçbir kipte çalışmaz. */
+  trustDenyList: string[]
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -34,7 +45,10 @@ const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   apiModel: '',
   apiMode: 'off',
-  apiAsk: false
+  apiAsk: false,
+  trustTier: 'auto',
+  trustAllowList: [],
+  trustDenyList: []
 }
 
 function loadSettings(): Settings {
@@ -55,7 +69,10 @@ function loadSettings(): Settings {
       apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
       apiModel: typeof parsed.apiModel === 'string' ? parsed.apiModel : '',
       apiMode: ['off', 'fix', 'all'].includes(parsed.apiMode) ? parsed.apiMode : 'off',
-      apiAsk: parsed.apiAsk === true
+      apiAsk: parsed.apiAsk === true,
+      trustTier: ['read', 'auto', 'full'].includes(parsed.trustTier) ? parsed.trustTier : 'auto',
+      trustAllowList: Array.isArray(parsed.trustAllowList) ? parsed.trustAllowList.filter((x: unknown) => typeof x === 'string') : [],
+      trustDenyList: Array.isArray(parsed.trustDenyList) ? parsed.trustDenyList.filter((x: unknown) => typeof x === 'string') : []
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -70,6 +87,7 @@ interface SettingsState extends Settings {
   updateCommand: (id: string, patch: Partial<Pick<CustomCommand, 'label' | 'prompt'>>) => void
   removeCommand: (id: string) => void
   setApi: (patch: Partial<Pick<Settings, 'apiBaseUrl' | 'apiKey' | 'apiModel' | 'apiMode' | 'apiAsk'>>) => void
+  setTrust: (patch: Partial<Pick<Settings, 'trustTier' | 'trustAllowList' | 'trustDenyList'>>) => void
   save: () => void
 }
 
@@ -87,6 +105,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   removeCommand: (id) =>
     set((s) => ({ customCommands: s.customCommands.filter((c) => c.id !== id) })),
   setApi: (patch) => set(patch),
+  setTrust: (patch) => set(patch),
   save: () => {
     try {
       localStorage.setItem(
@@ -101,6 +120,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           apiModel: get().apiModel,
           apiMode: get().apiMode,
           apiAsk: get().apiAsk,
+          trustTier: get().trustTier,
+          trustAllowList: get().trustAllowList.filter((x) => x.trim()),
+          trustDenyList: get().trustDenyList.filter((x) => x.trim()),
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )

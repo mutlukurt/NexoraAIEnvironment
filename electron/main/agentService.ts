@@ -789,11 +789,14 @@ export async function importProjectFolder(): Promise<ProjectImportResult> {
 // Terminal komutu çalıştırma
 // ---------------------------------------------------------------------------
 
-const BLOCKED_CMD = /\b(sudo|shutdown|reboot|poweroff|mkfs|dd\s+if=|:\(\)\s*\{)|rm\s+(-[a-z]*\s+)*\/(\s|$)/i
-
 export async function runCommand(projectName: string, cmd: string, timeoutMs = 300_000): Promise<RunResult> {
-  if (BLOCKED_CMD.test(cmd)) {
-    return { ok: false, output: 'Bu komut güvenlik nedeniyle engellendi: ' + cmd, exitCode: null }
+  // 7.5 Katman 1 (derinlemesine savunma): renderer'daki izin akışı ne derse
+  // desin, 'deny' sınıfı MAIN'de de duvardır — kök-yol hedefli yıkıcı komut,
+  // sudo/kapatma, boru-ile-kabuk hiçbir onay seviyesiyle çalışmaz.
+  const { commandVerdict } = await import('../shared/trust')
+  const verdict = commandVerdict(cmd)
+  if (verdict.action === 'deny') {
+    return { ok: false, output: `Bu komut güvenlik nedeniyle engellendi (${verdict.reason}): ${cmd}`, exitCode: null }
   }
   const dir = workspaceDir(projectName)
   await mkdir(dir, { recursive: true })

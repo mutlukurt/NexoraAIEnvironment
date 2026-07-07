@@ -42,6 +42,11 @@ export default function PermissionModal() {
                     {item.kind === 'run' ? t.permRunLabel : t.permFetchLabel}
                   </p>
                   <p className="break-all font-mono text-xs font-semibold text-ink-text">{item.text}</p>
+                  {item.reason && (
+                    <p className="mt-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                      {language === 'tr' ? 'neden soruluyor: ' : 'why asking: '}{item.reason}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

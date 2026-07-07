@@ -14,6 +14,7 @@ import type {
 import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
 import { composeWalkthrough, composeTaskDoc, composePlanDoc, type WalkthroughInput } from '@/lib/walkthrough'
 import { composeCommentBlock, type SteerComment } from '@/lib/steerComments'
+import { decideCommand } from '@shared/trust'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
@@ -150,7 +151,7 @@ interface AppState {
 
   /** Riskli agent eylemleri ([RUN]/[FETCH]) için bekleyen izin istemi. */
   permissionRequest: {
-    items: Array<{ kind: 'run' | 'fetch'; text: string }>
+    items: Array<{ kind: 'run' | 'fetch'; text: string; reason?: string }>
     resolve: (d: 'once' | 'always' | 'deny') => void
   } | null
 
@@ -1744,33 +1745,100 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
         if (hasDirectives(directives)) {
           void (async () => {
-            // İzin sistemi: [RUN] (kabuk komutu) ve [FETCH] (indirme) riskli —
-            // proje için kalıcı izin yoksa kullanıcıya sorulur.
-            const risky = [
-              ...directives.runs.map((r) => ({ kind: 'run' as const, text: r })),
-              ...directives.fetches.map((f) => ({ kind: 'fetch' as const, text: `${f.url} → ${f.path}` }))
-            ]
+            // 7.5 İKİ KATMANLI GÜVEN. Katman 1 (sandbox): her komut için
+            // hüküm — 'deny' hiçbir onayla çalışmaz (main'de de duvar),
+            // 'auto' çalışma alanı içi güvenli sınıf, 'ask' sınırda.
+            // Katman 2 (onay): Salt Okunur hiçbir şey koşturmaz; Otomatik
+            // yalnız 'ask' için sorar; Tam Erişim 'ask'ı onaysız koşturur.
+            const trust = useSettingsStore.getState()
+            const tier = trust.trustTier
+            const lists = { allowList: trust.trustAllowList, denyList: trust.trustDenyList }
             let effective = directives
-            if (risky.length > 0 && !isAgentAllowed()) {
-              const decision = await new Promise<'once' | 'always' | 'deny'>((resolve) => {
-                set({ permissionRequest: { items: risky, resolve } })
-              })
-              set({ permissionRequest: null })
-              if (decision === 'always') setAgentAllowed()
-              if (decision === 'deny') {
-                effective = { ...directives, runs: [], fetches: [] }
+
+            if (tier === 'read') {
+              const proposed = directives.runs.length + directives.fetches.length + (directives.dev ? 1 : 0)
+              if (proposed > 0) {
+                effective = { ...directives, runs: [], fetches: [], dev: false }
+                logRepair({ layer: 'trust-deny', notes: ['read-tier', `${proposed} eylem önerildi, çalıştırılmadı`] })
                 set((s) => ({
                   messages: [
                     ...s.messages,
                     {
                       id: nanoid(),
                       role: 'assistant',
-                      content: `⛔ İzin verilmedi — ${risky.length} riskli eylem atlandı (${risky.map((r) => (r.kind === 'run' ? 'komut' : 'indirme')).join(', ')}).`
+                      content: `📖 Salt Okunur kip: ajan ${proposed} eylem önerdi ama hiçbiri çalıştırılmadı:\n${[
+                        ...directives.runs.map((r) => '  $ ' + r),
+                        ...directives.fetches.map((f) => '  ⬇ ' + f.url),
+                        ...(directives.dev ? ['  ▶ dev sunucusu'] : [])
+                      ].join('\n')}\nÇalıştırmak için Ayarlar → Güven ve İzinler'den kipi değiştir.`
                     }
                   ]
                 }))
                 if (!hasDirectives(effective)) return
               }
+            } else {
+              const projectAlways = isAgentAllowed()
+              const autoRuns: string[] = []
+              const askRuns: Array<{ text: string; reason: string }> = []
+              const blocked: string[] = []
+              for (const cmd of directives.runs) {
+                const { decision, verdict } = decideCommand(cmd, tier, { ...lists, projectAlways })
+                if (decision === 'run') autoRuns.push(cmd)
+                else if (decision === 'ask') askRuns.push({ text: cmd, reason: verdict.reason })
+                else blocked.push(`${cmd} — ${verdict.reason}`)
+              }
+              // İndirme her zaman sınır sınıfıdır (varsayılan izin listesi YOK —
+              // Antigravity'nin webhook.site dersi); Tam Erişim/proje-izni koşturur.
+              const fetchesAsk = tier === 'full' || projectAlways ? [] : directives.fetches
+              if (blocked.length > 0) {
+                logRepair({ layer: 'trust-deny', notes: blocked.slice(0, 4) })
+                set((s) => ({
+                  messages: [
+                    ...s.messages,
+                    {
+                      id: nanoid(),
+                      role: 'assistant',
+                      content: `🛡 ${blocked.length} komut koşulsuz yasak sınıfında — hiçbir onay seviyesi çalıştıramaz:\n${blocked.map((b) => '  ⛔ ' + b).join('\n')}`
+                    }
+                  ]
+                }))
+              }
+              let approvedAsk = true
+              if (askRuns.length > 0 || fetchesAsk.length > 0) {
+                const items = [
+                  ...askRuns.map((r) => ({ kind: 'run' as const, text: r.text, reason: r.reason })),
+                  ...fetchesAsk.map((f) => ({
+                    kind: 'fetch' as const,
+                    text: `${f.url} → ${f.path}`,
+                    reason: get().language === 'tr' ? 'ağdan indirme — kaynak dış dünya' : 'network download'
+                  }))
+                ]
+                const decision = await new Promise<'once' | 'always' | 'deny'>((resolve) => {
+                  set({ permissionRequest: { items, resolve } })
+                })
+                set({ permissionRequest: null })
+                logRepair({ layer: 'trust-ask', notes: [decision, ...items.slice(0, 3).map((i) => i.text)] })
+                if (decision === 'always') setAgentAllowed()
+                approvedAsk = decision !== 'deny'
+                if (!approvedAsk) {
+                  set((s) => ({
+                    messages: [
+                      ...s.messages,
+                      {
+                        id: nanoid(),
+                        role: 'assistant',
+                        content: `⛔ İzin verilmedi — ${items.length} sınırdaki eylem atlandı${autoRuns.length ? ` (güvenli sınıftaki ${autoRuns.length} komut çalışır)` : ''}.`
+                      }
+                    ]
+                  }))
+                }
+              }
+              effective = {
+                ...directives,
+                runs: [...autoRuns, ...(approvedAsk ? askRuns.map((r) => r.text) : [])],
+                fetches: approvedAsk ? directives.fetches : directives.fetches.filter(() => tier === 'full' || projectAlways)
+              }
+              if (!hasDirectives(effective)) return
             }
             const logId = nanoid()
             const lines: string[] = ['⚙️ Agent eylemleri çalışıyor…']

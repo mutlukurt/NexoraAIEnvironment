@@ -541,6 +541,8 @@ const ENGINE_LAYER_META: Record<string, { emoji: string; step: string; stepEn: s
   'behavior-fail': { emoji: '🧪', step: 'Doğrula', stepEn: 'Verify' },
   'turn-rollback': { emoji: '↩️', step: 'Koru', stepEn: 'Protect' },
   'rollback-green': { emoji: '🟢', step: 'Koru', stepEn: 'Protect' },
+  'trust-deny': { emoji: '🛡', step: 'Koru', stepEn: 'Protect' },
+  'trust-ask': { emoji: '🛡', step: 'Koru', stepEn: 'Protect' },
   'api-turn': { emoji: '🚀', step: 'Tırman', stepEn: 'Escalate' },
   'api-escalated': { emoji: '🚀', step: 'Tırman', stepEn: 'Escalate' },
   'api-fallback-local': { emoji: '🚀', step: 'Tırman', stepEn: 'Escalate' },

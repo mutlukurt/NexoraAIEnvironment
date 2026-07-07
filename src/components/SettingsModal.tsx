@@ -29,6 +29,10 @@ export default function SettingsModal() {
   const apiMode = useSettingsStore((s) => s.apiMode)
   const apiAsk = useSettingsStore((s) => s.apiAsk)
   const setApi = useSettingsStore((s) => s.setApi)
+  const trustTier = useSettingsStore((s) => s.trustTier)
+  const trustAllowList = useSettingsStore((s) => s.trustAllowList)
+  const trustDenyList = useSettingsStore((s) => s.trustDenyList)
+  const setTrust = useSettingsStore((s) => s.setTrust)
   const addCommand = useSettingsStore((s) => s.addCommand)
   const updateCommand = useSettingsStore((s) => s.updateCommand)
   const removeCommand = useSettingsStore((s) => s.removeCommand)
@@ -155,6 +159,78 @@ export default function SettingsModal() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* 7.5 İki katmanlı güven: sandbox hükümleri + onay politikası */}
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm">
+            <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+              {language === 'tr' ? 'Güven ve İzinler' : 'Trust & Permissions'}
+            </span>
+            <span className="mt-1 block text-[11px] font-medium leading-normal text-ink-dim">
+              {language === 'tr'
+                ? 'Ajanın komut çalıştırma yetkisi. Koşulsuz yasaklar (kök yolu silme, sudo, boru-ile-kabuk) HİÇBİR kipte çalışmaz.'
+                : 'What the agent may execute. Hard denies (root-path deletion, sudo, pipe-to-shell) never run in ANY tier.'}
+            </span>
+            <div className="mt-3 flex flex-col gap-1.5">
+              {(
+                [
+                  ['read', language === 'tr' ? 'Salt Okunur' : 'Read Only', language === 'tr' ? 'hiçbir komut/indirme çalışmaz — ajan yalnız önerir' : 'no command/download runs — the agent only proposes'],
+                  ['auto', language === 'tr' ? 'Otomatik (önerilen)' : 'Auto (recommended)', language === 'tr' ? 'çalışma alanı içi güvenli komutlar serbest; sınırda olan her şey sorulur' : 'safe in-workspace commands run free; everything at the boundary asks'],
+                  ['full', language === 'tr' ? 'Tam Erişim' : 'Full Access', language === 'tr' ? 'sınırdakiler de onaysız koşar — koşulsuz yasaklar yine çalışmaz' : 'boundary items run unasked — hard denies still never run']
+                ] as const
+              ).map(([id, label, desc]) => (
+                <label
+                  key={id}
+                  className={
+                    'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 transition ' +
+                    (trustTier === id ? 'border-amber-500/50 bg-amber-500/10' : 'border-ink-line/70 hover:bg-ink-hi/50')
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="trustTier"
+                    checked={trustTier === id}
+                    onChange={() => {
+                      setTrust({ trustTier: id })
+                      // Salt Okunur "yalnız önerir" sözünü dosya edit'leri için
+                      // de tutar: otomatik uygula kapanır, her tur onaya düşer.
+                      if (id === 'read') useAppStore.getState().setAutoApply(false)
+                    }}
+                    className="mt-0.5 h-3.5 w-3.5 accent-amber-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-ink-text">{label}</span>
+                    <span className="block text-[10px] font-medium text-ink-dim">{desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
+                  {language === 'tr' ? 'İzin listesi (satır başına önek)' : 'Allow list (one prefix per line)'}
+                </span>
+                <textarea
+                  rows={3}
+                  value={trustAllowList.join('\n')}
+                  onChange={(e) => setTrust({ trustAllowList: e.target.value.split('\n') })}
+                  placeholder={'python3\npytest'}
+                  className="mt-1 w-full resize-none rounded-lg border border-ink-line/70 bg-ink-panel px-2.5 py-1.5 font-mono text-[11px] text-ink-text outline-none placeholder:text-ink-dim focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
+                  {language === 'tr' ? 'Yasak listesi (her kipte engel)' : 'Deny list (blocks in every tier)'}
+                </span>
+                <textarea
+                  rows={3}
+                  value={trustDenyList.join('\n')}
+                  onChange={(e) => setTrust({ trustDenyList: e.target.value.split('\n') })}
+                  placeholder={'git push\ncurl'}
+                  className="mt-1 w-full resize-none rounded-lg border border-ink-line/70 bg-ink-panel px-2.5 py-1.5 font-mono text-[11px] text-ink-text outline-none placeholder:text-ink-dim focus:border-amber-500"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Motor Karnesi (6.7): GERÇEK kullanımdan bul/onar/doğrula oranları */}
