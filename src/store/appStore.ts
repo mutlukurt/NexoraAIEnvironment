@@ -13,6 +13,7 @@ import type {
 } from '@shared/ipc'
 import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
 import { composeWalkthrough, composeTaskDoc, composePlanDoc, type WalkthroughInput } from '@/lib/walkthrough'
+import { composeCommentBlock, type SteerComment } from '@/lib/steerComments'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
@@ -163,6 +164,14 @@ interface AppState {
   // Prompt güçlendirme: gündelik tarif → profesyonel brief (yeni projelerde).
   enhancePrompts: boolean
   setEnhancePrompts: (v: boolean) => void
+
+  // 7.4 yorumla-yönlendir: inceleme/belge yorumları sonraki tura iliştirilir.
+  pendingComments: SteerComment[]
+  addSteerComment: (c: Omit<SteerComment, 'id' | 'createdAt'>) => void
+  removeSteerComment: (id: string) => void
+  clearSteerComments: () => void
+  /** Kuyruktaki yorumları hemen bir tura dönüştür ("Şimdi uygula"). */
+  applySteerComments: () => Promise<void>
 }
 
 let streamUnsub: (() => void) | null = null
@@ -1938,6 +1947,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     useArtifactsStore.getState().clearAll()
     sessionCreatedAt = 0
     pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
+    set({ pendingComments: [] }) // 7.4: yorumlar eski çalışma alanına çapalıydı
     set({
       messages: [],
       currentSessionId: null,
@@ -2372,6 +2382,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     useArtifactsStore.getState().replaceAll(files, data.selectedPath)
     sessionCreatedAt = data.createdAt
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
+    set({ pendingComments: [] }) // 7.4: çapalar önceki oturumun dosyalarınaydı
     set({
       // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
       messages: deactivateTaskCards(data.messages.map((m: ChatMessage) => ({ ...m, streaming: false }))),
@@ -2561,6 +2572,24 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       /* ignore */
     }
     set({ enhancePrompts: v })
+  },
+
+  // 7.4 yorumla-yönlendir: kuyruk koşan turu ASLA kesmez — yorum birikir,
+  // uygun ilk görünür turda (gizli düzeltme/planlı dosya turu değil) modele
+  // dosya:satır çapalı blok olarak iliştirilir.
+  pendingComments: [],
+  addSteerComment: (c) =>
+    set((s) => ({
+      pendingComments: [...s.pendingComments, { ...c, id: nanoid(), createdAt: Date.now() }]
+    })),
+  removeSteerComment: (id) =>
+    set((s) => ({ pendingComments: s.pendingComments.filter((c) => c.id !== id) })),
+  clearSteerComments: () => set({ pendingComments: [] }),
+  applySteerComments: async () => {
+    if (get().pendingComments.length === 0 || get().sending) return
+    await get().sendMessage(
+      get().language === 'tr' ? 'İnceleme yorumlarını uygula.' : 'Apply the review comments.'
+    )
   },
 
   sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean }) => {
@@ -2907,6 +2936,33 @@ ${rules.slice(0, 1500)}
       }
     } catch {
       /* kural okunamadıysa istek kuralsız gider */
+    }
+
+    // 7.4 yorumla-yönlendir: kuyruktaki inceleme yorumları bu görünür tura
+    // çapalı blok olarak iliştirilir. Gizli düzeltme turları, planlı dosya
+    // turları ve plan/brief meta-turları yorum TÜKETMEZ — kuyruk uygun ilk
+    // kod turunu bekler (koşan işi asla kesmez).
+    const steerNow = get().pendingComments
+    if (steerNow.length > 0 && !opts?.hideUser && !opts?.expectFile && !isPlanTurn && !isEnhanceTurn) {
+      const filesForComments = Object.fromEntries(
+        Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { content: f.content }])
+      )
+      outgoing += '\n\n' + composeCommentBlock(steerNow, filesForComments, get().language === 'tr')
+      set((s) => {
+        const note: ChatMessage = {
+          id: nanoid(),
+          role: 'assistant',
+          content:
+            get().language === 'tr'
+              ? `💬 ${steerNow.length} inceleme yorumu bu tura iliştirildi — her biri çapasındaki yere cerrahi uygulanacak.`
+              : `💬 ${steerNow.length} review comment(s) attached to this turn — each applies surgically at its anchor.`
+        }
+        // Not, akan cevap balonunun ÖNÜNDE durur (tur başlarken iliştirildi).
+        const idx = s.messages.findIndex((m) => m.id === asstId)
+        const messages =
+          idx >= 0 ? [...s.messages.slice(0, idx), note, ...s.messages.slice(idx)] : [...s.messages, note]
+        return { pendingComments: [], messages }
+      })
     }
 
     // Faza göre örnekleme (roadmap 1.3): plan ve brief yazımı yaratıcılık

@@ -44,15 +44,24 @@ function StatusBadge({ d, t }: { d: FileDiff; t: any }) {
   )
 }
 
-/** Görünüm satırı: op (indeksiyle) ya da katlanmış "… N satır …". */
-type Row = { kind: 'op'; op: DiffOp; idx: number } | { kind: 'skip'; count: number }
+/** Görünüm satırı: op (indeksi + sonrası-taraf satır no) ya da katlanmış blok. */
+type Row = { kind: 'op'; op: DiffOp; idx: number; lineAfter: number } | { kind: 'skip'; count: number }
 
 function buildRows(ops: DiffOp[], context = 3): Row[] {
+  // 7.4 yorum çapası için: her op'un "şimdiki içerikte" karşılık geldiği
+  // satır (same/add sayar; del, silmenin OLDUĞU yerdeki satıra çapalanır).
+  const lineAfterOf: number[] = []
+  let ln = 0
+  for (const op of ops) {
+    if (op.type !== 'del') ln++
+    lineAfterOf.push(Math.max(1, ln))
+  }
   const rows: Row[] = []
+  const push = (k: number) => rows.push({ kind: 'op', op: ops[k], idx: k, lineAfter: lineAfterOf[k] })
   let i = 0
   while (i < ops.length) {
     if (ops[i].type !== 'same') {
-      rows.push({ kind: 'op', op: ops[i], idx: i })
+      push(i)
       i++
       continue
     }
@@ -63,11 +72,11 @@ function buildRows(ops: DiffOp[], context = 3): Row[] {
     const keepBefore = isStart ? 0 : context
     const keepAfter = isEnd ? 0 : context
     if (run > keepBefore + keepAfter + 1) {
-      for (let k = 0; k < keepBefore; k++) rows.push({ kind: 'op', op: ops[i + k], idx: i + k })
+      for (let k = 0; k < keepBefore; k++) push(i + k)
       rows.push({ kind: 'skip', count: run - keepBefore - keepAfter })
-      for (let k = run - keepAfter; k < run; k++) rows.push({ kind: 'op', op: ops[i + k], idx: i + k })
+      for (let k = run - keepAfter; k < run; k++) push(i + k)
     } else {
-      for (let k = 0; k < run; k++) rows.push({ kind: 'op', op: ops[i + k], idx: i + k })
+      for (let k = 0; k < run; k++) push(i + k)
     }
     i += run
   }
@@ -80,6 +89,7 @@ function FileSection({
   onToggle,
   onRevertFile,
   onRevertHunk,
+  onComment,
   t,
   tr
 }: {
@@ -88,9 +98,12 @@ function FileSection({
   onToggle: () => void
   onRevertFile: () => void
   onRevertHunk: (h: Hunk) => void
+  onComment: (line: number, excerpt: string, text: string) => void
   t: any
   tr: boolean
 }) {
+  // 7.4: satıra yorum taslağı — kaydedilince kuyruğa girer, tur koşuyorsa bekler.
+  const [draft, setDraft] = useState<{ line: number; excerpt: string; text: string } | null>(null)
   const rows = useMemo(() => buildRows(d.ops), [d.ops])
   const hunks = useMemo(() => extractHunks(d.ops), [d.ops])
   const hunkAt = useMemo(() => new Map(hunks.map((h, n) => [h.start, { h, n }])), [hunks])
@@ -144,7 +157,7 @@ function FileSection({
                   )}
                   <div
                     className={
-                      'whitespace-pre-wrap break-all px-4 ' +
+                      'group relative whitespace-pre-wrap break-all px-4 pr-8 ' +
                       (r.op.type === 'add'
                         ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                         : r.op.type === 'del'
@@ -156,7 +169,44 @@ function FileSection({
                       {r.op.type === 'add' ? '+' : r.op.type === 'del' ? '−' : ' '}
                     </span>
                     {r.op.text || ' '}
+                    <button
+                      onClick={() => setDraft({ line: r.lineAfter, excerpt: r.op.text, text: '' })}
+                      title={tr ? 'Bu satıra yorum yaz (sonraki tura iliştirilir)' : 'Comment on this line (attached to the next turn)'}
+                      className="absolute right-1 top-0 hidden rounded px-1 text-[11px] group-hover:inline-block hover:bg-brand-500/20"
+                    >
+                      💬
+                    </button>
                   </div>
+                  {draft && draft.line === r.lineAfter && draft.excerpt === r.op.text && (
+                    <div className="flex items-center gap-2 border-y border-brand-500/30 bg-brand-500/5 px-4 py-2">
+                      <span className="shrink-0 text-[10px] font-bold text-brand-700 dark:text-brand-300">💬 :{draft.line}</span>
+                      <input
+                        autoFocus
+                        value={draft.text}
+                        onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && draft.text.trim()) {
+                            onComment(draft.line, draft.excerpt, draft.text.trim())
+                            setDraft(null)
+                          }
+                          if (e.key === 'Escape') setDraft(null)
+                        }}
+                        placeholder={tr ? 'Bu satır için yorumun… (Enter = kuyruğa ekle)' : 'Your comment for this line… (Enter = queue)'}
+                        className="min-w-0 flex-1 rounded-lg border border-ink-line bg-ink-panel px-2 py-1 font-sans text-[11px] text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
+                      />
+                      <button
+                        onClick={() => {
+                          if (draft.text.trim()) {
+                            onComment(draft.line, draft.excerpt, draft.text.trim())
+                            setDraft(null)
+                          }
+                        }}
+                        className="shrink-0 rounded-lg bg-brand-600 px-2.5 py-1 font-sans text-[10px] font-bold text-white hover:bg-brand-500"
+                      >
+                        {tr ? 'Ekle' : 'Add'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -181,6 +231,8 @@ export default function DiffModal() {
   const acceptChanges = useArtifactsStore((s) => s.acceptChanges)
   const restoreSnapshot = useArtifactsStore((s) => s.restoreSnapshot)
   const language = useAppStore((s) => s.language)
+  const addSteerComment = useAppStore((s) => s.addSteerComment)
+  const pendingComments = useAppStore((s) => s.pendingComments)
   const tr = language === 'tr'
   const t = translations[language]
 
@@ -266,6 +318,14 @@ export default function DiffModal() {
             <span className="shrink-0 rounded-lg bg-ink-hi/60 px-2 py-0.5 text-[10px] font-bold text-ink-mut">
               {diffs.length} {t.filesCount}
             </span>
+            {pendingComments.length > 0 && (
+              <span
+                title={tr ? 'Yorumlar bir sonraki tura iliştirilir' : 'Comments attach to the next turn'}
+                className="shrink-0 rounded-lg border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300"
+              >
+                💬 {pendingComments.length} {tr ? 'sırada' : 'queued'}
+              </span>
+            )}
             <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
               {scopes.map((s) => (
                 <button
@@ -313,6 +373,9 @@ export default function DiffModal() {
                     }
                   }}
                   onRevertHunk={(h) => applyRevert(d, h.start, h.end)}
+                  onComment={(line, excerpt, text) =>
+                    addSteerComment({ anchor: { kind: 'diff', path: d.path, line, excerpt }, text })
+                  }
                   t={t}
                   tr={tr}
                 />

@@ -312,6 +312,9 @@ export default function ChatPanel() {
   const clearImage = useAppStore((s) => s.clearImage)
   const sessions = useAppStore((s) => s.sessions)
   const openSession = useAppStore((s) => s.openSession)
+  const pendingComments = useAppStore((s) => s.pendingComments)
+  const applySteerComments = useAppStore((s) => s.applySteerComments)
+  const clearSteerComments = useAppStore((s) => s.clearSteerComments)
   const customCommands = useSettingsStore((s) => s.customCommands)
   const usableCommands = customCommands.filter((c) => c.label.trim() && c.prompt.trim())
 
@@ -722,6 +725,41 @@ export default function ChatPanel() {
       {/* Bottom input area: only visible when there are messages */}
       {messages.length > 0 && (
         <div className="z-10 border-t border-ink-line bg-ink-bg p-4">
+          {/* 7.4: sıradaki inceleme yorumları — koşan turu kesmez, bekler */}
+          {pendingComments.length > 0 && (
+            <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2">
+              <span className="shrink-0 text-xs font-bold text-brand-700 dark:text-brand-300">
+                💬 {pendingComments.length} {language === 'tr' ? 'yorum sırada' : 'comment(s) queued'}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-brand-600/80 dark:text-brand-400/80">
+                {pendingComments
+                  .slice(0, 3)
+                  .map((c) => (c.anchor.kind === 'diff' ? `${c.anchor.path.split('/').pop()}:${c.anchor.line}` : `§ ${c.anchor.section.slice(0, 16)}`))
+                  .join(' · ')}
+              </span>
+              {sending ? (
+                <span className="shrink-0 text-[10px] font-semibold text-brand-600 dark:text-brand-400">
+                  {language === 'tr' ? 'sonraki tura iliştirilecek' : 'attaches to the next turn'}
+                </span>
+              ) : (
+                <>
+                  <button
+                    onClick={() => void applySteerComments()}
+                    className="shrink-0 rounded-lg bg-brand-600 px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-brand-500"
+                  >
+                    {language === 'tr' ? 'Şimdi uygula' : 'Apply now'}
+                  </button>
+                  <button
+                    onClick={clearSteerComments}
+                    title={language === 'tr' ? 'Yorumları sil' : 'Discard comments'}
+                    className="shrink-0 rounded-lg border border-ink-line px-2 py-1 text-[10px] font-bold text-ink-dim transition hover:bg-ink-hi"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           {usableCommands.length > 0 && (
             <div className="mx-auto mb-2 flex max-w-3xl flex-wrap gap-1.5">
               {usableCommands.map((c) => (

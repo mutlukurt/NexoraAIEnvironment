@@ -602,8 +602,24 @@ const DOC_LABELS: Record<string, { tr: string; en: string; emoji: string }> = {
   'walkthrough.md': { tr: 'Walkthrough', en: 'Walkthrough', emoji: '📄' }
 }
 
-function MarkdownLite({ text }: { text: string }) {
+function MarkdownLite({ text, onComment }: { text: string; onComment?: (section: string) => void }) {
   const nodes: ReactNode[] = []
+  // 7.4: bölüm başlıklarına yorum düğmesi — yorum belge bölümüne çapalanır.
+  const heading = (key: number, label: string, node: ReactNode) =>
+    onComment ? (
+      <div key={key} className="group flex items-center gap-2">
+        {node}
+        <button
+          onClick={() => onComment(label)}
+          title="Bu bölüme yorum yaz (sonraki tura iliştirilir)"
+          className="hidden shrink-0 rounded px-1 text-[11px] group-hover:inline-block hover:bg-brand-500/20"
+        >
+          💬
+        </button>
+      </div>
+    ) : (
+      node
+    )
   const lines = text.split('\n')
   let inCode = false
   let codeBuf: string[] = []
@@ -644,8 +660,10 @@ function MarkdownLite({ text }: { text: string }) {
         )
       )
     if (line.startsWith('# ')) nodes.push(<h1 key={i} className="mt-1 text-base font-extrabold text-ink-text">{renderInline(line.slice(2))}</h1>)
-    else if (line.startsWith('## ')) nodes.push(<h2 key={i} className="mt-4 text-sm font-extrabold text-ink-text">{renderInline(line.slice(3))}</h2>)
-    else if (line.startsWith('### ')) nodes.push(<h3 key={i} className="mt-3 text-xs font-extrabold text-ink-mut uppercase tracking-wide">{renderInline(line.slice(4))}</h3>)
+    else if (line.startsWith('## '))
+      nodes.push(heading(i, line.slice(3), <h2 className="mt-4 text-sm font-extrabold text-ink-text">{renderInline(line.slice(3))}</h2>))
+    else if (line.startsWith('### '))
+      nodes.push(heading(i, line.slice(4), <h3 className="mt-3 text-xs font-extrabold text-ink-mut uppercase tracking-wide">{renderInline(line.slice(4))}</h3>))
     else if (line.startsWith('> ')) nodes.push(<p key={i} className="my-1 border-l-2 border-brand-500/50 pl-3 text-xs italic text-ink-mut">{renderInline(line.slice(2))}</p>)
     else if (/^-\s\[( |x|!)\]\s/.test(line)) {
       const mark = line[3]
@@ -667,10 +685,13 @@ function MarkdownLite({ text }: { text: string }) {
 function ArtifactDocsView({ language }: { language: 'tr' | 'en' }) {
   const tr = language === 'tr'
   const sessionId = useAppStore((s) => s.currentSessionId)
+  const addSteerComment = useAppStore((s) => s.addSteerComment)
   const [docs, setDocs] = useState<Array<{ name: string; updatedAt: number; versions: number }>>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [content, setContent] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  // 7.4: belge bölümüne yorum taslağı
+  const [commentDraft, setCommentDraft] = useState<{ section: string; text: string } | null>(null)
 
   const refresh = async () => {
     try {
@@ -733,13 +754,45 @@ function ArtifactDocsView({ language }: { language: 'tr' | 'en' }) {
           {tr ? 'Yenile' : 'Refresh'}
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-5">
-        {selected && content != null ? (
-          <MarkdownLite text={content} />
-        ) : (
-          <p className="text-xs text-ink-dim">
-            {tr ? 'Okumak için soldan bir belge seç.' : 'Pick a document on the left to read it.'}
-          </p>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto p-5">
+          {selected && content != null ? (
+            <MarkdownLite text={content} onComment={(section) => setCommentDraft({ section, text: '' })} />
+          ) : (
+            <p className="text-xs text-ink-dim">
+              {tr ? 'Okumak için soldan bir belge seç.' : 'Pick a document on the left to read it.'}
+            </p>
+          )}
+        </div>
+        {commentDraft && selected && (
+          <div className="flex items-center gap-2 border-t border-brand-500/30 bg-brand-500/5 px-4 py-2.5">
+            <span className="shrink-0 max-w-[30%] truncate text-[10px] font-bold text-brand-700 dark:text-brand-300">
+              💬 § {commentDraft.section}
+            </span>
+            <input
+              autoFocus
+              value={commentDraft.text}
+              onChange={(e) => setCommentDraft({ ...commentDraft, text: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && commentDraft.text.trim()) {
+                  addSteerComment({
+                    anchor: { kind: 'doc', doc: selected, section: commentDraft.section },
+                    text: commentDraft.text.trim()
+                  })
+                  setCommentDraft(null)
+                }
+                if (e.key === 'Escape') setCommentDraft(null)
+              }}
+              placeholder={tr ? 'Bu bölüm için yorumun… (Enter = kuyruğa ekle, tur koşuyorsa bekler)' : 'Your comment for this section… (Enter = queue)'}
+              className="min-w-0 flex-1 rounded-lg border border-ink-line bg-ink-panel px-2.5 py-1.5 text-[11px] text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
+            />
+            <button
+              onClick={() => setCommentDraft(null)}
+              className="shrink-0 rounded-lg border border-ink-line px-2 py-1 text-[10px] font-bold text-ink-dim hover:bg-ink-hi"
+            >
+              {tr ? 'Vazgeç' : 'Cancel'}
+            </button>
+          </div>
         )}
       </div>
     </div>

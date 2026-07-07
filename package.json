@@ -31,7 +31,8 @@
     "test:tasklist": "node tests/task-list.mjs",
     "test:artifacts": "node tests/artifact-docs.mjs",
     "test:review": "node tests/review-diff.mjs",
-    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:sourcemap && npm run test:tsdiag && npm run test:anchor && npm run test:reprosig && npm run test:learn && npm run test:tasklist && npm run test:artifacts && npm run test:review && npm run test:ground",
+    "test:steer": "node tests/steer-comments.mjs",
+    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:sourcemap && npm run test:tsdiag && npm run test:anchor && npm run test:reprosig && npm run test:learn && npm run test:tasklist && npm run test:artifacts && npm run test:review && npm run test:steer && npm run test:ground",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"
