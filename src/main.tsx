@@ -16,12 +16,27 @@ applyTheme(themeInitial())
 // Inject window.nexora mock provider for web browser testing
 if (typeof window !== 'undefined' && !window.nexora) {
   console.log('[NexoraAI] Running in Web Browser mode - Mocking window.nexora API');
-  // 8.7 — zamanı gören test yüzeyi: mock'un bir turun NE KADAR sürdüğünü ve
+  // 8.7 — ZAMANI GÖREN TEST YÜZEYİ: mock'un bir turun NE KADAR sürdüğünü ve
   // iptali NASIL karşıladığını senaryo bazında kontrol eder. Varsayılan 'fast'
   // eski tarayıcı davranışıyla BİREBİR aynı; yalnız test/preview sürücüsü
-  // __nexoraDebug.mock ile değiştirir. Böylece 8.1'in tüm gerçek-zaman defect
-  // sınıfı (abort-sunucuya-ulaşmıyor, sıfır-bayt stall, meşgul-sunucu) canlı
-  // olarak PREVIEW'da yeniden sahnelenebilir.
+  // __nexoraDebug.mock ile değiştirir. Böylece Faz 8'in tüm gerçek-zaman defect
+  // sınıfı PREVIEW'da yeniden sahnelenip regresyon olarak koşulabilir.
+  //
+  //   __nexoraDebug.mock.setScenario(s):
+  //     'fast'       — anlık ~1.6s tur (varsayılan; eski davranış)
+  //     'slow'       — çok-saniyeli tur (ilk token gecikmesi = prompt işleme)
+  //     'stall'      — 2 token sonra SESSİZLİK, done gelmez → canlılık bekçisi
+  //     'busy-abort' — abort'a rağmen akıtan meşgul sunucu (renderer yine unlock)
+  //   __nexoraDebug.mock.setDelays(firstMs, tokenMs)  — süreleri elle ayarla
+  //   __nexoraDebug.mock.setBehaviorResult(r) / .behaviorCalls  — 8.3 retry testi
+  //   __nexoraDebug.setStreamLivenessMs(firstMs, idleMs)         — 8.1 bekçi eşiği
+  //   __nexoraDebug.setBehaviorTiming(initMs, backoffMs, max)    — 8.3 retry zamanı
+  //   __nexoraDebug.mock.reset()  — hepsini varsayılana döndür
+  //
+  // Gerçek-motor/soket katmanı ayrıca tests/e2e.mjs'te (npm run test:e2e):
+  // gerçek HTTP SSE sunucusuna karşı stall→liveness+teardown, meşgul-sunucuya-
+  // abort, ilk-token-vs-idle bütçe. Kuyruk-yük-altında ve davranış-timer-vs-
+  // onarım yarışları buradaki senaryolarla preview'da canlı doğrulanır.
   const mockCtl: {
     scenario: 'fast' | 'slow' | 'stall' | 'busy-abort'
     firstDelayMs: number | null

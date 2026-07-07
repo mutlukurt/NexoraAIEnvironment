@@ -148,6 +148,62 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 }
 
 // --------------------------------------------------------------------------
+// E) MEŞGUL SUNUCU — prompt işleme (yavaş ilk token) canlılık bekçisini YANLIŞ
+//    tetiklemez: ilk token bütçesi cömert; token gelince akış tamamlanır.
+//    (14B CPU'da ilk token dakikalar sürebilir — bunu ölü sayarsak yanlış olur.)
+// --------------------------------------------------------------------------
+{
+  const { srv, port } = await startServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+    // 700ms "prompt işleme" — hiç bayt yok — sonra token akışı + bitiş.
+    setTimeout(() => {
+      res.write(sse('gec'))
+      res.write(sse('ama'))
+      res.write(sse('gelir'))
+      res.write('data: [DONE]\n\n')
+      res.end()
+    }, 700)
+  })
+  const r = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', body: '{}' })
+  const reader = r.body.getReader()
+  const got = []
+  let threw = null
+  try {
+    // firstMs=2000 (ilk token bütçesi 700ms'ten büyük) — YANLIŞ ölüm olmamalı.
+    await pumpWithLiveness(reader, (v) => got.push(dec.decode(v)), { firstMs: 2000, idleMs: 400 })
+  } catch (e) {
+    threw = e
+  }
+  check('E: yavaş ilk token (prompt işleme) yanlış ölüm ÜRETMEZ', threw === null, String(threw && threw.name))
+  check('E: gecikmeli tokenlar tam alındı', got.join('').includes('gec') && got.join('').includes('gelir'))
+  await closeServer(srv)
+}
+
+// --------------------------------------------------------------------------
+// F) İLK-TOKEN STALL — hiç token gelmezse İLK-TOKEN bütçesinde ölür (idle değil).
+// --------------------------------------------------------------------------
+{
+  const { srv, port } = await startServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+    res.flushHeaders() // header'ı gönder (fetch çözülsün) ama GÖVDE yazma → ilk-token stall
+  })
+  const t0 = Date.now()
+  const r = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', body: '{}' })
+  const reader = r.body.getReader()
+  let threw = null
+  try {
+    // firstMs=600 (kısa) — idleMs=5000 (uzun). İlk-token bütçesinde ölmeli.
+    await pumpWithLiveness(reader, () => {}, { firstMs: 600, idleMs: 5000 })
+  } catch (e) {
+    threw = e
+  }
+  const elapsed = Date.now() - t0
+  check('F: ilk-token stall → StreamDeadError', threw && threw.name === 'StreamDeadError')
+  check('F: İLK-token bütçesinde öldü (idle=5000 beklenmedi)', elapsed >= 500 && elapsed < 2000, `elapsed=${elapsed}ms`)
+  await closeServer(srv)
+}
+
+// --------------------------------------------------------------------------
 // D) anySignal — herhangi biri abort olunca sonuç abort (compaction tavanı).
 // --------------------------------------------------------------------------
 {
