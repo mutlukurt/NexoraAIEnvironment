@@ -123,6 +123,9 @@ interface AppState {
   runVisualReview: (url: string) => Promise<void>
   /** 6.5: siteyi tester gibi gez, raporu sohbete yaz (Çalıştır sonrası otomatik). */
   runBehaviorReview: (url: string) => Promise<void>
+  /** 8.3: davranış testini schedule-until-done kur (motor meşgulse bekler/loglar/tekrar dener). */
+  scheduleBehaviorReview: (url: string) => void
+  cancelBehaviorReview: () => void
   /**
    * Debug Engine (roadmap 5.1/5.2): projeyi çalıştırmadan tara.
    * apply=false → yalnızca rapor (içe aktarma otomatik taraması dosyaya
@@ -1342,6 +1345,22 @@ export function setStreamLivenessMs(firstMs: number, idleMs: number): void {
 }
 export function getStreamLivenessMs(): { firstTokenLivenessMs: number; idleLivenessMs: number } {
   return { firstTokenLivenessMs, idleLivenessMs }
+}
+
+// 8.3: davranış testi retry — tek-atış 12sn timer schedule-until-done olur.
+// +4sn görsel denetim bir "düzelt" turu açıp motoru dakikalarca meşgul edebilir;
+// 12sn'de davranış testi o meşguliyete çarparsa SESSİZCE ölmesin: bekle, logla,
+// motor boşalınca KOŞ (sınırlı deneme, sonra dürüstçe raporla).
+let behaviorTimer: ReturnType<typeof setTimeout> | null = null
+let behaviorAttempts = 0
+let behaviorInitialMs = 12_000
+let behaviorBackoffMs = 10_000
+let behaviorMaxAttempts = 6
+/** Test/preview için davranış-retry zamanlamasını kısalt (üretim değeri korunur). */
+export function setBehaviorTiming(initialMs: number, backoffMs: number, maxAttempts: number): void {
+  behaviorInitialMs = initialMs
+  behaviorBackoffMs = backoffMs
+  behaviorMaxAttempts = maxAttempts
 }
 
 /** Bekçiyi durdur (tur bittiğinde / durdurulduğunda). */
@@ -2566,6 +2585,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       /* davranış testi çalışamadı — görsel denetim ve kanca duyuları devrede */
     }
+  },
+
+  scheduleBehaviorReview: (url: string) => {
+    // 8.3: tek-atış 12sn timer'ın yerine schedule-until-done. +4sn görsel denetim
+    // bir "düzelt" turu açıp motoru dakikalarca meşgul edebilir; davranış testi
+    // o meşguliyete çarparsa artık SESSİZCE ölmez — bekler, 'behavior-wait'
+    // loglar, motor boşalınca KOŞAR. Sınırlı deneme sonunda dürüstçe raporlar.
+    if (behaviorTimer) clearTimeout(behaviorTimer)
+    behaviorAttempts = 0
+    const isTr = get().language === 'tr'
+    const tick = (): void => {
+      behaviorTimer = null
+      const busy = get().sending || get().generating
+      if (!busy) {
+        void get().runBehaviorReview(url) // motor boş — şimdi gez
+        return
+      }
+      if (behaviorAttempts >= behaviorMaxAttempts) {
+        logRepair({ layer: 'behavior-gaveup', notes: [`motor ${behaviorAttempts} denemede boşalmadı`] })
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: isTr
+                ? "🧪 Davranış testi koşulamadı — motor uzun süre meşgul kaldı (onarım turu). İstersen Çalıştır'a tekrar bas."
+                : '🧪 Behavior walk could not run — the engine stayed busy too long (repair turn). Press Run again if you want.'
+            }
+          ]
+        }))
+        return
+      }
+      behaviorAttempts++
+      logRepair({ layer: 'behavior-wait', notes: [`motor meşgul — ${behaviorAttempts}. bekleme`] })
+      behaviorTimer = setTimeout(tick, behaviorBackoffMs)
+    }
+    behaviorTimer = setTimeout(tick, behaviorInitialMs)
+  },
+
+  cancelBehaviorReview: () => {
+    if (behaviorTimer) {
+      clearTimeout(behaviorTimer)
+      behaviorTimer = null
+    }
+    behaviorAttempts = 0
   },
 
   runVisualReview: async (url: string) => {

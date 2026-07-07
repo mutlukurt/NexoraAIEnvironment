@@ -235,6 +235,7 @@ export default function ArtifactsPanel() {
 
   const handleDev = async () => {
     if (devUrl) {
+      useAppStore.getState().cancelBehaviorReview() // 8.3: bekleyen davranış testini iptal et
       await window.nexora.agent.devStop()
       setDevUrl(null)
       setExportMsg(language === 'tr' ? 'Dev sunucusu durduruldu' : 'Dev server stopped')
@@ -260,9 +261,11 @@ export default function ArtifactsPanel() {
       // Görsel öz-denetim (roadmap 3.3): sayfa ayağa kalktıktan sonra uygulama
       // kendi çıktısına bakar; kusur görürse gizli düzelt turu başlatır.
       setTimeout(() => void useAppStore.getState().runVisualReview(res.url!), 4000)
-      // Davranışsal doğrulama (6.5): görsel denetimden sonra siteyi GEZ —
-      // tıkla, doldur, ölç; rapor + bölüm kareleri sohbete düşer.
-      setTimeout(() => void useAppStore.getState().runBehaviorReview(res.url!), 12000)
+      // Davranışsal doğrulama (6.5 + 8.3): görsel denetimden sonra siteyi GEZ.
+      // Tek-atış 12sn timer YERİNE schedule-until-done: +4sn görsel denetim bir
+      // onarım turu açıp motoru dakikalarca meşgul ederse davranış testi sessizce
+      // ölmez — bekler, loglar, motor boşalınca koşar (ya da sınırda raporlar).
+      useAppStore.getState().scheduleBehaviorReview(res.url!)
     } else {
       setExportMsg(res.error ?? (language === 'tr' ? 'Başlatılamadı' : 'Failed to start'))
     }

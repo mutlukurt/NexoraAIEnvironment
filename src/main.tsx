@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
-import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, setStreamLivenessMs } from '@/store/appStore'
+import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, setStreamLivenessMs, setBehaviorTiming } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -11,7 +11,7 @@ import { useSettingsStore } from '@/store/settingsStore'
 applyTheme(themeInitial())
 
 // CDP/harici test sürücüleri için store kancası — üretim akışını değiştirmez
-;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, settings: useSettingsStore, lastPrompt: getLastOutgoingPrompt, setStreamLivenessMs }
+;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, settings: useSettingsStore, lastPrompt: getLastOutgoingPrompt, setStreamLivenessMs, setBehaviorTiming }
 
 // Inject window.nexora mock provider for web browser testing
 if (typeof window !== 'undefined' && !window.nexora) {
@@ -30,7 +30,9 @@ if (typeof window !== 'undefined' && !window.nexora) {
     active: { aborted: boolean; done: boolean } | null
     serverBusy: boolean
     partial: string
-  } = { scenario: 'fast', firstDelayMs: null, tokenDelayMs: null, timers: [], active: null, serverBusy: false, partial: '' }
+    behaviorCalls: number
+    behaviorResult: Record<string, unknown> | null
+  } = { scenario: 'fast', firstDelayMs: null, tokenDelayMs: null, timers: [], active: null, serverBusy: false, partial: '', behaviorCalls: 0, behaviorResult: null }
   ;(window as any).__nexoraDebug.mock = {
     setScenario(s: 'fast' | 'slow' | 'stall' | 'busy-abort') {
       mockCtl.scenario = s
@@ -42,6 +44,13 @@ if (typeof window !== 'undefined' && !window.nexora) {
       mockCtl.firstDelayMs = firstMs
       mockCtl.tokenDelayMs = tokenMs
     },
+    // 8.3 test yüzeyi: davranış testi kaç kez çağrıldı + ne döndüreceği.
+    get behaviorCalls() {
+      return mockCtl.behaviorCalls
+    },
+    setBehaviorResult(r: Record<string, unknown> | null) {
+      mockCtl.behaviorResult = r
+    },
     reset() {
       mockCtl.scenario = 'fast'
       mockCtl.firstDelayMs = null
@@ -51,6 +60,8 @@ if (typeof window !== 'undefined' && !window.nexora) {
       mockCtl.timers = []
       mockCtl.active = null
       mockCtl.partial = ''
+      mockCtl.behaviorCalls = 0
+      mockCtl.behaviorResult = null
     }
   }
   ;(window as any).nexora = {
@@ -195,7 +206,12 @@ if (typeof window !== 'undefined' && !window.nexora) {
     // projects.list, WelcomeSetup advisor.detect…). Zararsız no-op stub'lar.
     agent: {
       buildCheck: async () => ({ ok: true, skipped: true }),
-      behaviorTest: async () => ({ ok: false }),
+      // 8.3: sayılabilir + kontrol edilebilir — schedule-until-done retry'ı
+      // canlı test edilebilsin (varsayılan {ok:false}, eski davranışla aynı).
+      behaviorTest: async () => {
+        mockCtl.behaviorCalls++
+        return mockCtl.behaviorResult ?? { ok: false }
+      },
       debugInspect: async () => ({ ok: false }),
       devStart: async () => ({ ok: true }),
       devStop: async () => ({ ok: true }),
