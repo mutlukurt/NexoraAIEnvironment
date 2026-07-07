@@ -339,20 +339,44 @@ async function processQueue(): Promise<void> {
       for (let w = 0; w < 900 && postVerifyActive; w++) await new Promise((r) => setTimeout(r, 200))
       await new Promise((r) => setTimeout(r, 300))
       const after = useAppStore.getState()
+      // 8.4 HEDEF KONTROLÜ: derleme temiz olsa BİLE, brief'in birebir literalleri
+      // (email/url/hex/çift-tırnaklı metin) üretilen dosyalarda YOKSA istek
+      // yapılmamıştır — "verified" artık yalnız DERLENDİĞİNİ değil YAPILDIĞINI der.
+      // Muhafazakâr: literal yoksa (checked=false) düşürme yapılmaz. next.prompt
+      // görev başına yetkili brief'tir (mutable global lastVisibleUserPrompt DEĞİL).
+      let goalMiss: string[] = []
+      if (!after.error && !after.lastBuildError) {
+        try {
+          const { goalCheck } = await import('@/lib/goalCheck')
+          const contents = Object.values(useArtifactsStore.getState().files).map((f) => f.content)
+          const g = goalCheck(next.prompt, contents)
+          if (g.checked && !g.met) goalMiss = g.absent
+        } catch {
+          /* hedef kontrolü koşamadıysa eski davranışa düş (verified) */
+        }
+      }
+      const isTr = after.language === 'tr'
       const verdict: QueuedTask['state'] = after.error
         ? 'failed'
-        : after.lastBuildError
+        : after.lastBuildError || goalMiss.length > 0
           ? 'needs-review'
           : 'verified'
       const summary = after.error
         ? after.error.slice(0, 120)
         : after.lastBuildError
-          ? after.language === 'tr' ? 'doğrulama hata bıraktı — incelenmeli' : 'verification left an error — review'
-          : lastPostVerifyClean === true
-            ? after.language === 'tr' ? 'üretildi · doğrulama temiz' : 'built · verification clean'
-            : after.language === 'tr' ? 'yanıt hazır' : 'answer ready'
+          ? isTr ? 'doğrulama hata bıraktı — incelenmeli' : 'verification left an error — review'
+          : goalMiss.length > 0
+            ? isTr
+              ? `istek karşılanmadı: ${goalMiss.slice(0, 3).join(', ')}`
+              : `request not met: ${goalMiss.slice(0, 3).join(', ')}`
+            : lastPostVerifyClean === true
+              ? isTr ? 'üretildi · doğrulama temiz' : 'built · verification clean'
+              : isTr ? 'yanıt hazır' : 'answer ready'
       useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, verdict, Date.now(), summary) }))
-      logRepair({ layer: verdict === 'verified' ? 'task-verified' : 'task-review', notes: [next.title] })
+      logRepair({
+        layer: verdict === 'verified' ? 'task-verified' : goalMiss.length > 0 ? 'task-goal-miss' : 'task-review',
+        notes: goalMiss.length > 0 ? [next.title, 'eksik: ' + goalMiss.join(', ')] : [next.title]
+      })
       scheduleSessionSave()
     }
   } finally {
