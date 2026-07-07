@@ -292,6 +292,10 @@ async function processQueue(): Promise<void> {
   try {
     for (;;) {
       const st = useAppStore.getState()
+      // 8.1: kullanıcı Durdur'u kuyruğu duraklattıysa otomatik ilerleme YOK —
+      // "mutlak" Durdur bir sonraki sıradakini de açmaz (yeni kullanıcı eylemi
+      // duraklamayı kaldırana dek).
+      if (queuePaused) break
       if (st.sending || st.generating || postVerifyActive) break
       const next = nextRunnable(st.queuedTasks)
       if (!next) break
@@ -356,8 +360,14 @@ async function processQueue(): Promise<void> {
 // (modül-yükleme anında TDZ), store hazır olunca bağlanır.
 setTimeout(() => {
   useAppStore.subscribe((s, prev) => {
-    if (prev.sending && !s.sending && s.queuedTasks.some((t) => t.state === 'queued')) {
-      setTimeout(() => void processQueue(), 1200)
+    // 8.1: Durdur duraklamada ise otomatik ilerleme YOK; timer iptal-edilebilir
+    // (Durdur onu temizler). 8.2 bu tek-atış tetiği kalıcı kalp atışıyla değiştirir.
+    if (prev.sending && !s.sending && !queuePaused && s.queuedTasks.some((t) => t.state === 'queued')) {
+      if (queueRelaunchTimer) clearTimeout(queueRelaunchTimer)
+      queueRelaunchTimer = setTimeout(() => {
+        queueRelaunchTimer = null
+        void processQueue()
+      }, 1200)
     }
   })
 }, 0)
@@ -560,12 +570,16 @@ async function postGenVerify(
 ): Promise<void> {
   if (postVerifyActive) return
   postVerifyActive = true
+  // 8.1: bu doğrulama-onarım zinciri hangi tura ait? Kullanıcı Durdur'u epoku
+  // artırınca (ya da duraklatınca) zincir daha fazla gizli onarım turu AÇMAZ.
+  const pvEpoch = stopEpoch
   let regenerated = false
   let verifiedClean = false
   let lastDiagnosis = ''
   const repairedDiags = new Set<string>()
   try {
     for (let round = 0; round < 4; round++) {
+      if (pvEpoch !== stopEpoch || queuePaused) return
       const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
         path: f.path,
         content: f.content
@@ -908,6 +922,9 @@ function ensureRuntimeErrorSub(
     // Mesgulken ya da proje yokken karisma; sayfa hatayi yeniden raporlar.
     // (Model guard'ı Kat 0'dan SONRA: modelsiz onarım model istemez.)
     if (get().sending || get().generating) return
+    // 8.1: kullanıcı Durdur'undan sonra otomatik onarım turu AÇMA (mutlak
+    // durdurma). Yeni bir kullanıcı eylemi duraklamayı kaldırınca yine devreye girer.
+    if (queuePaused) return
     if (Object.keys(useArtifactsStore.getState().files).length === 0) return
     const isTrTop = get().language === 'tr'
     // ---- 5.4: AĞ hataları — bilgilendir, model turu yakma -----------------
@@ -1233,6 +1250,112 @@ let lastPlanRequest = ''
 let plannedBuildActive = false
 let plannedBuildAbort = false
 
+// ---------------------------------------------------------------------------
+// 8.1 KİLİT ZİNCİRİ — mutlak Durdur + akış-canlılık bekçisi.
+// Amaç: hiçbir tur uygulamayı DONDURAMAZ; tek Durdur makineyi TAMAMEN susturur;
+// 0 bayt sessizlik yapısal olarak ölü sayılır (36-dk zombi imkansız).
+// ---------------------------------------------------------------------------
+/**
+ * Durdur EPOKU. Her kullanıcı Durdur'u ve her "tur öldü" hükmü bunu artırır.
+ * Bir tur başlarken o anki epoku yakalar (currentTurnEpoch). done-handler, token
+ * dalı ve HER gizli tur üreteci yakaladığı epok hâlâ güncel mi diye bakar —
+ * güncel değilse tur ölü sayılır ve hiçbir gizli tur (reality-retry, oversized
+ * retry, postGenVerify onarımı, kuyruk sıradakisi, runtime-error onarımı)
+ * açılmaz. Boolean değil epok: abort'un senkron kurduğu bir bayrağı sonraki tur
+ * yanlışlıkla geri çeviremez (harita 8.1b uyarısı).
+ */
+let stopEpoch = 0
+let currentTurnEpoch = 0
+/**
+ * Kullanıcı Durdur'undan sonra kuyruk/otomatik ilerleme DURUR; yeni bir kullanıcı
+ * eylemi (mesaj gönderme / görev ekleme) olana dek gizli hiçbir tur açılmaz.
+ * "Mutlak" budur — bir sonraki 8.2 kalp atışı da bu bayrağa saygı gösterir.
+ */
+let queuePaused = false
+/** Akış-canlılık bekçisi: son token zamanı + tekrarlayan bekçi timer'ı. */
+let lastTokenAt = 0
+let sawFirstToken = false
+let livenessTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * Bekçi eşikleri (ms). İlk token bütçesi cömert — 14B CPU'da prompt işleme
+ * dakikalar sürebilir; tokenlar arası sessizlik bütçesi daha kısa. İkisi de
+ * GERÇEK 0-bayt sessizlikte devreye girer, yavaş-ama-canlı decode'u kesmez.
+ * Üretim değeri korunur; __nexoraDebug.setStreamLivenessMs test/preview'da düşürür.
+ */
+let firstTokenLivenessMs = 240_000
+let idleLivenessMs = 45_000
+/** Kuyruk düşen-kenar tetiğinin iptal edilebilir timer handle'ı (8.1/8.2). */
+let queueRelaunchTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Bekçi ayarını dışarıdan (test/preview) değiştir — üretim değeri varsayılan kalır. */
+export function setStreamLivenessMs(firstMs: number, idleMs: number): void {
+  firstTokenLivenessMs = firstMs
+  idleLivenessMs = idleMs
+}
+export function getStreamLivenessMs(): { firstTokenLivenessMs: number; idleLivenessMs: number } {
+  return { firstTokenLivenessMs, idleLivenessMs }
+}
+
+/** Bekçiyi durdur (tur bittiğinde / durdurulduğunda). */
+function clearLiveness(): void {
+  if (livenessTimer) {
+    clearTimeout(livenessTimer)
+    livenessTimer = null
+  }
+}
+/** Tur başında bekçiyi kur: her token lastTokenAt'i tazeler; sessizlik bütçeyi
+ *  aşarsa tur ölü sayılır ve motor kilidi açılır. */
+function armLiveness(turnEpoch: number): void {
+  clearLiveness()
+  lastTokenAt = Date.now()
+  sawFirstToken = false
+  const tick = (): void => {
+    livenessTimer = null
+    if (turnEpoch !== stopEpoch) return // tur zaten durduruldu/öldü
+    const st = useAppStore.getState()
+    if (!st.sending && !st.generating) return // tur doğal bitti
+    const silent = Date.now() - lastTokenAt
+    const budget = sawFirstToken ? idleLivenessMs : firstTokenLivenessMs
+    if (silent >= budget) {
+      declareStreamDead(turnEpoch, Math.round(silent / 1000))
+      return
+    }
+    livenessTimer = setTimeout(tick, 1000)
+  }
+  livenessTimer = setTimeout(tick, 1000)
+}
+/** 0-bayt sessizlik hükmü: turu geçersiz kıl, sunucuyu iptal et, kilidi aç. */
+function declareStreamDead(turnEpoch: number, silentSec: number): void {
+  if (turnEpoch !== stopEpoch) return
+  stopEpoch++ // bu turu ve tüm gizli üreteçlerini geçersiz kıl
+  queuePaused = true
+  clearLiveness()
+  if (queueRelaunchTimer) {
+    clearTimeout(queueRelaunchTimer)
+    queueRelaunchTimer = null
+  }
+  void window.nexora.chat.abort() // gerçek sunucu-iptali main sürecinde
+  cancelScheduledApply()
+  const lang = useAppStore.getState().language
+  useAppStore.setState((s) => ({
+    sending: false,
+    generating: false,
+    messages: [
+      ...s.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+      {
+        id: nanoid(),
+        role: 'assistant' as const,
+        content:
+          lang === 'tr'
+            ? `⏱ Tur ${silentSec} saniye boyunca tek bayt üretmedi — ölü sayıldı, motor kilidi açıldı. (Sunucu takıldıysa modeli yeniden yükleyin.)`
+            : `⏱ The turn produced zero bytes for ${silentSec}s — declared dead, engine unlocked. (Reload the model if the server is stuck.)`
+      }
+    ]
+  }))
+  useArtifactsStore.getState().finishStreaming()
+  logRepair({ layer: 'stream-dead', notes: [`${silentSec}s sessiz`] })
+}
+
 /** Planlı üretimde kabul edilen dosya türleri — yalnızca metin/kod. */
 const PLAN_EXT_RE = /\.(tsx|ts|jsx|js|css|html|json|md|svg)$/i
 
@@ -1483,6 +1606,24 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       const full = event.full
       currentStreamingContent = full
       cancelScheduledApply()
+      clearLiveness()
+
+      // 8.1 MUTLAK DURDUR: bu done, kullanıcı Durdur'u ya da "tur öldü" hükmüyle
+      // GEÇERSİZ KILINMIŞ bir tura mı ait? abort()/declareStreamDead epoku
+      // artırır; o yüzden currentTurnEpoch güncel epoktan farklıysa bu done bir
+      // ölü-turdur — hiçbir uygulama/gizli-tur (reality-retry, oversized retry,
+      // postGenVerify, plan/enhance) çalışmaz; yalnız balon kapatılır. İÇ abort
+      // (editViolation) epoku ARTIRMAZ, dolayısıyla onun retry'ı normal akar.
+      if (currentTurnEpoch !== stopEpoch) {
+        set((s) => ({
+          sending: false,
+          generating: false,
+          messages: s.messages.map((m) => (m.streaming ? { ...m, content: full || m.content, streaming: false } : m))
+        }))
+        useArtifactsStore.getState().setWritingPath(null)
+        scheduleSessionSave()
+        return
+      }
 
       // Plan turu: kod uygulanmaz, direktif çalışmaz — plan sohbette kalır,
       // altında "Planı uygula / Vazgeç" düğmeleri çıkar.
@@ -1992,6 +2133,12 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       return
     }
     const token = (event as { token: string }).token
+    // 8.1 akış-canlılık: her token bekçiyi tazeler. Durdurulmuş/ölü tura ait
+    // tokenlar (ör. 'busy-abort' sunucusunun Durdur sonrası akıttıkları) YOK
+    // SAYILIR — kilit yeniden kapanmasın, çöp içerik uygulanmasın.
+    if (currentTurnEpoch !== stopEpoch) return
+    lastTokenAt = Date.now()
+    sawFirstToken = true
     currentStreamingContent += token
     // Bekçi: açık SEARCH bölümü sınırı aştıysa model bölümü/dosyayı baştan
     // yazıyordur — kes; done dalı ya küçük bloklarla yeniden dener ya durdurur.
@@ -2793,6 +2940,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
   enqueueTask: (prompt: string) => {
     const p = prompt.trim()
     if (!p) return
+    queuePaused = false // kullanıcı iş ekledi → Durdur'un duraklaması kalkar
     set((s) => ({ queuedTasks: [...s.queuedTasks, makeTask(nanoid(), p, Date.now())] }))
     scheduleSessionSave()
     void processQueue()
@@ -2841,6 +2989,9 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // expectFile turları da makine turudur (planlı dosya/yeniden-üretim):
     // commit mesajına teknik tanı metni sızmasın.
     if (!opts?.hideUser && !opts?.expectFile) lastVisibleUserPrompt = trimmed
+    // 8.1: gerçek bir KULLANICI turu kuyruğu yeniden etkinleştirir (Durdur'un
+    // koyduğu duraklama kalkar). Gizli/makine turları duraklamayı kaldırmaz.
+    if (!opts?.hideUser && !opts?.expectFile) queuePaused = false
 
     ensureStream(get, set)
     cancelScheduledApply()
@@ -2944,6 +3095,11 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       error: null,
       generatedCount: 0
     }))
+    // 8.1: turun epokunu YAKALA ve akış-canlılık bekçisini kur. Sonraki bir
+    // Durdur/ölü-hüküm epoku artırınca bu turun done'ı ve gizli üreteçleri ölü
+    // sayılır; bekçi 0-bayt sessizliği kesip kilidi açar.
+    currentTurnEpoch = stopEpoch
+    armLiveness(currentTurnEpoch)
 
     const allFiles = Object.values(useArtifactsStore.getState().files)
     const buildErr = get().lastBuildError
@@ -3316,7 +3472,30 @@ ${ki}
 
   abort: async () => {
     const wasActive = get().sending || get().generating
+    // 8.1 MUTLAK DURDUR. Epoku artır → mevcut turun done'ı ve HER gizli üreteci
+    // (reality-retry, oversized retry, postGenVerify onarımı, kuyruk sıradakisi,
+    // runtime-error onarımı) ölü sayılır. Kuyruğu duraklat → tek Durdur makineyi
+    // tamamen susturur; yeni bir kullanıcı eylemi olana dek hiçbir tur açılmaz.
+    stopEpoch++
+    queuePaused = true
     plannedBuildAbort = true
+    // Tüm gizli-tur bekçi bayraklarını sıfırla ki hiçbiri "yarıda kalmış" gibi
+    // devam etmesin (harita 8.1b: bunlar sıfırlanmazsa Durdur yarayı açıyordu).
+    realityRetries = 0
+    oversizedEditRetries = 0
+    editRetryInFlight = false
+    oversizedEditAborting = false
+    violationStop = false
+    plannedBuildActive = false
+    planTurnActive = false
+    enhanceTurnActive = false
+    postVerifyActive = false
+    queueProcessing = false
+    clearLiveness()
+    if (queueRelaunchTimer) {
+      clearTimeout(queueRelaunchTimer)
+      queueRelaunchTimer = null
+    }
     await window.nexora.chat.abort()
     cancelScheduledApply()
     set((s) => ({

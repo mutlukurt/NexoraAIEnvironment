@@ -32,6 +32,13 @@ import type {
 } from './engineTypes'
 import { findNodeBinary } from './llamaWorkerEngine'
 import { chatSystemPrompt } from '../shared/prompts'
+import {
+  pumpWithLiveness,
+  StreamDeadError,
+  SERVER_FIRST_TOKEN_MS,
+  SERVER_IDLE_MS,
+  anySignal
+} from './streamLiveness'
 
 const BIN_TAG = 'b9870'
 const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
@@ -56,8 +63,13 @@ let ctxSize = 4096
 let ctxUsed = 0
 let cjkBias: Record<number, number> | null = null
 let abortCtl: AbortController | null = null
+/** 8.1: aktif SSE reader — abort() bunu da iptal eder (gerçek soket teardown). */
+let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null
 let loadedPath = ''
 let procLog = ''
+
+/** 8.1: iptal-edilemez tur-öncesi sıkıştırma özeti için mutlak tavan (ms). */
+const COMPACTION_MAX_MS = 90_000
 
 // ---------------------------------------------------------------------------
 // Binary edinme: GPU istendiyse GPU'lu sürüm (Vulkan/Metal) tercih edilir;
@@ -374,7 +386,8 @@ async function chatRequest(
   options: PromptOptions | undefined,
   banCjk: boolean,
   onToken: ((t: string) => void) | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  liveness?: { firstMs: number; idleMs: number }
 ): Promise<{ text: string; usage: Usage | null; aborted: boolean }> {
   // Düz-metin (sohbet/brief) turları ile kod turlarının tarifi AYRILIR
   // (canlı-test matrisi, 2026-07-05): kod tarifindeki tekrar cezaları Türkçe
@@ -441,44 +454,52 @@ async function chatRequest(
     return { text, usage: j.usage ?? null, aborted: false }
   }
 
-  // SSE akışı
+  // SSE akışı — 8.1 canlılık bekçisiyle: 0-bayt sessizlik bütçeyi aşarsa reader
+  // İPTAL edilir (soket teardown → sunucu decode'u durur), StreamDeadError yükselir.
   let text = ''
   let usage: Usage | null = null
   const reader = res.body!.getReader()
+  activeReader = reader
   const dec = new TextDecoder()
   let buf = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const payload = line.slice(6).trim()
-        if (!payload || payload === '[DONE]') continue
-        try {
-          const j = JSON.parse(payload) as {
-            choices?: Array<{ delta?: { content?: string } }>
-            usage?: Usage
-          }
-          const delta = j.choices?.[0]?.delta?.content
-          if (delta) {
-            text += delta
-            onToken(delta)
-          }
-          if (j.usage) usage = j.usage
-        } catch {
-          /* bozuk SSE satırı — atla */
+  const handleChunk = (value: Uint8Array): void => {
+    buf += dec.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6).trim()
+      if (!payload || payload === '[DONE]') continue
+      try {
+        const j = JSON.parse(payload) as {
+          choices?: Array<{ delta?: { content?: string } }>
+          usage?: Usage
         }
+        const delta = j.choices?.[0]?.delta?.content
+        if (delta) {
+          text += delta
+          onToken(delta)
+        }
+        if (j.usage) usage = j.usage
+      } catch {
+        /* bozuk SSE satırı — atla */
       }
     }
+  }
+  try {
+    await pumpWithLiveness(reader, handleChunk, liveness ?? { firstMs: SERVER_FIRST_TOKEN_MS, idleMs: SERVER_IDLE_MS })
   } catch (err) {
-    if ((err as Error).name === 'AbortError') {
+    const name = (err as Error).name
+    // AbortError (kullanıcı Durdur) ve StreamDeadError (0-bayt hükmü) İKİSİ de
+    // kısmi metinle döner: kullanıcı üretileni gördü, sunucu reader.cancel ile
+    // gerçekten durduruldu. Üst kat (prompt) bunu hayalet retry'a çevirmez.
+    if (name === 'AbortError' || name === 'StreamDeadError') {
+      if (name === 'StreamDeadError') console.warn('[llamaServerEngine] akış ölü sayıldı:', (err as Error).message)
       return { text, usage, aborted: true }
     }
     throw err
+  } finally {
+    if (activeReader === reader) activeReader = null
   }
   return { text, usage, aborted: false }
 }
@@ -557,6 +578,10 @@ export const serverEngine: InferenceEngine = {
 
   async prompt(text: string, options: PromptOptions | undefined, onToken: (t: string) => void): Promise<string> {
     if (!proc) throw new Error('Model yüklenmemiş. Önce bir GGUF seç.')
+    // 8.1: abortCtl'yi EN BAŞTA yarat — böylece tur-öncesi sıkıştırma özeti de
+    // (eskiden sinyalsiz + iptal-edilemezdi, net 36-dk zombi katkısı) kullanıcı
+    // Durdur'una bağlanır. Tek controller tüm tur boyunca yaşar; finally temizler.
+    abortCtl = new AbortController()
 
     // Bağlam sıkıştırma (worker ile aynı eşik): %75 üstünde geçmiş, modele
     // özetletilip sıfırlanır — özet yeni ilk mesajın notuna gömülür.
@@ -582,7 +607,10 @@ export const serverEngine: InferenceEngine = {
             ],
             { maxTokens: 250, temperature: 0.2 },
             !CJK_RE.test(text),
-            null
+            null,
+            // Kullanıcı Durdur'u VEYA mutlak tavan (COMPACTION_MAX_MS) — özet
+            // sunucuda sonsuza dek asılamaz.
+            anySignal([abortCtl.signal, AbortSignal.timeout(COMPACTION_MAX_MS)])
           )
           summary = r.text.trim().slice(0, 1200)
           if (summary) console.log('[llamaServerEngine] sıkıştırma özeti alındı (' + summary.length + ' karakter)')
@@ -606,7 +634,8 @@ export const serverEngine: InferenceEngine = {
     // prompt cache öneki aynı kalır.
     const sysForTurn = options?.purpose ? chatSystemPrompt(options.answerLang, options.purpose) : systemPrompt
     const messages: ChatMsg[] = [{ role: 'system', content: sysForTurn }, ...history, { role: 'user', content: promptText }]
-    abortCtl = new AbortController()
+    // abortCtl EN BAŞTA yaratıldı (yukarı bkz.) — burada YENİDEN yaratmıyoruz:
+    // aksi hâlde sıkıştırma sırasında basılan Durdur kaybolurdu.
     try {
       let streamedAny = false
       const countingToken = (t: string) => {
@@ -662,6 +691,18 @@ export const serverEngine: InferenceEngine = {
 
   async abort(): Promise<void> {
     abortCtl?.abort()
+    // 8.1 GERÇEK sunucu-iptali: aktif SSE reader'ı da iptal et → soket yıkılır →
+    // llama-server disconnect'i görüp decode'u durdurur. Yalnız fetch-abort'a
+    // güvenmek sunucuda "hayalet üretim" bırakıyordu (36-dakikalık zombi turu).
+    const r = activeReader
+    activeReader = null
+    if (r) {
+      try {
+        await r.cancel()
+      } catch {
+        /* reader zaten kapanmış olabilir */
+      }
+    }
   },
 
   async unload(): Promise<void> {

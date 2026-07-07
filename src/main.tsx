@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
-import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt } from '@/store/appStore'
+import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, setStreamLivenessMs } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -11,12 +11,49 @@ import { useSettingsStore } from '@/store/settingsStore'
 applyTheme(themeInitial())
 
 // CDP/harici test sürücüleri için store kancası — üretim akışını değiştirmez
-;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, settings: useSettingsStore, lastPrompt: getLastOutgoingPrompt }
+;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, settings: useSettingsStore, lastPrompt: getLastOutgoingPrompt, setStreamLivenessMs }
 
 // Inject window.nexora mock provider for web browser testing
 if (typeof window !== 'undefined' && !window.nexora) {
   console.log('[NexoraAI] Running in Web Browser mode - Mocking window.nexora API');
-  (window as any).nexora = {
+  // 8.7 — zamanı gören test yüzeyi: mock'un bir turun NE KADAR sürdüğünü ve
+  // iptali NASIL karşıladığını senaryo bazında kontrol eder. Varsayılan 'fast'
+  // eski tarayıcı davranışıyla BİREBİR aynı; yalnız test/preview sürücüsü
+  // __nexoraDebug.mock ile değiştirir. Böylece 8.1'in tüm gerçek-zaman defect
+  // sınıfı (abort-sunucuya-ulaşmıyor, sıfır-bayt stall, meşgul-sunucu) canlı
+  // olarak PREVIEW'da yeniden sahnelenebilir.
+  const mockCtl: {
+    scenario: 'fast' | 'slow' | 'stall' | 'busy-abort'
+    firstDelayMs: number | null
+    tokenDelayMs: number | null
+    timers: ReturnType<typeof setTimeout>[]
+    active: { aborted: boolean; done: boolean } | null
+    serverBusy: boolean
+    partial: string
+  } = { scenario: 'fast', firstDelayMs: null, tokenDelayMs: null, timers: [], active: null, serverBusy: false, partial: '' }
+  ;(window as any).__nexoraDebug.mock = {
+    setScenario(s: 'fast' | 'slow' | 'stall' | 'busy-abort') {
+      mockCtl.scenario = s
+    },
+    get scenario() {
+      return mockCtl.scenario
+    },
+    setDelays(firstMs: number | null, tokenMs: number | null) {
+      mockCtl.firstDelayMs = firstMs
+      mockCtl.tokenDelayMs = tokenMs
+    },
+    reset() {
+      mockCtl.scenario = 'fast'
+      mockCtl.firstDelayMs = null
+      mockCtl.tokenDelayMs = null
+      mockCtl.serverBusy = false
+      mockCtl.timers.forEach(clearTimeout)
+      mockCtl.timers = []
+      mockCtl.active = null
+      mockCtl.partial = ''
+    }
+  }
+  ;(window as any).nexora = {
     platform: 'linux',
     home: '/home/mockuser',
     versions: { electron: 'mock', chrome: 'mock', node: 'mock' },
@@ -44,43 +81,79 @@ if (typeof window !== 'undefined' && !window.nexora) {
     chat: {
       newSession: async () => ({ ok: true }),
       send: async ({ prompt }: { prompt: string }) => {
-        console.log('[Mock Send]', prompt);
-        // Simulate streaming tokens after a short delay
-        setTimeout(() => {
-          const mockTokens = [
-            'Merhaba! ',
-            'İşte istediğiniz modern portfolyo sitesinin kaynak kodları.\n',
-            '```html\n',
-            '<!-- index.html -->\n',
-            '<!DOCTYPE html>\n',
-            '<html>\n',
-            '<head>\n',
-            '  <title>Portfolyo</title>\n',
-            '  <style>body { font-family: sans-serif; background: #fafafa; padding: 40px; text-align: center; }</style>\n',
-            '</head>\n',
-            '<body>\n',
-            '  <h1>Kişisel Portfolyo</h1>\n',
-            '  <p>Modern Tasarım Projesi</p>\n',
-            '</body>\n',
-            '</html>\n',
-            '```\n'
-          ];
-          let current = '';
-          mockTokens.forEach((t, i) => {
-            setTimeout(() => {
-              current += t;
-              const isLast = i === mockTokens.length - 1;
-              if (isLast) {
-                window.dispatchEvent(new CustomEvent('nexora-stream', { detail: { done: true, full: current } }));
-              } else {
-                window.dispatchEvent(new CustomEvent('nexora-stream', { detail: { token: t } }));
-              }
-            }, i * 80);
-          });
-        }, 400);
+        const sc = mockCtl.scenario
+        console.log('[Mock Send]', prompt, '· scenario =', sc);
+        const firstDelay = mockCtl.firstDelayMs ?? (sc === 'slow' ? 1500 : sc === 'stall' ? 300 : 400)
+        const tokenDelay = mockCtl.tokenDelayMs ?? (sc === 'slow' ? 350 : 80)
+        const mockTokens = [
+          'Merhaba! ',
+          'İşte istediğiniz modern portfolyo sitesinin kaynak kodları.\n',
+          '```html\n',
+          '<!-- index.html -->\n',
+          '<!DOCTYPE html>\n',
+          '<html>\n',
+          '<head>\n',
+          '  <title>Portfolyo</title>\n',
+          '  <style>body { font-family: sans-serif; background: #fafafa; padding: 40px; text-align: center; }</style>\n',
+          '</head>\n',
+          '<body>\n',
+          '  <h1>Kişisel Portfolyo</h1>\n',
+          '  <p>Modern Tasarım Projesi</p>\n',
+          '</body>\n',
+          '</html>\n',
+          '```\n'
+        ];
+        // 'stall': yalnız ilk birkaç token akar, sonra SESSİZLİĞE düşer (done
+        // hiç gelmez) — renderer'ın akış-canlılık bekçisini tetikler. Diğer
+        // kiplerde tüm tokenlar akıp done gelir.
+        const emitCount = sc === 'stall' ? 2 : mockTokens.length
+        const state = { aborted: false, done: false }
+        mockCtl.active = state
+        mockCtl.serverBusy = false
+        mockCtl.partial = ''
+        mockCtl.timers.forEach(clearTimeout)
+        mockCtl.timers = []
+        mockTokens.forEach((t, i) => {
+          const timer = setTimeout(() => {
+            // Mutlak durdurma: iptal edildiyse (ve 'busy-abort' sunucusu decode'a
+            // hâlâ devam etmiyorsa) kalan token emitlerini bastır.
+            if (state.aborted && !mockCtl.serverBusy) return
+            if (i >= emitCount || state.done) return
+            mockCtl.partial += t
+            const isLast = i === mockTokens.length - 1
+            if (isLast && sc !== 'stall') {
+              state.done = true
+              window.dispatchEvent(new CustomEvent('nexora-stream', { detail: { done: true, full: mockCtl.partial } }))
+            } else {
+              window.dispatchEvent(new CustomEvent('nexora-stream', { detail: { token: t } }))
+            }
+          }, firstDelay + i * tokenDelay)
+          mockCtl.timers.push(timer)
+        });
         return { ok: true };
       },
-      abort: async () => ({ ok: true }),
+      abort: async () => {
+        const st = mockCtl.active
+        if (st) st.aborted = true
+        // 'busy-abort': istemci iptalini YOK SAYAN meşgul sunucu — token akmaya
+        // devam eder, done gelmez. Renderer kilidi buna RAĞMEN açmalı (gerçek
+        // sunucu-iptali main sürecinde reader.cancel + kill ile yapılır; bu kip
+        // o katmandan bağımsız olarak renderer sözleşmesini test eder).
+        if (mockCtl.scenario === 'busy-abort') {
+          mockCtl.serverBusy = true
+          return { ok: true }
+        }
+        // Gerçekçi: bekleyen emitleri temizle, KISMİ içerikle bir done ateşle —
+        // bu, eski sürümde abort-sonrası done → gizli reality-retry turunu açan
+        // ta kendisi. 8.1 stop-epoch bunu ölü-tur olarak eleyip retry açmamalı.
+        mockCtl.timers.forEach(clearTimeout)
+        mockCtl.timers = []
+        if (st && !st.done) {
+          st.done = true
+          window.dispatchEvent(new CustomEvent('nexora-stream', { detail: { done: true, full: mockCtl.partial } }))
+        }
+        return { ok: true };
+      },
       onStream: (cb: (data: any) => void) => {
         const handler = (e: any) => cb(e.detail);
         window.addEventListener('nexora-stream', handler);

@@ -11,6 +11,8 @@
  * turları zaten dosya bağlamını prompt içinde taşıyor, ayrı KV geçmişi gerekmez.
  */
 
+import { pumpWithLiveness, SERVER_FIRST_TOKEN_MS, SERVER_IDLE_MS } from './streamLiveness'
+
 export interface ApiConfig {
   baseUrl: string
   apiKey: string
@@ -76,9 +78,9 @@ export async function promptApi(
   const reader = res.body!.getReader()
   const dec = new TextDecoder()
   let buf = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
+  // 8.1: uzak uç de 0-bayt asılabilir — aynı canlılık bekçisi (reader.cancel +
+  // StreamDeadError). Kısmi metinle dön ki üst kat asılı kalmasın.
+  const handleChunk = (value: Uint8Array): void => {
     buf += dec.decode(value, { stream: true })
     const lines = buf.split('\n')
     buf = lines.pop() ?? ''
@@ -97,6 +99,13 @@ export async function promptApi(
         /* bozuk SSE satırı — atla */
       }
     }
+  }
+  try {
+    await pumpWithLiveness(reader, handleChunk, { firstMs: SERVER_FIRST_TOKEN_MS, idleMs: SERVER_IDLE_MS })
+  } catch (err) {
+    const name = (err as Error).name
+    if (name === 'AbortError' || name === 'StreamDeadError') return text
+    throw err
   }
   return text
 }
