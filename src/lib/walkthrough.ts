@@ -19,6 +19,8 @@ export interface WalkthroughInput {
   verify?: { clean: boolean; detail?: string }
   /** Davranış testi (6.5): satırlar, kusurlar, ekran kareleri. */
   behavior?: { rows: string[]; fails: string[]; shots: string[] }
+  /** Repro mührü hükümleri (6.6) — logRepair boğaz noktasından akar (7.7). */
+  repro?: string[]
   /** Dil: tr | en (uygulamanın o anki dili). */
   lang?: 'tr' | 'en'
 }
@@ -108,6 +110,11 @@ export function composeWalkthrough(i: WalkthroughInput): string {
     }
   } else {
     lines.push(L.verifyPending)
+  }
+
+  if (i.repro && i.repro.length > 0) {
+    lines.push('', `### ${tr ? 'Repro mührü (onarım kanıtları)' : 'Repro seal (repair evidence)'}`, '')
+    for (const r of i.repro) lines.push(`- ${r}`)
   }
 
   lines.push('', `### ${L.behaviorTitle}`, '')

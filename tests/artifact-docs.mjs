@@ -63,6 +63,15 @@ check('walkthrough: doğrulama + davranış kanıtı + kusur + görsel gömülü
   wt.includes('✅ Üretim sonrası denetim') && wt.includes('görseller 2/2 ✓') && wt.includes('⚠️ nav hedefi yok') && wt.includes('![sec-1.png](/home/u/NexoraAI/cache/behavior/sec-1.png)'),
   wt)
 
+// 7.7: repro mührü hükümleri belgeye işlenir (logRepair boğaz noktasından)
+const wtRepro = api.composeWalkthrough({
+  request: 'x', when: 'T', lang: 'tr',
+  files: [{ path: 'a.tsx', status: 'done' }],
+  repro: ['✅ repro-verified — hata artık üretilmiyor', '⚠️ repro-failed — hâlâ üretiliyor']
+})
+check('walkthrough: repro mührü bölümü + iki hüküm',
+  wtRepro.includes('Repro mührü') && wtRepro.includes('✅ repro-verified') && wtRepro.includes('⚠️ repro-failed'), wtRepro)
+
 const wtPending = api.composeWalkthrough({
   request: 'x', when: 'T', lang: 'tr',
   files: [{ path: 'a.tsx', status: 'done' }]

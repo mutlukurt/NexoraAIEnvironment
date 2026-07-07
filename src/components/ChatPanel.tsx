@@ -315,6 +315,11 @@ export default function ChatPanel() {
   const pendingComments = useAppStore((s) => s.pendingComments)
   const applySteerComments = useAppStore((s) => s.applySteerComments)
   const clearSteerComments = useAppStore((s) => s.clearSteerComments)
+  const queuedTasks = useAppStore((s) => s.queuedTasks)
+  const enqueueTask = useAppStore((s) => s.enqueueTask)
+  const cancelTask = useAppStore((s) => s.cancelTask)
+  const clearFinishedTasks = useAppStore((s) => s.clearFinishedTasks)
+  const [inboxOpen, setInboxOpen] = useState(false)
   const customCommands = useSettingsStore((s) => s.customCommands)
   const usableCommands = customCommands.filter((c) => c.label.trim() && c.prompt.trim())
 
@@ -333,7 +338,15 @@ export default function ChatPanel() {
 
   const submit = (inputText: string) => {
     const val = inputText.trim()
-    if (!val || sending) return
+    if (!val) return
+    // 7.7 tab-to-queue paritesi: tur koşarken Enter turu KESMEZ — istek
+    // görev olarak kuyruğa girer, tur bitince sırayla işlenir.
+    if (sending) {
+      enqueueTask(val)
+      setText('')
+      setMention(null)
+      return
+    }
     void sendMessage(val)
     setText('')
     setMention(null)
@@ -424,9 +437,86 @@ export default function ChatPanel() {
   return (
     <section className="relative flex flex-1 w-full flex-col bg-ink-bg text-ink-text font-sans overflow-hidden">
       {/* Header */}
-      <header className="z-10 flex items-center justify-between gap-2 border-b border-ink-line bg-ink-bg/80 px-6 py-4 backdrop-blur-md">
+      <header className="z-30 flex items-center justify-between gap-2 border-b border-ink-line bg-ink-bg/80 px-6 py-4 backdrop-blur-md">
         <h2 className="text-base font-extrabold text-ink-text">{t.chat}</h2>
         <div className="flex min-w-0 items-center gap-2">
+          {/* 7.7 gelen kutusu: kuyruk + biten işler durumlarıyla */}
+          {queuedTasks.length > 0 && (
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setInboxOpen((v) => !v)}
+                className={
+                  'rounded-lg border px-2.5 py-0.5 text-xs font-bold transition ' +
+                  (queuedTasks.some((x) => x.state === 'needs-review')
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                    : 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300')
+                }
+              >
+                📥 {language === 'tr' ? 'Görevler' : 'Tasks'} ({queuedTasks.filter((x) => x.state === 'queued' || x.state === 'running').length}/{queuedTasks.length})
+              </button>
+              {inboxOpen && (
+                <div className="absolute right-0 top-8 z-40 flex max-h-96 w-96 flex-col overflow-hidden rounded-2xl border border-ink-line bg-ink-card shadow-2xl">
+                  <div className="flex-1 overflow-y-auto p-2">
+                    {queuedTasks.map((task) => {
+                      const meta =
+                        task.state === 'queued' ? { chip: language === 'tr' ? 'sırada' : 'queued', cls: 'bg-ink-hi text-ink-mut' }
+                        : task.state === 'running' ? { chip: language === 'tr' ? 'koşuyor' : 'running', cls: 'bg-brand-500/15 text-brand-700 dark:text-brand-300' }
+                        : task.state === 'verified' ? { chip: '✓ verified', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
+                        : task.state === 'needs-review' ? { chip: language === 'tr' ? '⚠ incele' : '⚠ review', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
+                        : task.state === 'failed' ? { chip: language === 'tr' ? 'başarısız' : 'failed', cls: 'bg-red-500/10 text-red-600 dark:text-red-400' }
+                        : { chip: language === 'tr' ? 'iptal' : 'cancelled', cls: 'bg-ink-hi text-ink-dim' }
+                      return (
+                        <div key={task.id} className="mb-1.5 rounded-xl border border-ink-line/70 bg-ink-panel px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            {task.state === 'running' && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-400" />}
+                            <span className="min-w-0 flex-1 truncate text-xs font-bold text-ink-text">{task.title}</span>
+                            <span className={'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ' + meta.cls}>{meta.chip}</span>
+                          </div>
+                          {task.summary && <p className="mt-1 truncate text-[10px] font-medium text-ink-dim">{task.summary}</p>}
+                          <div className="mt-1.5 flex items-center gap-1.5">
+                            {task.state === 'queued' && (
+                              <button onClick={() => cancelTask(task.id)} className="rounded border border-ink-line px-2 py-0.5 text-[10px] font-bold text-ink-dim hover:bg-ink-hi">
+                                {language === 'tr' ? 'İptal' : 'Cancel'}
+                              </button>
+                            )}
+                            {(task.state === 'verified' || task.state === 'needs-review') && (
+                              <>
+                                <button
+                                  onClick={() => { setInboxOpen(false); window.dispatchEvent(new Event('nexora:openDiff')) }}
+                                  className="rounded border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300 hover:bg-brand-500/20"
+                                >
+                                  ⇄ {language === 'tr' ? 'İncele' : 'Review'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setInboxOpen(false)
+                                    useAppStore.getState().setActiveTab('code')
+                                    useArtifactsStore.getState().setView('docs')
+                                  }}
+                                  className="rounded border border-ink-line px-2 py-0.5 text-[10px] font-bold text-ink-mut hover:bg-ink-hi"
+                                >
+                                  📄 Walkthrough
+                                </button>
+                              </>
+                            )}
+                            <span className="ml-auto text-[9px] font-semibold text-ink-dim">
+                              {task.finishedAt && task.startedAt ? ((task.finishedAt - task.startedAt) / 1000).toFixed(0) + 's' : ''}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <button
+                    onClick={clearFinishedTasks}
+                    className="border-t border-ink-line px-3 py-2 text-[10px] font-bold text-ink-dim transition hover:bg-ink-hi"
+                  >
+                    {language === 'tr' ? 'Bitmişleri temizle' : 'Clear finished'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <span
             title={t.activeProfile}
             className="shrink-0 rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-0.5 text-xs font-bold text-brand-700 dark:text-brand-300"
@@ -814,7 +904,13 @@ export default function ChatPanel() {
                 detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length, 'bottom')
               }}
               onKeyDown={(e) => onKeyDown(e, text)}
-              placeholder={t.inputPlaceholder}
+              placeholder={
+                sending
+                  ? language === 'tr'
+                    ? 'tur koşuyor — Enter yazdığını GÖREV olarak kuyruğa ekler'
+                    : 'turn running — Enter queues your text as a TASK'
+                  : t.inputPlaceholder
+              }
               className="max-h-40 flex-1 resize-none bg-transparent text-sm text-ink-text placeholder-ink-dim focus:outline-none"
             />
             {sending ? (

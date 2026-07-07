@@ -15,6 +15,7 @@ import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from
 import { composeWalkthrough, composeTaskDoc, composePlanDoc, type WalkthroughInput } from '@/lib/walkthrough'
 import { composeCommentBlock, type SteerComment } from '@/lib/steerComments'
 import { decideCommand } from '@shared/trust'
+import { makeTask, nextRunnable, transition, clearFinished, deactivateTasks, type QueuedTask } from '@/lib/taskQueue'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
@@ -166,6 +167,12 @@ interface AppState {
   enhancePrompts: boolean
   setEnhancePrompts: (v: boolean) => void
 
+  // 7.7 görev kuyruğu + gelen kutusu: delege et → sırayla işle → incele.
+  queuedTasks: QueuedTask[]
+  enqueueTask: (prompt: string) => void
+  cancelTask: (id: string) => void
+  clearFinishedTasks: () => void
+
   // 7.4 yorumla-yönlendir: inceleme/belge yorumları sonraki tura iliştirilir.
   pendingComments: SteerComment[]
   addSteerComment: (c: Omit<SteerComment, 'id' | 'createdAt'>) => void
@@ -274,6 +281,74 @@ async function saveArtifactDocForSession(name: string, content: string): Promise
  */
 let pendingWalkthrough: WalkthroughInput | null = null
 
+// --- Görev kuyruğu işleyicisi (roadmap 7.7) ---
+// Tek yerel model = SIRALI işleme. İşleyici tek örnektir (bekçi); her görev
+// tam bir delege edilmiş turdur: gönder → plan çıktıysa onay delegasyonda
+// verilmiş sayılır (otomatik uygula) → akış + doğrulama otursun → hüküm.
+let queueProcessing = false
+async function processQueue(): Promise<void> {
+  if (queueProcessing) return
+  queueProcessing = true
+  try {
+    for (;;) {
+      const st = useAppStore.getState()
+      if (st.sending || st.generating || postVerifyActive) break
+      const next = nextRunnable(st.queuedTasks)
+      if (!next) break
+      useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, 'running', Date.now()) }))
+      scheduleSessionSave()
+      lastPostVerifyClean = null
+      await useAppStore.getState().sendMessage(next.prompt)
+      // Delege edilen işte plan onayı delegasyonun kendisidir (Agent Decides):
+      // plan yine üretilir ve karta düşer, ama kuyruk onu bekletmez.
+      if (useAppStore.getState().planPending) {
+        await useAppStore.getState().applyPlan()
+      }
+      // Akış, otomatik düzeltmeler ve üretim-sonrası doğrulama otursun (≤3dk).
+      for (let w = 0; w < 900; w++) {
+        const cur = useAppStore.getState()
+        if (!cur.sending && !cur.generating && !postVerifyActive) break
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      // Doğrulama zinciri GECİKMELİ başlar (prettier lazy-chunk'ından sonra):
+      // sending düştüğünde postVerifyActive henüz yükselmemiş olabilir — hükmü
+      // erken okumamak için yükselişini kısaca bekle, başladıysa bitir.
+      for (let w = 0; w < 12 && !postVerifyActive; w++) await new Promise((r) => setTimeout(r, 200))
+      for (let w = 0; w < 900 && postVerifyActive; w++) await new Promise((r) => setTimeout(r, 200))
+      await new Promise((r) => setTimeout(r, 300))
+      const after = useAppStore.getState()
+      const verdict: QueuedTask['state'] = after.error
+        ? 'failed'
+        : after.lastBuildError
+          ? 'needs-review'
+          : 'verified'
+      const summary = after.error
+        ? after.error.slice(0, 120)
+        : after.lastBuildError
+          ? after.language === 'tr' ? 'doğrulama hata bıraktı — incelenmeli' : 'verification left an error — review'
+          : lastPostVerifyClean === true
+            ? after.language === 'tr' ? 'üretildi · doğrulama temiz' : 'built · verification clean'
+            : after.language === 'tr' ? 'yanıt hazır' : 'answer ready'
+      useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, verdict, Date.now(), summary) }))
+      logRepair({ layer: verdict === 'verified' ? 'task-verified' : 'task-review', notes: [next.title] })
+      scheduleSessionSave()
+    }
+  } finally {
+    queueProcessing = false
+  }
+}
+
+// Tur bittiğinde kuyruk kapıyı çalar (koşan işleyici varsa bekçi düşürür).
+// Abonelik bir tick ertelenir: useAppStore bu satırın ALTINDA tanımlanır
+// (modül-yükleme anında TDZ), store hazır olunca bağlanır.
+setTimeout(() => {
+  useAppStore.subscribe((s, prev) => {
+    if (prev.sending && !s.sending && s.queuedTasks.some((t) => t.state === 'queued')) {
+      setTimeout(() => void processQueue(), 1200)
+    }
+  })
+}, 0)
+
 async function writeWalkthrough(notice?: string): Promise<void> {
   if (!pendingWalkthrough) return
   await saveArtifactDocForSession('walkthrough.md', composeWalkthrough(pendingWalkthrough))
@@ -285,6 +360,8 @@ async function writeWalkthrough(notice?: string): Promise<void> {
 }
 /** Otomatik yeniden deneme sayacı (en fazla 2; yeni hata olayında sıfırlanır). */
 let autoFixRounds = 0
+/** 7.7: son üretim-sonrası doğrulamanın hükmü (kuyruk görev durumu için). */
+let lastPostVerifyClean: boolean | null = null
 
 // Üretim-sonrası otomatik doğrulama (roadmap 2.3): her üretimden sonra
 // dokunulan dosyalar ANINDA denetlenir — katman 1 Babel sözdizimi (ms,
@@ -369,6 +446,15 @@ const logRepair = (entry: Record<string, unknown>): void => {
         ...s.engineEvents
       ].slice(0, 200)
     }))
+    // 7.7 (7.2 ertelemesinin kapanışı): repro mührü hükümleri artık yalnız
+    // Motor'da değil — açık walkthrough varsa belgeye de işlenir. Aynı tek
+    // boğaz noktası: yeni hüküm türleri bedavaya belgeye düşer.
+    const layer = String(entry.layer ?? '')
+    if (/^repro-/.test(layer) && pendingWalkthrough) {
+      const mark = layer === 'repro-verified' ? '✅' : layer === 'repro-failed' ? '⚠️' : 'ℹ️'
+      pendingWalkthrough.repro = [...(pendingWalkthrough.repro ?? []), `${mark} ${layer}${detail ? ` — ${detail}` : ''}`]
+      void writeWalkthrough()
+    }
   } catch {
     /* panel beslenemedi — dosya telemetrisi yeterli */
   }
@@ -594,6 +680,7 @@ async function postGenVerify(
     }
   } finally {
     postVerifyActive = false
+    lastPostVerifyClean = verifiedClean // 7.7: kuyruk görev hükmü buradan okur
     // 7.2: bekleyen walkthrough varsa doğrulama sonucu belgeye işlenir —
     // "doğrulandı" sohbet iddiası değil, okunabilir kanıt belgesi olur.
     if (pendingWalkthrough) {
@@ -1498,6 +1585,16 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           // SONRA — düzeltme turu, formatlanmış içerikle yarışmasın. Planlı
           // üretimde dosya başına değil, dizinin sonunda bir kez koşar.
           if (!fixTurnVerify && !postVerifyActive && !plannedBuildActive) {
+            // 7.7 (7.2 ertelemesinin kapanışı): TEK-ATIŞ üretimler de
+            // walkthrough alır — planlı build'in kurduğu bağlamın aynısı,
+            // dokunulan dosyalardan. postGenVerify hükmü, davranış testi ve
+            // repro mühürleri aynı belgeye işler.
+            pendingWalkthrough = {
+              request: lastVisibleUserPrompt || 'üretim',
+              when: new Date().toISOString(),
+              lang: get().language === 'tr' ? 'tr' : 'en',
+              files: touchedPaths.map((p) => ({ path: p, status: 'done' as const }))
+            }
             void postGenVerify(get, set)
           }
         })()
@@ -2015,7 +2112,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     useArtifactsStore.getState().clearAll()
     sessionCreatedAt = 0
     pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
-    set({ pendingComments: [] }) // 7.4: yorumlar eski çalışma alanına çapalıydı
+    // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
+    set({ pendingComments: [], queuedTasks: [] })
     set({
       messages: [],
       currentSessionId: null,
@@ -2416,7 +2514,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
       selectedPath: useArtifactsStore.getState().selectedPath,
       // 7.4: yorum kuyruğu oturumla yaşar — uygulama kapansa da uçmaz.
-      comments: s.pendingComments
+      comments: s.pendingComments,
+      // 7.7: görev kuyruğu + gelen kutusu da oturumla yaşar.
+      queuedTasks: s.queuedTasks
     }
     try {
       await window.nexora.sessions.save(data)
@@ -2454,7 +2554,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
     // 7.4: açılan oturumun KENDİ yorum kuyruğu geri gelir — çapalar o
     // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.
-    set({ pendingComments: data.comments ?? [] })
+    // 7.7: görev kuyruğu da; yarıda kalmış koşu dürüstçe needs-review olur.
+    set({
+      pendingComments: data.comments ?? [],
+      queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now())
+    })
+    if ((data.queuedTasks ?? []).some((t) => t.state === 'queued')) {
+      setTimeout(() => void processQueue(), 800)
+    }
     set({
       // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
       messages: deactivateTaskCards(data.messages.map((m: ChatMessage) => ({ ...m, streaming: false }))),
@@ -2644,6 +2751,25 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       /* ignore */
     }
     set({ enhancePrompts: v })
+  },
+
+  // 7.7 görev kuyruğu: koşarken yazılan istek turu KESMEZ, kuyruğa girer
+  // (Codex tab-to-queue paritesi); boştayken eklenen hemen işlenir.
+  queuedTasks: [],
+  enqueueTask: (prompt: string) => {
+    const p = prompt.trim()
+    if (!p) return
+    set((s) => ({ queuedTasks: [...s.queuedTasks, makeTask(nanoid(), p, Date.now())] }))
+    scheduleSessionSave()
+    void processQueue()
+  },
+  cancelTask: (id: string) => {
+    set((s) => ({ queuedTasks: transition(s.queuedTasks, id, 'cancelled', Date.now()) }))
+    scheduleSessionSave()
+  },
+  clearFinishedTasks: () => {
+    set((s) => ({ queuedTasks: clearFinished(s.queuedTasks) }))
+    scheduleSessionSave()
   },
 
   // 7.4 yorumla-yönlendir: kuyruk koşan turu ASLA kesmez — yorum birikir,

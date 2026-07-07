@@ -256,12 +256,29 @@ export interface SteerComment {
   createdAt: number
 }
 
+/**
+ * 7.7: kuyruktaki/bitmiş görev — delege-et-incele döngüsünün birimi.
+ * Tek yerel model gerçeğiyle SIRALI işlenir; gelen kutusunda durumuyla durur.
+ */
+export interface QueuedTask {
+  id: string
+  prompt: string
+  title: string
+  state: 'queued' | 'running' | 'verified' | 'needs-review' | 'failed' | 'cancelled'
+  createdAt: number
+  startedAt?: number
+  finishedAt?: number
+  summary?: string
+}
+
 export interface SessionData extends SessionMeta {
   messages: ChatMessage[]
   files: Record<string, SessionFileEntry>
   selectedPath: string | null
   /** 7.4: bekleyen inceleme yorumları (çapalar bu oturumun dosyalarına). */
   comments?: SteerComment[]
+  /** 7.7: görev kuyruğu + gelen kutusu — oturumla yaşar. */
+  queuedTasks?: QueuedTask[]
 }
 
 /** 7.2: oturumun yanındaki artifact belgesi (plan / görev listesi / walkthrough). */
