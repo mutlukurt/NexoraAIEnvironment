@@ -25,7 +25,7 @@ import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBu
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
-import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName } from '@/lib/agentActions'
+import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 
 const AUTO_APPLY_KEY = 'nexora.autoApply'
@@ -1385,6 +1385,59 @@ export function setBehaviorTiming(initialMs: number, backoffMs: number, maxAttem
   behaviorInitialMs = initialMs
   behaviorBackoffMs = backoffMs
   behaviorMaxAttempts = maxAttempts
+}
+
+/**
+ * 8.5 PROJE KİMLİĞİ: planlı build başlarken, store'da adı olan bir package.json
+ * YOKSA brief'ten türetilen adla gerçek bir tane yaz. Böylece getProjectName()
+ * artık sessizce 'nexora-projesi'ye düşmez — knowledge/rules/history bu projeye
+ * bağlanır (aksi hâlde TÜM projeler tek klasörde karışıyordu). Model/kullanıcı
+ * adı verdiyse ASLA üzerine yazma. Ad türetilemezse YÜKSEK SESLE uyar.
+ */
+function ensureProjectIdentity(brief: string): void {
+  const existing = useArtifactsStore.getState().files['package.json']
+  if (existing) {
+    try {
+      const name = JSON.parse(existing.content).name
+      if (typeof name === 'string' && name.trim()) return // zaten kimlikli — dokunma
+    } catch {
+      /* bozuk package.json — aşağıda ada bağlanır */
+    }
+  }
+  const isTr = useAppStore.getState().language === 'tr'
+  const name = deriveProjectName(brief)
+  if (!name) {
+    logRepair({ layer: 'identity-fallback', notes: ['brief’ten ad türetilemedi'] })
+    useAppStore.setState((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: nanoid(),
+          role: 'assistant',
+          content: isTr
+            ? "⚠️ Proje adı türetilemedi — bu projenin bilgi tabanı, kuralları ve geçmişi ortak 'nexora-projesi' altında toplanır. İzole istiyorsan package.json'a bir ad ekle."
+            : "⚠️ Could not derive a project name — this project's knowledge, rules and history will pool under the shared 'nexora-projesi'. Add a name to package.json for isolation."
+        }
+      ]
+    }))
+    return
+  }
+  const pkg = JSON.stringify({ name, version: '0.0.0', private: true }, null, 2) + '\n'
+  useArtifactsStore.getState().upsertFile('package.json', pkg, 'json')
+  resetIdentityWarning() // kimlik kuruldu — sonraki kimliksiz proje yine uyarabilsin
+  logRepair({ layer: 'identity', notes: [name] })
+  useAppStore.setState((s) => ({
+    messages: [
+      ...s.messages,
+      {
+        id: nanoid(),
+        role: 'assistant',
+        content: isTr
+          ? `📦 Proje kimliği: **${name}** — bilgi tabanı, kurallar ve geçmiş bu ada bağlandı (package.json yazıldı).`
+          : `📦 Project identity: **${name}** — knowledge, rules and history bound to this name (package.json written).`
+      }
+    ]
+  }))
 }
 
 /** Bekçiyi durdur (tur bittiğinde / durdurulduğunda). */
@@ -2948,6 +3001,10 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
         useArtifactsStore.getState().upsertFile(af.path, BASE_INDEX_CSS, 'css')
       }
     }
+
+    // 8.5: dosyalar üretilmeden ÖNCE proje kimliğini kur — bu turdan itibaren
+    // tüm knowledge/rules/history çağrıları gerçek ada bağlanır (getProjectName).
+    ensureProjectIdentity(p.request)
 
     plannedBuildActive = true
     plannedBuildAbort = false

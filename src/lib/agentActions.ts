@@ -83,7 +83,27 @@ function currentFiles(): Array<{ path: string; content: string }> {
   return Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
 }
 
-/** Proje adı: package.json'daki name → yoksa varsayılan. */
+/**
+ * 8.5: brief → dosya-sistemi-güvenli proje adı (Türkçe-duyarlı; main sürecindeki
+ * agentService.slugifyName ile aynı ruh). İlk cümle/öbek alınır, slug'lanır.
+ * Türetilemezse '' döner (çağıran yüksek sesle uyarır — sessiz fallback YOK).
+ */
+export function deriveProjectName(brief: string): string {
+  const firstClause = (brief || '').split(/[,.\n;:!?]/)[0] ?? ''
+  return firstClause
+    .toLocaleLowerCase('tr')
+    .replace(/[çÇ]/g, 'c').replace(/[ğĞ]/g, 'g').replace(/[ıİI]/g, 'i')
+    .replace(/[öÖ]/g, 'o').replace(/[şŞ]/g, 's').replace(/[üÜ]/g, 'u')
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '')
+}
+
+/** 8.5: kimlik fallback'i bir kez konsola uyarır (sessiz commingling gözlemlenebilir olsun). */
+let warnedIdentityFallback = false
+
+/** Proje adı: package.json'daki name → yoksa varsayılan (YÜKSEK SESLE uyarır). */
 export function getProjectName(): string {
   const pj = useArtifactsStore.getState().files['package.json']
   if (pj) {
@@ -94,7 +114,20 @@ export function getProjectName(): string {
       /* ignore */
     }
   }
+  // 8.5: sessizce 'nexora-projesi'ye düşmek TÜM projelerin knowledge/rules/
+  // history'sini tek klasörde karıştırıyordu. Fallback kalır ama artık GÖRÜNÜR.
+  if (!warnedIdentityFallback) {
+    warnedIdentityFallback = true
+    console.warn(
+      "[NexoraAI] Proje kimliği yok (package.json'da name yok) — knowledge/rules/history 'nexora-projesi' altında toplanıyor. Planlı build gerçek bir ad yazar."
+    )
+  }
   return 'nexora-projesi'
+}
+
+/** Kimlik kurulunca uyarı bayrağını sıfırla (sonraki kimliksiz proje yine uyarsın). */
+export function resetIdentityWarning(): void {
+  warnedIdentityFallback = false
 }
 
 function isStaticHtmlProject(): boolean {
