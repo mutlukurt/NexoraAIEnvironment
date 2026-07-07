@@ -163,7 +163,49 @@ if (typeof window !== 'undefined' && !window.nexora) {
       save: async () => ({ ok: true }),
       remove: async () => ({ ok: true })
     },
-    rules: { get: async () => ({ content: '' }), set: async () => ({ ok: true }) },
+    rules: (() => {
+      // 7.8: hiyerarşik kurallar — gerçek IPC semantiğiyle bellek-içi
+      let projectRules = ''
+      let globalRules = ''
+      return {
+        get: async () => ({ content: projectRules }),
+        set: async (_p: string, c: string) => ((projectRules = c), { ok: true }),
+        getGlobal: async () => ({ content: globalRules }),
+        setGlobal: async (c: string) => ((globalRules = c), { ok: true }),
+        getMerged: async () => {
+          const parts: string[] = []
+          if (globalRules.trim()) parts.push('--- GLOBAL RULES (all projects) ---\n' + globalRules.trim())
+          if (projectRules.trim()) parts.push('--- PROJECT RULES (override global on conflict) ---\n' + projectRules.trim())
+          return { global: globalRules, project: projectRules, merged: parts.join('\n\n') }
+        }
+      }
+    })(),
+    // 7.8: bilgi tabanı — dedupe/hits/emeklilik dahil gerçek semantik taklidi
+    knowledge: (() => {
+      const items = new Map<string, { kind: string; title: string; body: string; sig?: string; hits: number; updatedAt: number }>()
+      return {
+        learn: async ({ kind, title, body, sig }: { kind: string; title: string; body: string; sig?: string }) => {
+          const key = kind + '|' + title
+          const cur = items.get(key)
+          items.set(key, { kind, title, body, sig: sig ?? cur?.sig, hits: (cur?.hits ?? 0) + 1, updatedAt: Date.now() })
+          return { ok: true, file: 'ki-' + key, hits: items.get(key)!.hits }
+        },
+        list: async () =>
+          [...items.entries()].map(([k, v]) => ({ file: 'ki-' + k, kind: v.kind, title: v.title, updatedAt: v.updatedAt, hits: v.hits })),
+        read: async () => null,
+        remove: async ({ file }: { file: string }) => (items.delete(file.replace(/^ki-/, '')), { ok: true }),
+        retire: async ({ sig }: { sig: string }) => {
+          let retired = 0
+          for (const [k, v] of items) if (v.sig && (v.sig.includes(sig) || sig.includes(v.sig))) { items.delete(k); retired++ }
+          return { retired }
+        },
+        context: async () =>
+          [...items.values()]
+            .sort((a, b) => b.hits - a.hits || b.updatedAt - a.updatedAt)
+            .map((v) => `- [${v.kind}] ${v.title}${v.hits > 1 ? ` (×${v.hits})` : ''}`)
+            .join('\n')
+      }
+    })(),
     history: {
       commit: async () => ({ ok: true }),
       list: async () => [],

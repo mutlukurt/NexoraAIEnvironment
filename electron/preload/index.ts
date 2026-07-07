@@ -147,6 +147,17 @@ export interface NexoraApi {
   rules: {
     get: (projectName: string) => Promise<{ content: string }>
     set: (projectName: string, content: string) => Promise<{ ok: boolean }>
+    getGlobal: () => Promise<{ content: string }>
+    setGlobal: (content: string) => Promise<{ ok: boolean }>
+    getMerged: (projectName: string) => Promise<{ global: string; project: string; merged: string }>
+  }
+  knowledge: {
+    learn: (input: { projectName: string; kind: import('../shared/ipc').KnowledgeItemMeta['kind']; title: string; body: string; sig?: string }) => Promise<{ ok: boolean; file?: string; hits?: number }>
+    list: (projectName: string) => Promise<import('../shared/ipc').KnowledgeItemMeta[]>
+    read: (input: { projectName: string; file: string }) => Promise<string | null>
+    remove: (input: { projectName: string; file: string }) => Promise<{ ok: boolean }>
+    retire: (input: { projectName: string; sig: string }) => Promise<{ retired: number }>
+    context: (projectName: string) => Promise<string>
   }
   projects: {
     /** Klasör Aç (roadmap 3.1): klasör diyaloğu + tarama + bağlama. */
@@ -286,7 +297,18 @@ const api: NexoraApi = {
   },
   rules: {
     get: (projectName: string) => ipcRenderer.invoke(IPC.RULES_GET, projectName),
-    set: (projectName: string, content: string) => ipcRenderer.invoke(IPC.RULES_SET, projectName, content)
+    set: (projectName: string, content: string) => ipcRenderer.invoke(IPC.RULES_SET, projectName, content),
+    getGlobal: () => ipcRenderer.invoke(IPC.RULES_GET_GLOBAL),
+    setGlobal: (content: string) => ipcRenderer.invoke(IPC.RULES_SET_GLOBAL, content),
+    getMerged: (projectName: string) => ipcRenderer.invoke(IPC.RULES_GET_MERGED, projectName)
+  },
+  knowledge: {
+    learn: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_LEARN, input),
+    list: (projectName: string) => ipcRenderer.invoke(IPC.KNOWLEDGE_LIST, projectName),
+    read: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_READ, input),
+    remove: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_DELETE, input),
+    retire: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_RETIRE, input),
+    context: (projectName: string) => ipcRenderer.invoke(IPC.KNOWLEDGE_CONTEXT, projectName)
   },
   projects: {
     import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT),

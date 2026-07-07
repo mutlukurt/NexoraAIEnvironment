@@ -43,7 +43,16 @@ export default function SettingsModal() {
   const [text, setText] = useState(customPrompt)
   const [isOpen, setIsOpen] = useState(false)
   const [rules, setRules] = useState('')
+  const [globalRules, setGlobalRules] = useState('')
   const [projectName, setProjectName] = useState('nexora-projesi')
+  // 7.8: proje bilgi tabanı — motorun bu projede öğrendikleri
+  const [knowledge, setKnowledge] = useState<Array<{ file: string; kind: string; title: string; updatedAt: number; hits: number }>>([])
+  const refreshKnowledge = (name: string) => {
+    void window.nexora.knowledge
+      ?.list(name)
+      .then(setKnowledge)
+      .catch(() => setKnowledge([]))
+  }
 
   useEffect(() => {
     setText(customPrompt)
@@ -59,6 +68,12 @@ export default function SettingsModal() {
         .get(name)
         .then((r: { content: string }) => setRules(r.content))
         .catch(() => setRules(''))
+      // 7.8: global kurallar + bilgi tabanı da mount'ta gelir (6.7 dersi)
+      void window.nexora.rules
+        .getGlobal?.()
+        .then((r: { content: string }) => setGlobalRules(r.content))
+        .catch(() => setGlobalRules(''))
+      refreshKnowledge(name)
     }
     window.addEventListener('nexora:openSettings', handler)
     return () => window.removeEventListener('nexora:openSettings', handler)
@@ -69,6 +84,7 @@ export default function SettingsModal() {
   const close = () => {
     save()
     void window.nexora.rules.set(projectName, rules).catch(() => undefined)
+    void window.nexora.rules.setGlobal?.(globalRules).catch(() => undefined)
     setIsOpen(false)
   }
 
@@ -382,6 +398,76 @@ export default function SettingsModal() {
               placeholder={t.rulesPlaceholder}
               className="w-full resize-none rounded-xl border border-ink-line bg-ink-card px-3.5 py-3 font-mono text-xs text-ink-text placeholder-ink-dim focus:bg-ink-hi focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition"
             />
+          </div>
+
+          {/* 7.8: global kurallar — hiyerarşinin üst katmanı (AGENTS.md keşif kuralı) */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
+              {language === 'tr' ? 'Global Kurallar' : 'Global Rules'}{' '}
+              <span className="normal-case font-mono text-[10px] text-ink-dim">(~/NexoraAI/KURALLAR.md)</span>
+            </label>
+            <p className="mb-3 text-xs font-medium text-ink-dim leading-relaxed">
+              {language === 'tr'
+                ? 'HER projede geçerli tercihler. Proje kuralıyla çelişirse yakın olan (proje) kazanır.'
+                : 'Preferences that apply to EVERY project. On conflict the nearer (project) rule wins.'}
+            </p>
+            <textarea
+              value={globalRules}
+              onChange={(e) => setGlobalRules(e.target.value)}
+              rows={4}
+              placeholder={language === 'tr' ? 'ör. Her zaman Türkçe yorum satırları; erişilebilirlik etiketlerini atlama' : 'e.g. Always Turkish comments; never skip a11y labels'}
+              className="w-full resize-none rounded-xl border border-ink-line bg-ink-card px-3.5 py-3 font-mono text-xs text-ink-text placeholder-ink-dim focus:bg-ink-hi focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition"
+            />
+          </div>
+
+          {/* 7.8: proje bilgi tabanı — motorun KANITLA öğrendikleri */}
+          <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+            <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+              {language === 'tr' ? 'Proje Bilgi Tabanı' : 'Project Knowledge Base'}{' '}
+              <span className="normal-case font-mono text-[10px] text-ink-dim">({projectName}/knowledge/)</span>
+            </span>
+            <p className="mt-1 text-[11px] font-medium leading-normal text-ink-dim">
+              {language === 'tr'
+                ? 'Motor bu projede kanıtla öğrendiklerini buraya yazar (onarım kalıpları, doğrulanmış düzeltmeler, senin inceleme yorumların) ve her turun başına özetler. Yanlışlanan madde otomatik emekli olur; istediğini elle de silebilirsin.'
+                : 'The engine records what it PROVED here (repair patterns, verified fixes, your review comments) and summarizes them into every turn. Refuted items retire automatically; delete any by hand.'}
+            </p>
+            {knowledge.length === 0 ? (
+              <p className="mt-3 text-[11px] font-semibold text-ink-dim">
+                {language === 'tr' ? 'Henüz madde yok — motor onardıkça ve sen yorumladıkça dolacak.' : 'No items yet — fills as the engine repairs and you comment.'}
+              </p>
+            ) : (
+              <div className="mt-3 flex flex-col gap-1.5">
+                {knowledge.map((k) => (
+                  <div key={k.file} className="flex items-center gap-2 rounded-lg border border-ink-line/60 bg-ink-panel px-3 py-2">
+                    <span
+                      className={
+                        'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ' +
+                        (k.kind === 'verified-fix'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : k.kind === 'user-preference'
+                            ? 'bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                            : 'bg-ink-hi text-ink-mut')
+                      }
+                    >
+                      {k.kind}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-ink-text" title={k.title}>
+                      {k.title}
+                    </span>
+                    {k.hits > 1 && <span className="shrink-0 text-[9px] font-bold text-ink-dim">×{k.hits}</span>}
+                    <button
+                      onClick={() => {
+                        void window.nexora.knowledge?.remove({ projectName, file: k.file }).then(() => refreshKnowledge(projectName))
+                      }}
+                      title={language === 'tr' ? 'Maddeyi sil' : 'Delete item'}
+                      className="shrink-0 rounded p-1 text-ink-dim transition hover:bg-red-500/10 hover:text-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Özel hızlı komutlar */}

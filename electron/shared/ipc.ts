@@ -136,6 +136,15 @@ export const IPC = {
   SESSIONS_LOAD: 'sessions:load',
   SESSIONS_DELETE: 'sessions:delete',
   TERM_OUTPUT: 'term:output',
+  KNOWLEDGE_LEARN: 'knowledge:learn',
+  KNOWLEDGE_LIST: 'knowledge:list',
+  KNOWLEDGE_READ: 'knowledge:read',
+  KNOWLEDGE_DELETE: 'knowledge:delete',
+  KNOWLEDGE_RETIRE: 'knowledge:retire',
+  KNOWLEDGE_CONTEXT: 'knowledge:context',
+  RULES_GET_GLOBAL: 'rules:get-global',
+  RULES_SET_GLOBAL: 'rules:set-global',
+  RULES_GET_MERGED: 'rules:get-merged',
   ARTIFACT_DOC_SAVE: 'artifact-doc:save',
   ARTIFACT_DOC_LIST: 'artifact-doc:list',
   ARTIFACT_DOC_READ: 'artifact-doc:read',
@@ -285,6 +294,17 @@ export interface SessionData extends SessionMeta {
   comments?: SteerComment[]
   /** 7.7: görev kuyruğu + gelen kutusu — oturumla yaşar. */
   queuedTasks?: QueuedTask[]
+}
+
+/** 7.8: proje bilgi tabanı maddesi — deterministik öğrenilen kalıcı bilgi. */
+export interface KnowledgeItemMeta {
+  /** Dosya adı (kimlik): ki-<hash>.md */
+  file: string
+  kind: 'repair-pattern' | 'verified-fix' | 'user-preference' | 'note'
+  title: string
+  updatedAt: number
+  /** Aynı bilgi kaç kez yeniden öğrenildi (güven sinyali). */
+  hits: number
 }
 
 /** 7.2: oturumun yanındaki artifact belgesi (plan / görev listesi / walkthrough). */

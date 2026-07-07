@@ -47,6 +47,15 @@ import { detectHardware, getAdvisorPlan } from './advisorService'
 import { setApiConfig, type ApiConfig } from './apiEngine'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
+import {
+  learnKnowledge,
+  listKnowledge,
+  readKnowledge,
+  deleteKnowledge,
+  retireKnowledgeBySig,
+  knowledgeContext
+} from './knowledgeService'
+import { getGlobalRules, setGlobalRules, getMergedRules } from './rulesService'
 import { getRules, setRules } from './rulesService'
 import { historyCommit, historyList, historyRestore, historyRestoreGreen, historyFilesAt } from './gitService'
 import { capturePage } from './captureService'
@@ -410,6 +419,30 @@ function registerIpc(): void {
     await deleteSession(id)
     return { ok: true }
   })
+
+  // Proje bilgi tabanı (7.8): deterministik öğrenme + karşı-kanıt emekliliği.
+  ipcMain.handle(IPC.KNOWLEDGE_LEARN, async (_e, input: { projectName: string; kind: string; title: string; body: string; sig?: string }) => {
+    return learnKnowledge(input.projectName, input as Parameters<typeof learnKnowledge>[1])
+  })
+  ipcMain.handle(IPC.KNOWLEDGE_LIST, async (_e, projectName: string) => listKnowledge(projectName))
+  ipcMain.handle(IPC.KNOWLEDGE_READ, async (_e, input: { projectName: string; file: string }) => {
+    return readKnowledge(input.projectName, input.file)
+  })
+  ipcMain.handle(IPC.KNOWLEDGE_DELETE, async (_e, input: { projectName: string; file: string }) => {
+    return deleteKnowledge(input.projectName, input.file)
+  })
+  ipcMain.handle(IPC.KNOWLEDGE_RETIRE, async (_e, input: { projectName: string; sig: string }) => {
+    return retireKnowledgeBySig(input.projectName, input.sig)
+  })
+  ipcMain.handle(IPC.KNOWLEDGE_CONTEXT, async (_e, projectName: string) => knowledgeContext(projectName))
+
+  // Hiyerarşik kurallar (7.8): global ~/NexoraAI/KURALLAR.md + proje birleşimi.
+  ipcMain.handle(IPC.RULES_GET_GLOBAL, async () => ({ content: await getGlobalRules() }))
+  ipcMain.handle(IPC.RULES_SET_GLOBAL, async (_e, content: string) => {
+    await setGlobalRules(content)
+    return { ok: true }
+  })
+  ipcMain.handle(IPC.RULES_GET_MERGED, async (_e, projectName: string) => getMergedRules(projectName))
 
   // Artifact belgeleri (7.2): plan / görev listesi / walkthrough — sürümlemeli.
   ipcMain.handle(IPC.ARTIFACT_DOC_SAVE, async (_e, input: { sessionId: string; name: string; content: string }) => {

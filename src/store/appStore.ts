@@ -468,6 +468,27 @@ const logRepair = (entry: Record<string, unknown>): void => {
       pendingWalkthrough.repro = [...(pendingWalkthrough.repro ?? []), `${mark} ${layer}${detail ? ` — ${detail}` : ''}`]
       void writeWalkthrough()
     }
+    // 7.8: motorun KANITLI sinyalleri bilgi tabanına deterministik düşer —
+    // model damıtması yok, uydurma yok. kat0 onarım notu = bu projede işleyen
+    // kalıp; repro-verified = kanıtlı onarım (imzasıyla); repro-failed aynı
+    // imzalı maddeyi EMEKLİ eder (tek karşı-kanıt yeter — 6.7 disiplini).
+    try {
+      const kn = window.nexora.knowledge
+      if (kn) {
+        const notes = Array.isArray(entry.notes) ? (entry.notes as string[]) : []
+        if ((layer === 'kat0' || layer === 'scan-kat0') && notes.length > 0) {
+          for (const n of notes.slice(0, 3)) {
+            void kn.learn({ projectName: getProjectName(), kind: 'repair-pattern', title: n.slice(0, 120), body: n })
+          }
+        } else if (layer === 'repro-verified' && detail) {
+          void kn.learn({ projectName: getProjectName(), kind: 'verified-fix', title: detail.slice(0, 120), body: detail, sig: detail.slice(0, 200) })
+        } else if (layer === 'repro-failed' && detail) {
+          void kn.retire({ projectName: getProjectName(), sig: detail.slice(0, 200) })
+        }
+      }
+    } catch {
+      /* bilgi tabanı en-iyi-çaba — telemetri ve panel zaten kaydetti */
+    }
   } catch {
     /* panel beslenemedi — dosya telemetrisi yeterli */
   }
@@ -3141,19 +3162,38 @@ Output ONLY the brief text, starting directly with section 1.
 User description: ${trimmed}`
     }
 
-    // Proje kuralları (KURALLAR.md): kullanıcının kalıcı tercihleri her tura
-    // eklenir — plan turu dahil. Boşsa hiçbir şey eklenmez.
+    // Kurallar (7.8 hiyerarşik): global ~/NexoraAI/KURALLAR.md + proje
+    // KURALLAR.md birleşik gider — çelişkide proje (yakın olan) kazanır.
+    // Boşsa hiçbir şey eklenmez.
     try {
-      const rules = (await window.nexora.rules.get(getProjectName())).content.trim()
-      if (rules) {
+      const merged = window.nexora.rules.getMerged
+        ? (await window.nexora.rules.getMerged(getProjectName())).merged.trim()
+        : (await window.nexora.rules.get(getProjectName())).content.trim()
+      if (merged) {
         outgoing += `
 
 === PROJECT RULES (user-defined, ALWAYS obey) ===
-${rules.slice(0, 1500)}
+${merged.slice(0, 2200)}
 === END PROJECT RULES ===`
       }
     } catch {
       /* kural okunamadıysa istek kuralsız gider */
+    }
+
+    // Proje bilgi tabanı (7.8): motorun bu projede KANITLA öğrendikleri —
+    // onarım kalıpları, doğrulanmış düzeltmeler, kullanıcı tercihleri.
+    // Bütçeli özet; boş projede blok hiç eklenmez.
+    try {
+      const ki = window.nexora.knowledge ? (await window.nexora.knowledge.context(getProjectName())).trim() : ''
+      if (ki) {
+        outgoing += `
+
+=== PROJECT KNOWLEDGE (learned from THIS project's verified history — trust and apply) ===
+${ki}
+=== END PROJECT KNOWLEDGE ===`
+      }
+    } catch {
+      /* bilgi tabanı okunamadıysa istek bilgisiz gider */
     }
 
     // 7.4 yorumla-yönlendir: kuyruktaki inceleme yorumları bu görünür tura
@@ -3166,6 +3206,21 @@ ${rules.slice(0, 1500)}
         Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { content: f.content }])
       )
       outgoing += '\n\n' + composeCommentBlock(steerNow, filesForComments, get().language === 'tr')
+      // 7.8: kullanıcının inceleme yorumları kalıcı tercihe dönüşür — "bu
+      // buton amber olmalı" bir kez söylenir, gelecekteki turlar bilir.
+      try {
+        for (const c of steerNow.slice(0, 5)) {
+          const anchor = c.anchor.kind === 'diff' ? `${c.anchor.path}:${c.anchor.line}` : `${c.anchor.doc} § ${c.anchor.section}`
+          void window.nexora.knowledge?.learn({
+            projectName: getProjectName(),
+            kind: 'user-preference',
+            title: c.text.slice(0, 120),
+            body: `${c.text} (@ ${anchor})`
+          })
+        }
+      } catch {
+        /* bilgi tabanı en-iyi-çaba */
+      }
       set((s) => {
         const note: ChatMessage = {
           id: nanoid(),

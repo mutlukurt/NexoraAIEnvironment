@@ -39,3 +39,40 @@ export async function setRules(projectName: string, content: string): Promise<vo
   }
   await fs.writeFile(path, content, 'utf8')
 }
+
+// --- 7.8: hiyerarşik kurallar (AGENTS.md standardının keşif kuralı) ---
+// Global katman ~/NexoraAI/KURALLAR.md: her projede geçerli tercihlerin evi.
+// Birleşim TAMAMLAYICIDIR: global önce gelir, proje kuralı üstüne yazılır —
+// yakın olan (proje) çelişkide kazanır, çünkü modele daha sonra ve
+// "project rules override" başlığıyla verilir.
+const GLOBAL_RULES = join(homedir(), 'NexoraAI', 'KURALLAR.md')
+
+export async function getGlobalRules(): Promise<string> {
+  try {
+    return await fs.readFile(GLOBAL_RULES, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+export async function setGlobalRules(content: string): Promise<void> {
+  await fs.mkdir(join(GLOBAL_RULES, '..'), { recursive: true })
+  if (!content.trim()) {
+    try {
+      await fs.unlink(GLOBAL_RULES)
+    } catch {
+      /* yoksa sorun değil */
+    }
+    return
+  }
+  await fs.writeFile(GLOBAL_RULES, content, 'utf8')
+}
+
+/** Birleşik görünüm: global + proje (proje çelişkide kazanır — sona yazılır). */
+export async function getMergedRules(projectName: string): Promise<{ global: string; project: string; merged: string }> {
+  const [global, project] = await Promise.all([getGlobalRules(), getRules(projectName)])
+  const parts: string[] = []
+  if (global.trim()) parts.push('--- GLOBAL RULES (all projects) ---\n' + global.trim())
+  if (project.trim()) parts.push('--- PROJECT RULES (override global on conflict) ---\n' + project.trim())
+  return { global, project, merged: parts.join('\n\n') }
+}
