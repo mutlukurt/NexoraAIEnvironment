@@ -789,14 +789,21 @@ export async function importProjectFolder(): Promise<ProjectImportResult> {
 // Terminal komutu çalıştırma
 // ---------------------------------------------------------------------------
 
-export async function runCommand(projectName: string, cmd: string, timeoutMs = 300_000): Promise<RunResult> {
+export async function runCommand(
+  projectName: string,
+  cmd: string,
+  timeoutMs = 300_000,
+  onChunk?: (chunk: string) => void
+): Promise<RunResult> {
   // 7.5 Katman 1 (derinlemesine savunma): renderer'daki izin akışı ne derse
   // desin, 'deny' sınıfı MAIN'de de duvardır — kök-yol hedefli yıkıcı komut,
   // sudo/kapatma, boru-ile-kabuk hiçbir onay seviyesiyle çalışmaz.
   const { commandVerdict } = await import('../shared/trust')
   const verdict = commandVerdict(cmd)
   if (verdict.action === 'deny') {
-    return { ok: false, output: `Bu komut güvenlik nedeniyle engellendi (${verdict.reason}): ${cmd}`, exitCode: null }
+    const msg = `Bu komut güvenlik nedeniyle engellendi (${verdict.reason}): ${cmd}`
+    onChunk?.(msg)
+    return { ok: false, output: msg, exitCode: null }
   }
   const dir = workspaceDir(projectName)
   await mkdir(dir, { recursive: true })
@@ -810,44 +817,22 @@ export async function runCommand(projectName: string, cmd: string, timeoutMs = 3
     existsSync(join(dir, 'package.json')) &&
     !existsSync(join(dir, 'node_modules'))
   ) {
-    const inst = await runCommand(projectName, 'npm install --no-audit --no-fund', 600_000)
+    // Önkoşul kurulum da AYNI karta canlı akar (görünür terminal, 7.6).
+    onChunk?.('[NexoraAI] node_modules yok — önce npm install çalışıyor…\n')
+    const inst = await runCommand(projectName, 'npm install --no-audit --no-fund', 600_000, onChunk)
     if (!inst.ok) return { ok: false, output: 'Önkoşul npm install başarısız:\n' + inst.output.slice(-800), exitCode: inst.exitCode }
   }
 
-  return new Promise<RunResult>((resolvePromise) => {
-    // shell: true → Linux/macOS'ta /bin/sh, Windows'ta cmd.exe. 'bash'e sabitlemek
-    // Windows'ta kaynak koddan çalıştıran kullanıcıların agent komutlarını kırar.
-    const child = spawn(cmd, {
-      cwd: dir,
-      shell: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } as NodeJS.ProcessEnv,
-      detached: false
-    })
-    let out = ''
-    const push = (d: Buffer) => {
-      if (out.length < MAX_OUTPUT) out += d.toString()
-    }
-    child.stdout?.on('data', push)
-    child.stderr?.on('data', push)
-
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL')
-      } catch {
-        /* ignore */
-      }
-      out += '\n[NexoraAI] Komut zaman aşımına uğradı.'
-    }, timeoutMs)
-
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      resolvePromise({ ok: code === 0, output: out.trim().slice(0, MAX_OUTPUT), exitCode: code })
-    })
-    child.on('error', (err) => {
-      clearTimeout(timer)
-      resolvePromise({ ok: false, output: 'Komut başlatılamadı: ' + err.message, exitCode: null })
-    })
+  // 7.6: akışlı koşucu — her stdout/stderr parçası anında onChunk'a düşer
+  // (Terminal kartı canlı akar), dönüş eski RunResult sözleşmesini korur.
+  const { runStreaming } = await import('./procRun')
+  const r = await runStreaming(cmd, dir, {
+    timeoutMs,
+    maxOutput: MAX_OUTPUT,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } as NodeJS.ProcessEnv,
+    onChunk
   })
+  return { ok: r.ok, output: r.output, exitCode: r.exitCode }
 }
 
 // ---------------------------------------------------------------------------

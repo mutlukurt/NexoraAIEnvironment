@@ -104,6 +104,8 @@ export interface NexoraApi {
     devUrl: () => Promise<{ url: string | null }>
     onBuildError: (cb: (event: AgentBuildErrorEvent) => void) => () => void
     onRuntimeError: (cb: (event: { message: string; stack: string; kind?: string }) => void) => () => void
+    /** 7.6 görünür terminal: komut çıktısı canlı akışı. */
+    onTermOutput: (cb: (event: import('../shared/ipc').TermOutputEvent) => void) => () => void
     /** Toplayıcının bağlı olduğu port; null = otomatik hata yakalama devre dışı. */
     runtimeStatus: () => Promise<{ port: number | null }>
     /** 6.1: dev sayfasını debugger takılı aç, çökme anının frame+yerellerini oku. */
@@ -239,6 +241,11 @@ const api: NexoraApi = {
       const handler = (_e: unknown, data: { message: string; stack: string; kind?: string }) => cb(data)
       ipcRenderer.on(IPC.AGENT_RUNTIME_ERROR, handler as never)
       return () => ipcRenderer.off(IPC.AGENT_RUNTIME_ERROR, handler as never)
+    },
+    onTermOutput: (cb) => {
+      const handler = (_e: unknown, data: import('../shared/ipc').TermOutputEvent) => cb(data)
+      ipcRenderer.on(IPC.TERM_OUTPUT, handler as never)
+      return () => ipcRenderer.off(IPC.TERM_OUTPUT, handler as never)
     },
     runtimeStatus: () => ipcRenderer.invoke(IPC.RUNTIME_STATUS),
     debugInspect: (url: string) => ipcRenderer.invoke(IPC.DEBUG_INSPECT, { url }),

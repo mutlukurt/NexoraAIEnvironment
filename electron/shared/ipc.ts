@@ -135,6 +135,7 @@ export const IPC = {
   SESSIONS_SAVE: 'sessions:save',
   SESSIONS_LOAD: 'sessions:load',
   SESSIONS_DELETE: 'sessions:delete',
+  TERM_OUTPUT: 'term:output',
   ARTIFACT_DOC_SAVE: 'artifact-doc:save',
   ARTIFACT_DOC_LIST: 'artifact-doc:list',
   ARTIFACT_DOC_READ: 'artifact-doc:read',
@@ -328,6 +329,19 @@ export interface AgentRunInput {
   projectName: string
   files: Array<{ path: string; content: string }>
   command: string
+  /** 7.6: verilirse çıktı bu kimlikle TERM_OUTPUT olayları olarak canlı akar. */
+  execId?: string
+}
+
+/** 7.6 görünür terminal: bir komutun canlı çıktı olayı. */
+export interface TermOutputEvent {
+  execId: string
+  /** Ham stdout/stderr parçası (done olayında yoktur). */
+  chunk?: string
+  done?: boolean
+  ok?: boolean
+  exitCode?: number | null
+  durationMs?: number
 }
 
 export interface AgentRunResult {
@@ -374,6 +388,8 @@ export interface AgentDevInput {
   files: Array<{ path: string; content: string }>
   /** buildCheck için: node_modules kurulu değilse tam derlemeyi atla (2.3). */
   onlyIfInstalled?: boolean
+  /** 7.6: verilirse dev sunucusu durum satırları TERM_OUTPUT olarak akar. */
+  execId?: string
 }
 
 export interface AgentDevResult {

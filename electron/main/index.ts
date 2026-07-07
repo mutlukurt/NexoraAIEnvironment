@@ -270,7 +270,18 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.AGENT_RUN, async (_e, input: AgentRunInput) => {
     await syncWorkspace(input.projectName, input.files)
-    return runCommand(input.projectName, input.command)
+    // 7.6 görünür terminal: execId verildiyse çıktı canlı olaylarla akar.
+    const execId = input.execId
+    const emit = (ev: Record<string, unknown>) => mainWindow?.webContents.send(IPC.TERM_OUTPUT, ev)
+    const started = Date.now()
+    const res = await runCommand(
+      input.projectName,
+      input.command,
+      undefined,
+      execId ? (chunk) => emit({ execId, chunk }) : undefined
+    )
+    if (execId) emit({ execId, done: true, ok: res.ok, exitCode: res.exitCode, durationMs: Date.now() - started })
+    return res
   })
 
   ipcMain.handle(IPC.AGENT_FETCH, async (_e, input: AgentFetchInput) => {
@@ -312,9 +323,20 @@ function registerIpc(): void {
   ipcMain.handle(IPC.REPAIR_STATS, () => readRepairStats())
 
   ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
+    const devExecId = (input as { execId?: string }).execId
     const res = await startDev(input.projectName, input.files, (msg) => {
       mainWindow?.webContents.send(IPC.AGENT_DEV_STATUS, { msg })
+      // 7.6: dev sunucusu durum satırları Terminal kartına da akar.
+      if (devExecId) mainWindow?.webContents.send(IPC.TERM_OUTPUT, { execId: devExecId, chunk: msg + '\n' })
     })
+    if (devExecId) {
+      mainWindow?.webContents.send(IPC.TERM_OUTPUT, {
+        execId: devExecId,
+        done: true,
+        ok: res.ok,
+        exitCode: res.ok ? 0 : null
+      })
+    }
     if (res.ok) {
       // Dev sunucusu ayakta ama kod derlenmiyor olabilir (vite tembel derler):
       // arka planda tam derleme denetimi koş, hata varsa chat'e taşınmak üzere

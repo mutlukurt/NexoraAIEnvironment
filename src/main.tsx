@@ -129,9 +129,27 @@ if (typeof window !== 'undefined' && !window.nexora) {
       devUrl: async () => ({ url: null }),
       fetch: async () => ({ ok: true }),
       font: async () => ({ ok: true }),
-      run: async () => ({ ok: true }),
+      // 7.6: gerçek IPC gibi — execId verildiyse çıktı TERM_OUTPUT taklidi
+      // 'nexora-term' penceresi olaylarıyla parça parça akar, sonra done gelir.
+      run: async ({ command, execId }: { command: string; execId?: string }) => {
+        const emit = (detail: unknown) => window.dispatchEvent(new CustomEvent('nexora-term', { detail }))
+        if (execId) {
+          await new Promise((r) => setTimeout(r, 120))
+          emit({ execId, chunk: `[mock] $ ${command}\n` })
+          await new Promise((r) => setTimeout(r, 250))
+          emit({ execId, chunk: 'mock çıktı satırı 1\nmock çıktı satırı 2\n' })
+          await new Promise((r) => setTimeout(r, 250))
+          emit({ execId, done: true, ok: true, exitCode: 0, durationMs: 620 })
+        }
+        return { ok: true, output: `[mock] ${command} tamam`, exitCode: 0 }
+      },
       onBuildError: () => () => {},
       onRuntimeError: () => () => {},
+      onTermOutput: (cb: (ev: unknown) => void) => {
+        const h = (e: Event) => cb((e as CustomEvent).detail)
+        window.addEventListener('nexora-term', h)
+        return () => window.removeEventListener('nexora-term', h)
+      },
       repairStats: async () => ({ ok: true, events: [] }),
       reproCheck: async () => ({ ok: false }),
       runtimeStatus: async () => ({ ok: true, port: 0 })

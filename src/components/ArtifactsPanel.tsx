@@ -1,6 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
+import { useSettingsStore } from '@/store/settingsStore'
+import { useTermStore } from '@/store/termStore'
+import { decideCommand } from '@shared/trust'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
 import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch, Eye } from 'lucide-react'
@@ -138,12 +141,13 @@ export default function ArtifactsPanel() {
   // Önizleme kaldırıldı: projeyi görmenin yolu "Çalıştır" (gerçek vite +
   // localhost + tarayıcı). Sandbox iframe'in kısıtlarıyla boğuşmak yerine
   // kullanıcı gerçek çıktıya bakar.
-  const tabs: { id: 'code' | 'tree' | 'history' | 'engine' | 'docs'; label: string }[] = [
+  const tabs: { id: 'code' | 'tree' | 'history' | 'engine' | 'docs' | 'term'; label: string }[] = [
     { id: 'code', label: language === 'tr' ? 'Kod' : 'Code' },
     { id: 'tree', label: language === 'tr' ? 'Ağaç' : 'Tree' },
     { id: 'history', label: language === 'tr' ? 'Geçmiş' : 'History' },
     { id: 'engine', label: language === 'tr' ? 'Motor' : 'Engine' },
-    { id: 'docs', label: language === 'tr' ? 'Belgeler' : 'Docs' }
+    { id: 'docs', label: language === 'tr' ? 'Belgeler' : 'Docs' },
+    { id: 'term', label: 'Terminal' }
   ]
 
   const handleExport = async () => {
@@ -448,6 +452,8 @@ export default function ArtifactsPanel() {
         <EngineTimeline language={language} />
       ) : view === 'docs' ? (
         <ArtifactDocsView language={language} />
+      ) : view === 'term' ? (
+        <TerminalView language={language} />
       ) : view === 'history' ? (
         <HistoryTimeline language={language} />
       ) : fileCount === 0 ? (
@@ -696,6 +702,125 @@ function MarkdownLite({ text, onComment }: { text: string; onComment?: (section:
     else if (line.trim()) nodes.push(<p key={i} className="my-1 text-xs leading-relaxed text-ink-mut">{renderInline(line)}</p>)
   })
   return <div>{nodes}</div>
+}
+
+/**
+ * 7.6 Görünür terminal: her [RUN]/[DEV] yürütmesi ve kullanıcının kendi
+ * komutu bir kart — canlı stdout/stderr, çıkış kodu, süre. Kullanıcı komutu
+ * AYNI iki katmanlı güvenden geçer: 'deny' sınıfı burada da çalışmaz
+ * (kullanıcı yazmış olsa bile — yanlışlıkla `rm -rf /` koruması), Salt
+ * Okunur kipte terminal de yalnız izler.
+ */
+function TerminalView({ language }: { language: 'tr' | 'en' }) {
+  const tr = language === 'tr'
+  const entries = useTermStore((s) => s.entries)
+  const [cmd, setCmd] = useState('')
+  const scrollRef2 = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    scrollRef2.current?.scrollTo({ top: scrollRef2.current.scrollHeight })
+  }, [entries])
+
+  const runUserCommand = async () => {
+    const c = cmd.trim()
+    if (!c) return
+    setCmd('')
+    const trust = useSettingsStore.getState()
+    if (trust.trustTier === 'read') {
+      useTermStore.getState().blocked(c, 'user', tr ? 'Salt Okunur kip: terminal yalnız izler' : 'Read Only tier: the terminal only watches')
+      return
+    }
+    // Kullanıcının yazması 'ask' sınıfı için onaydır; 'deny' yine duvardır.
+    const { decision, verdict } = decideCommand(c, trust.trustTier, {
+      allowList: trust.trustAllowList,
+      denyList: trust.trustDenyList,
+      projectAlways: true
+    })
+    if (decision === 'block') {
+      useTermStore.getState().blocked(c, 'user', verdict.reason)
+      return
+    }
+    const execId = useTermStore.getState().register(c, 'user')
+    const files = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
+    const res = await window.nexora.agent.run({ projectName: getProjectName(), files, command: c, execId })
+    useTermStore.getState().finish(execId, { ok: res.ok, exitCode: res.exitCode, fallbackOutput: res.output })
+  }
+
+  const SOURCE_META: Record<string, { label: string; cls: string }> = {
+    agent: { label: tr ? 'ajan' : 'agent', cls: 'bg-brand-500/10 text-brand-700 dark:text-brand-300 border-brand-500/30' },
+    user: { label: tr ? 'sen' : 'you', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' },
+    dev: { label: 'dev', cls: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30' }
+  }
+
+  return (
+    <div className="flex flex-1 min-h-0 flex-col bg-ink-card">
+      <div ref={scrollRef2} className="flex-1 overflow-y-auto px-4 py-3">
+        {entries.length === 0 ? (
+          <p className="mt-4 text-xs font-semibold text-ink-dim">
+            {tr
+              ? 'Henüz komut yok. Ajanın her [RUN]/[DEV] yürütmesi burada canlı akar; aşağıya kendi komutunu da yazabilirsin (aynı güvenlik katmanından geçer).'
+              : 'No commands yet. Every agent [RUN]/[DEV] streams here live; you can also type your own command below (same trust layer).'}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {entries.map((e) => {
+              const meta = SOURCE_META[e.source]
+              return (
+                <div key={e.id} className="overflow-hidden rounded-xl border border-ink-line/70 bg-ink-bg/60">
+                  <div className="flex items-center gap-2 border-b border-ink-line/50 px-3 py-1.5">
+                    <span className={'shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold ' + meta.cls}>{meta.label}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-semibold text-ink-text">$ {e.cmd}</span>
+                    {e.running ? (
+                      <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-ink-line border-t-brand-400" />
+                    ) : e.blockedReason ? (
+                      <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-600 dark:text-red-400">🛡 {tr ? 'engellendi' : 'blocked'}</span>
+                    ) : (
+                      <span
+                        className={
+                          'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ' +
+                          (e.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400')
+                        }
+                      >
+                        {tr ? 'kod' : 'exit'} {e.exitCode ?? '?'} · {((e.durationMs ?? 0) / 1000).toFixed(1)}s
+                      </span>
+                    )}
+                  </div>
+                  {e.blockedReason ? (
+                    <p className="px-3 py-2 text-[11px] font-semibold text-red-600 dark:text-red-400/90">⛔ {e.blockedReason}</p>
+                  ) : (
+                    (e.output || e.running) && (
+                      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all px-3 py-2 font-mono text-[10.5px] leading-4 text-ink-mut">
+                        {e.output || (tr ? '…' : '…')}
+                      </pre>
+                    )
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 border-t border-ink-line bg-ink-panel px-3 py-2.5">
+        <span className="shrink-0 font-mono text-xs font-bold text-brand-600 dark:text-brand-400">$</span>
+        <input
+          value={cmd}
+          onChange={(e) => setCmd(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void runUserCommand()
+          }}
+          placeholder={tr ? 'komut yaz (proje klasöründe koşar — güvenlik katmanından geçer)' : 'type a command (runs in the project folder — through the trust layer)'}
+          className="min-w-0 flex-1 bg-transparent font-mono text-xs text-ink-text outline-none placeholder:text-ink-dim"
+        />
+        <button
+          onClick={() => void runUserCommand()}
+          disabled={!cmd.trim()}
+          className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-brand-500 disabled:opacity-40"
+        >
+          {tr ? 'Çalıştır' : 'Run'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function ArtifactDocsView({ language }: { language: 'tr' | 'en' }) {

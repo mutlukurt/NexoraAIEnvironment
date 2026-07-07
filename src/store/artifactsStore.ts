@@ -10,7 +10,7 @@ export interface ArtifactFile {
   updatedAt: number
 }
 
-export type ArtifactView = 'preview' | 'code' | 'tree' | 'history' | 'engine' | 'docs'
+export type ArtifactView = 'preview' | 'code' | 'tree' | 'history' | 'engine' | 'docs' | 'term'
 
 interface ArtifactsState {
   files: Record<string, ArtifactFile>

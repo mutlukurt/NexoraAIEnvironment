@@ -10,6 +10,7 @@
  * çıktısındaki prose üzerinden okunur, kodun içindekiler tetiklenmez).
  */
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
+import { useTermStore } from '@/store/termStore'
 
 export interface AgentDirectives {
   pkgs: string[]
@@ -187,7 +188,11 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
 
   for (const cmd of d.runs) {
     log(`$ ${cmd}`)
-    const res = await window.nexora.agent.run({ projectName, files: currentFiles(), command: cmd })
+    // 7.6 görünür terminal: komut kartı açılır, çıktı TERM_OUTPUT ile canlı
+    // akar; sonuç yine sohbet günlüğüne özetlenir (iki yüzey, tek yürütme).
+    const execId = useTermStore.getState().register(cmd, 'agent')
+    const res = await window.nexora.agent.run({ projectName, files: currentFiles(), command: cmd, execId })
+    useTermStore.getState().finish(execId, { ok: res.ok, exitCode: res.exitCode, fallbackOutput: res.output })
     const tail = res.output ? res.output.slice(-500).trim() : ''
     if (res.ok) {
       log(`✓ Komut tamamlandı${tail ? '\n' + tail : ''}`)
@@ -198,7 +203,9 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
 
   if (d.dev) {
     log('▶ Proje başlatılıyor (bağımlılıklar kurulacak, tarayıcı açılacak)…')
-    const res = await window.nexora.agent.devStart({ projectName, files: currentFiles() })
+    const devExecId = useTermStore.getState().register('npm run dev  (dev sunucusu)', 'dev')
+    const res = await window.nexora.agent.devStart({ projectName, files: currentFiles(), execId: devExecId })
+    useTermStore.getState().finish(devExecId, { ok: res.ok, fallbackOutput: res.ok ? `çalışıyor: ${res.url ?? ''}` : res.error })
     if (res.ok && res.url) {
       log(`✓ Proje çalışıyor: ${res.url} (tarayıcıda açıldı)`)
     } else {
