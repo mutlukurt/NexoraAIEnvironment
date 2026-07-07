@@ -482,7 +482,14 @@ export default function ChatPanel() {
                             {(task.state === 'verified' || task.state === 'needs-review') && (
                               <>
                                 <button
-                                  onClick={() => { setInboxOpen(false); window.dispatchEvent(new Event('nexora:openDiff')) }}
+                                  onClick={() => {
+                                    setInboxOpen(false)
+                                    // 7.7: görev tabanı mührü varsa inceleme
+                                    // "bu görev neyi değiştirdi?" kapsamıyla açılır.
+                                    window.dispatchEvent(
+                                      new CustomEvent('nexora:openDiff', { detail: task.baseHash ? { ref: task.baseHash } : undefined })
+                                    )
+                                  }}
                                   className="rounded border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300 hover:bg-brand-500/20"
                                 >
                                   ⇄ {language === 'tr' ? 'İncele' : 'Review'}

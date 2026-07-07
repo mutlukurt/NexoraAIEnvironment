@@ -29,7 +29,7 @@ import { getProjectName } from '@/lib/agentActions'
 import { translations } from '@/lib/translations'
 import { X, ChevronDown, ChevronRight, FilePlus, FileX, FileDiff as FileDiffIcon, Undo2 } from 'lucide-react'
 
-type Scope = 'turn' | 'head' | 'green'
+type Scope = 'turn' | 'head' | 'green' | 'task'
 
 function StatusBadge({ d, t }: { d: FileDiff; t: any }) {
   if (d.status === 'added')
@@ -236,11 +236,17 @@ export default function DiffModal() {
   const tr = language === 'tr'
   const t = translations[language]
 
+  const [taskRef, setTaskRef] = useState<string | null>(null)
+
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
       setOpenPaths({})
-      // Varsayılan kapsam: tur anlık görüntüsü varsa "bu tur", yoksa HEAD.
-      setScope(useArtifactsStore.getState()._snapshot ? 'turn' : 'head')
+      // 7.7: inbox'tan "İncele" görev tabanı hash'iyle gelir — inceleme
+      // "bu görev neyi değiştirdi?" kapsamıyla açılır. Ref'siz açılışta
+      // varsayılan: tur anlık görüntüsü varsa "bu tur", yoksa HEAD.
+      const ref = (e as CustomEvent<{ ref?: string } | undefined>).detail?.ref ?? null
+      setTaskRef(ref)
+      setScope(ref ? 'task' : useArtifactsStore.getState()._snapshot ? 'turn' : 'head')
       setGitBase(null)
       setGitError(null)
       setOpen(true)
@@ -257,7 +263,7 @@ export default function DiffModal() {
     setGitBase(null)
     setGitError(null)
     void window.nexora.history
-      .filesAt(getProjectName(), scope === 'head' ? 'HEAD' : 'nexora-green')
+      .filesAt(getProjectName(), scope === 'task' && taskRef ? taskRef : scope === 'head' ? 'HEAD' : 'nexora-green')
       .then((r: { ok: boolean; files?: Array<{ path: string; content: string }>; error?: string }) => {
         if (!alive) return
         if (r.ok && r.files) {
@@ -276,7 +282,7 @@ export default function DiffModal() {
     return () => {
       alive = false
     }
-  }, [open, scope])
+  }, [open, scope, taskRef])
 
   const diffs = useMemo(() => {
     if (!open) return []
@@ -301,6 +307,9 @@ export default function DiffModal() {
   }
 
   const scopes: Array<{ id: Scope; label: string; enabled: boolean; hint?: string }> = [
+    ...(taskRef
+      ? [{ id: 'task' as const, label: (tr ? 'Görev tabanı' : 'Task base') + ` (${taskRef.slice(0, 7)})`, enabled: true }]
+      : []),
     { id: 'turn', label: tr ? 'Bu tur' : 'This turn', enabled: !!snap, hint: snap ? undefined : tr ? 'bekleyen tur yok' : 'no pending turn' },
     { id: 'head', label: tr ? 'Son kayıttan beri' : 'Since last commit', enabled: true },
     { id: 'green', label: tr ? 'Yeşil sürümden beri' : 'Since green', enabled: true }

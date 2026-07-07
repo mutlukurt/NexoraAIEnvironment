@@ -269,6 +269,12 @@ export interface QueuedTask {
   startedAt?: number
   finishedAt?: number
   summary?: string
+  /**
+   * 7.7: görev başlarken zaman çizelgesinin ucu (git hash) — "bu görev neyi
+   * değiştirdi?" incelemesinin tabanı. Sıralı yürütmede dal tiyatrodur;
+   * gerçek ihtiyaç görev-başına fark tabanıdır. git yoksa boş kalır.
+   */
+  baseHash?: string
 }
 
 export interface SessionData extends SessionMeta {

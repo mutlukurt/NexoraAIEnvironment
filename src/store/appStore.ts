@@ -298,6 +298,19 @@ async function processQueue(): Promise<void> {
       useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, 'running', Date.now()) }))
       scheduleSessionSave()
       lastPostVerifyClean = null
+      // Görev tabanı mührü: zaman çizelgesinin şu anki ucu — "bu görev neyi
+      // değiştirdi?" incelemesi bu hash'e karşı açılır (git yoksa boş kalır).
+      try {
+        const timeline = await window.nexora.history.list(getProjectName())
+        const baseHash = timeline[0]?.hash
+        if (baseHash) {
+          useAppStore.setState((s) => ({
+            queuedTasks: s.queuedTasks.map((t) => (t.id === next.id ? { ...t, baseHash } : t))
+          }))
+        }
+      } catch {
+        /* git yok / bağlı klasör — İncele normal kapsamla açılır */
+      }
       await useAppStore.getState().sendMessage(next.prompt)
       // Delege edilen işte plan onayı delegasyonun kendisidir (Agent Decides):
       // plan yine üretilir ve karta düşer, ama kuyruk onu bekletmez.
