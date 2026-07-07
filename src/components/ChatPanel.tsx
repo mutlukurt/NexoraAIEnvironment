@@ -316,6 +316,7 @@ export default function ChatPanel() {
   const applySteerComments = useAppStore((s) => s.applySteerComments)
   const clearSteerComments = useAppStore((s) => s.clearSteerComments)
   const queuedTasks = useAppStore((s) => s.queuedTasks)
+  const queueWaitReason = useAppStore((s) => s.queueWaitReason)
   const enqueueTask = useAppStore((s) => s.enqueueTask)
   const cancelTask = useAppStore((s) => s.cancelTask)
   const clearFinishedTasks = useAppStore((s) => s.clearFinishedTasks)
@@ -472,6 +473,10 @@ export default function ChatPanel() {
                             <span className="min-w-0 flex-1 truncate text-xs font-bold text-ink-text">{task.title}</span>
                             <span className={'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ' + meta.cls}>{meta.chip}</span>
                           </div>
+                          {/* 8.2: sıradaki kart NEDEN beklediğini söyler — donuk "sırada" değil */}
+                          {task.state === 'queued' && queueWaitReason && (
+                            <p className="mt-1 truncate text-[10px] font-medium text-ink-mut">{queueWaitReason}</p>
+                          )}
                           {task.summary && <p className="mt-1 truncate text-[10px] font-medium text-ink-dim">{task.summary}</p>}
                           <div className="mt-1.5 flex items-center gap-1.5">
                             {task.state === 'queued' && (

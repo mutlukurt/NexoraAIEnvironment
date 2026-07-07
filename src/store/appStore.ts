@@ -169,6 +169,8 @@ interface AppState {
 
   // 7.7 görev kuyruğu + gelen kutusu: delege et → sırayla işle → incele.
   queuedTasks: QueuedTask[]
+  /** 8.2: sıradaki iş NEDEN bekliyor (canlı, oturumda kalıcı değil). */
+  queueWaitReason: string | null
   enqueueTask: (prompt: string) => void
   cancelTask: (id: string) => void
   clearFinishedTasks: () => void
@@ -355,19 +357,67 @@ async function processQueue(): Promise<void> {
   }
 }
 
-// Tur bittiğinde kuyruk kapıyı çalar (koşan işleyici varsa bekçi düşürür).
-// Abonelik bir tick ertelenir: useAppStore bu satırın ALTINDA tanımlanır
-// (modül-yükleme anında TDZ), store hazır olunca bağlanır.
+// ---------------------------------------------------------------------------
+// 8.2 KUYRUK KALP ATIŞI — delege edilen iş asla UYUMAZ.
+// Tek-atış "sending düşen-kenarı +1.2s" tetiği, dakikalarca süren verify/onarım
+// zinciriyle YARIŞIYORDU (canlı test: kuyruk 2× kendi başlamadı). Yerine kalıcı
+// kalp atışı: sırada iş VARKEN, motor GERÇEKTEN boşalana dek tekrar tekrar çalar
+// (yanlış-zamanlı knock processQueue guard'ıyla no-op'tur). Ayrıca kartta NEDEN
+// beklediğini söyler — donuk "sırada" yerine "motor meşgul: onarım turu koşuyor".
+// ---------------------------------------------------------------------------
+let queueHeartbeat: ReturnType<typeof setTimeout> | null = null
+const QUEUE_HEARTBEAT_MS = 1500
+
+/** Sırada bekleyen görevlerin NEDEN beklediği (canlı, kalıcı değil). */
+function computeQueueWaitReason(): string | null {
+  const st = useAppStore.getState()
+  const tr = st.language === 'tr'
+  if (!st.queuedTasks.some((t) => t.state === 'queued')) return null
+  if (queuePaused) return tr ? '⏸ duraklatıldı — devam için bir mesaj gönderin' : '⏸ paused — send a message to resume'
+  if (st.queuedTasks.some((t) => t.state === 'running')) return tr ? '⏳ önceki görev koşuyor' : '⏳ a previous task is running'
+  if (st.sending || st.generating) return tr ? '⏳ motor meşgul: tur koşuyor' : '⏳ engine busy: a turn is running'
+  if (postVerifyActive) return tr ? '⏳ motor meşgul: doğrulama/onarım turu koşuyor' : '⏳ engine busy: verify/repair turn running'
+  return null // motor boş — birazdan başlıyor
+}
+
+function stopQueueHeartbeat(): void {
+  if (queueHeartbeat) {
+    clearTimeout(queueHeartbeat)
+    queueHeartbeat = null
+  }
+}
+
+/** Kalp atışı: sırada iş varken NEDEN'i tazeler ve motor boşsa kapıyı çalar. */
+function heartbeatTick(): void {
+  queueHeartbeat = null
+  const st = useAppStore.getState()
+  const hasQueued = st.queuedTasks.some((t) => t.state === 'queued')
+  if (!hasQueued) {
+    if (st.queueWaitReason !== null) useAppStore.setState({ queueWaitReason: null })
+    return // kuyruk boş — kalp atışı durur (enqueue/openSession yeniden kurar)
+  }
+  const reason = computeQueueWaitReason()
+  if (st.queueWaitReason !== reason) useAppStore.setState({ queueWaitReason: reason })
+  // Motor boşsa VE duraklama yoksa kapıyı çal. processQueue kendi guard'ıyla
+  // çifte koşmayı önler; meşgulken knock anında no-op olur (güvenli re-knock).
+  if (!queuePaused) void processQueue()
+  queueHeartbeat = setTimeout(heartbeatTick, QUEUE_HEARTBEAT_MS)
+}
+
+/** Sırada iş varsa kalp atışını başlat (zaten koşuyorsa dokunma). */
+function ensureQueueHeartbeat(): void {
+  if (queueHeartbeat) return
+  if (!useAppStore.getState().queuedTasks.some((t) => t.state === 'queued')) return
+  queueHeartbeat = setTimeout(heartbeatTick, 0)
+}
+
+// Tur bittiğinde kalp atışını (yoksa) kur — koşan tur bitince sıradaki iş,
+// verify zinciri otursa BİLE eninde sonunda başlar (tek-atış yarışı biter).
+// Abonelik bir tick ertelenir: useAppStore bu satırın ALTINDA tanımlanır (TDZ).
 setTimeout(() => {
   useAppStore.subscribe((s, prev) => {
-    // 8.1: Durdur duraklamada ise otomatik ilerleme YOK; timer iptal-edilebilir
-    // (Durdur onu temizler). 8.2 bu tek-atış tetiği kalıcı kalp atışıyla değiştirir.
     if (prev.sending && !s.sending && !queuePaused && s.queuedTasks.some((t) => t.state === 'queued')) {
-      if (queueRelaunchTimer) clearTimeout(queueRelaunchTimer)
-      queueRelaunchTimer = setTimeout(() => {
-        queueRelaunchTimer = null
-        void processQueue()
-      }, 1200)
+      ensureQueueHeartbeat()
     }
   })
 }, 0)
@@ -1284,8 +1334,6 @@ let livenessTimer: ReturnType<typeof setTimeout> | null = null
  */
 let firstTokenLivenessMs = 240_000
 let idleLivenessMs = 45_000
-/** Kuyruk düşen-kenar tetiğinin iptal edilebilir timer handle'ı (8.1/8.2). */
-let queueRelaunchTimer: ReturnType<typeof setTimeout> | null = null
 
 /** Bekçi ayarını dışarıdan (test/preview) değiştir — üretim değeri varsayılan kalır. */
 export function setStreamLivenessMs(firstMs: number, idleMs: number): void {
@@ -1328,12 +1376,8 @@ function armLiveness(turnEpoch: number): void {
 function declareStreamDead(turnEpoch: number, silentSec: number): void {
   if (turnEpoch !== stopEpoch) return
   stopEpoch++ // bu turu ve tüm gizli üreteçlerini geçersiz kıl
-  queuePaused = true
+  queuePaused = true // kuyruk kalp atışı bunu görüp ilerletmez
   clearLiveness()
-  if (queueRelaunchTimer) {
-    clearTimeout(queueRelaunchTimer)
-    queueRelaunchTimer = null
-  }
   void window.nexora.chat.abort() // gerçek sunucu-iptali main sürecinde
   cancelScheduledApply()
   const lang = useAppStore.getState().language
@@ -2294,7 +2338,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     sessionCreatedAt = 0
     pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
-    set({ pendingComments: [], queuedTasks: [] })
+    stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
+    queuePaused = false
+    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null })
     set({
       messages: [],
       currentSessionId: null,
@@ -2738,10 +2784,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 7.7: görev kuyruğu da; yarıda kalmış koşu dürüstçe needs-review olur.
     set({
       pendingComments: data.comments ?? [],
-      queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now())
+      queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
+      queueWaitReason: null
     })
+    queuePaused = false // yeni oturum: Durdur duraklaması taşınmaz
+    stopQueueHeartbeat() // önceki oturumun kalp atışını sıfırla
     if ((data.queuedTasks ?? []).some((t) => t.state === 'queued')) {
-      setTimeout(() => void processQueue(), 800)
+      ensureQueueHeartbeat() // 8.2: kalıcı kalp atışı devraldı
     }
     set({
       // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
@@ -2937,12 +2986,14 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
   // 7.7 görev kuyruğu: koşarken yazılan istek turu KESMEZ, kuyruğa girer
   // (Codex tab-to-queue paritesi); boştayken eklenen hemen işlenir.
   queuedTasks: [],
+  queueWaitReason: null,
   enqueueTask: (prompt: string) => {
     const p = prompt.trim()
     if (!p) return
     queuePaused = false // kullanıcı iş ekledi → Durdur'un duraklaması kalkar
     set((s) => ({ queuedTasks: [...s.queuedTasks, makeTask(nanoid(), p, Date.now())] }))
     scheduleSessionSave()
+    ensureQueueHeartbeat() // 8.2: tek-atış yerine kalıcı kalp atışı
     void processQueue()
   },
   cancelTask: (id: string) => {
@@ -3492,10 +3543,9 @@ ${ki}
     postVerifyActive = false
     queueProcessing = false
     clearLiveness()
-    if (queueRelaunchTimer) {
-      clearTimeout(queueRelaunchTimer)
-      queueRelaunchTimer = null
-    }
+    // 8.2: kalp atışını DURDURMA — queuePaused zaten ilerlemeyi keser; kalp atışı
+    // "⏸ duraklatıldı" der ve kullanıcı yeni mesaj gönderince kuyruk kendiliğinden
+    // devam eder (yeniden kurmaya gerek kalmaz).
     await window.nexora.chat.abort()
     cancelScheduledApply()
     set((s) => ({
