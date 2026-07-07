@@ -40,7 +40,11 @@ const ALWAYS_BOTTOM: PlannedSection[] = [
 
 const OPTIONAL_RULES: SectionRule[] = [
   {
-    match: /hizmet|servis|service|fiyat|price|menü|menu|ürün|product|paket/i,
+    // 8.6: kullanıcının galeri için gerçekten kullandığı kelimeler (galeri,
+    // portfolyo, projeler, görsel…) bu bölümü TÜRETMİYORDU — sadece <2-sinyal
+    // yedeği rastgele ekliyordu (canlı test: "plan Galeri'yi düşürdü"). Artık
+    // gallery ŞABLONUNUN eşleşmesinin (sectionTemplates.ts) SÜPERKÜMESİ.
+    match: /hizmet|servis|service|fiyat|price|menü|menu|ürün|product|paket|gallery|galeri|portfolio|portfoly|projeler|works|görsel|resim|fotoğraf/i,
     section: { path: 'src/components/Hizmetler.tsx', desc: 'fiyatlı ürün/hizmet kartları galerisi (menü ızgarası) [şablon: gallery]', templateId: 'gallery' }
   },
   {

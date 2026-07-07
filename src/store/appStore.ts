@@ -294,6 +294,7 @@ let queueProcessing = false
 async function processQueue(): Promise<void> {
   if (queueProcessing) return
   queueProcessing = true
+  queueTurnActive = true // 8.6: kuyruk turları içeriği uygular (delegasyon = onay)
   try {
     for (;;) {
       const st = useAppStore.getState()
@@ -381,6 +382,7 @@ async function processQueue(): Promise<void> {
     }
   } finally {
     queueProcessing = false
+    queueTurnActive = false
   }
 }
 
@@ -1326,6 +1328,12 @@ let lastPlanRequest = ''
 // (onay planın kendisiyle verildi; undo zaman çizelgesi her zaman açık).
 let plannedBuildActive = false
 let plannedBuildAbort = false
+/**
+ * 8.6: kuyruk (delege edilmiş) turu koşuyor. Delegasyon = onay (7.7): kuyruk
+ * turları autoApply kapalı olsa BİLE içeriği uygular — böylece dosyalar dokunulur,
+ * walkthrough yeniden kurulur ve belge kuyruk işinden sonra da sürümlenir.
+ */
+let queueTurnActive = false
 
 // ---------------------------------------------------------------------------
 // 8.1 KİLİT ZİNCİRİ — mutlak Durdur + akış-canlılık bekçisi.
@@ -1815,7 +1823,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       let outcome: ApplyOutcome = { fileCount: 0, edits: [], written: [] }
       // Planlı üretimde her dosya turu otomatik uygulanır: onay planın
       // kendisiyle verildi, dosya başına ayrıca sorulmaz (undo hep açık).
-      if ((get().autoApply || plannedBuildActive) && full) {
+      if ((get().autoApply || plannedBuildActive || queueTurnActive) && full) {
         outcome = applyStreamingContent(full, true)
       }
       const count = outcome.fileCount

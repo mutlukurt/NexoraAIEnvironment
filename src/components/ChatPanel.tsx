@@ -295,6 +295,16 @@ function AssistantMessage({
   )
 }
 
+/** 8.6: kısa göreli süre — "45sn", "4dk", "2sa". */
+function relTime(ms: number, lang: 'tr' | 'en'): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return s + (lang === 'tr' ? 'sn' : 's')
+  const m = Math.round(s / 60)
+  if (m < 60) return m + (lang === 'tr' ? 'dk' : 'm')
+  const h = Math.round(m / 60)
+  return h + (lang === 'tr' ? 'sa' : 'h')
+}
+
 export default function ChatPanel() {
   const messages = useAppStore((s) => s.messages)
   const sending = useAppStore((s) => s.sending)
@@ -321,6 +331,16 @@ export default function ChatPanel() {
   const cancelTask = useAppStore((s) => s.cancelTask)
   const clearFinishedTasks = useAppStore((s) => s.clearFinishedTasks)
   const [inboxOpen, setInboxOpen] = useState(false)
+  // 8.6: inbox açıkken saniyede bir tik at ki "sırada 4dk", "koşuyor 45sn" gibi
+  // göreli zaman etiketleri CANLI güncellensin (kapalıyken tik yok — gereksiz
+  // render olmasın).
+  const [nowTs, setNowTs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!inboxOpen) return
+    setNowTs(Date.now())
+    const iv = setInterval(() => setNowTs(Date.now()), 1000)
+    return () => clearInterval(iv)
+  }, [inboxOpen])
   const customCommands = useSettingsStore((s) => s.customCommands)
   const usableCommands = customCommands.filter((c) => c.label.trim() && c.prompt.trim())
 
@@ -512,7 +532,14 @@ export default function ChatPanel() {
                               </>
                             )}
                             <span className="ml-auto text-[9px] font-semibold text-ink-dim">
-                              {task.finishedAt && task.startedAt ? ((task.finishedAt - task.startedAt) / 1000).toFixed(0) + 's' : ''}
+                              {/* 8.6: göreli süre canlı güncellenir (inbox açıkken saniyede bir tik) */}
+                              {task.state === 'queued'
+                                ? (language === 'tr' ? 'sırada ' : 'queued ') + relTime(nowTs - task.createdAt, language)
+                                : task.state === 'running'
+                                  ? (language === 'tr' ? 'koşuyor ' : 'running ') + relTime(nowTs - (task.startedAt ?? task.createdAt), language)
+                                  : task.finishedAt && task.startedAt
+                                    ? ((task.finishedAt - task.startedAt) / 1000).toFixed(0) + 's'
+                                    : ''}
                             </span>
                           </div>
                         </div>
