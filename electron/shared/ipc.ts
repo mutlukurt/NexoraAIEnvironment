@@ -241,10 +241,26 @@ export interface SessionMeta {
   fileCount: number
 }
 
+/**
+ * 7.4: inceleme yorumu — diff satırına ya da belge bölümüne/görseline çapalı,
+ * bir sonraki uygun tura cerrahi talimat olarak iliştirilir. Oturumla birlikte
+ * diske iner: uygulama kapansa da kuyruk yaşar.
+ */
+export interface SteerComment {
+  id: string
+  anchor:
+    | { kind: 'diff'; path: string; line: number; excerpt: string }
+    | { kind: 'doc'; doc: string; section: string }
+  text: string
+  createdAt: number
+}
+
 export interface SessionData extends SessionMeta {
   messages: ChatMessage[]
   files: Record<string, SessionFileEntry>
   selectedPath: string | null
+  /** 7.4: bekleyen inceleme yorumları (çapalar bu oturumun dosyalarına). */
+  comments?: SteerComment[]
 }
 
 /** 7.2: oturumun yanındaki artifact belgesi (plan / görev listesi / walkthrough). */

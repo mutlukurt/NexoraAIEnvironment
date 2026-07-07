@@ -2346,7 +2346,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           { path: f.path, content: f.content, language: f.language, updatedAt: f.updatedAt }
         ])
       ),
-      selectedPath: useArtifactsStore.getState().selectedPath
+      selectedPath: useArtifactsStore.getState().selectedPath,
+      // 7.4: yorum kuyruğu oturumla yaşar — uygulama kapansa da uçmaz.
+      comments: s.pendingComments
     }
     try {
       await window.nexora.sessions.save(data)
@@ -2382,7 +2384,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     useArtifactsStore.getState().replaceAll(files, data.selectedPath)
     sessionCreatedAt = data.createdAt
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
-    set({ pendingComments: [] }) // 7.4: çapalar önceki oturumun dosyalarınaydı
+    // 7.4: açılan oturumun KENDİ yorum kuyruğu geri gelir — çapalar o
+    // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.
+    set({ pendingComments: data.comments ?? [] })
     set({
       // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
       messages: deactivateTaskCards(data.messages.map((m: ChatMessage) => ({ ...m, streaming: false }))),
@@ -2578,13 +2582,20 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
   // uygun ilk görünür turda (gizli düzeltme/planlı dosya turu değil) modele
   // dosya:satır çapalı blok olarak iliştirilir.
   pendingComments: [],
-  addSteerComment: (c) =>
+  addSteerComment: (c) => {
     set((s) => ({
       pendingComments: [...s.pendingComments, { ...c, id: nanoid(), createdAt: Date.now() }]
-    })),
-  removeSteerComment: (id) =>
-    set((s) => ({ pendingComments: s.pendingComments.filter((c) => c.id !== id) })),
-  clearSteerComments: () => set({ pendingComments: [] }),
+    }))
+    scheduleSessionSave() // kuyruk oturumla diske iner — restart kuyruğu öldürmez
+  },
+  removeSteerComment: (id) => {
+    set((s) => ({ pendingComments: s.pendingComments.filter((c) => c.id !== id) }))
+    scheduleSessionSave()
+  },
+  clearSteerComments: () => {
+    set({ pendingComments: [] })
+    scheduleSessionSave()
+  },
   applySteerComments: async () => {
     if (get().pendingComments.length === 0 || get().sending) return
     await get().sendMessage(

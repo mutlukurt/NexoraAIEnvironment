@@ -643,8 +643,22 @@ function MarkdownLite({ text, onComment }: { text: string; onComment?: (section:
     const img = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/)
     if (img) {
       const src = /^(file|https?):/.test(img[2]) ? img[2] : 'file://' + img[2]
+      const imgName = img[1] || img[2].split('/').pop() || 'görsel'
       nodes.push(
-        <img key={i} src={src} alt={img[1]} className="my-2 max-h-64 rounded-lg border border-ink-line/60" />
+        // 7.4: yorum GÖRSELİN KENDİSİNE çapalanır (🖼 ad) — ekran kareleri
+        // bölüm-adlı (sec-N.png) olduğundan model hangi bölüm olduğunu bilir.
+        <div key={i} className="group relative my-2 inline-block">
+          <img src={src} alt={imgName} className="max-h-64 rounded-lg border border-ink-line/60" />
+          {onComment && (
+            <button
+              onClick={() => onComment('🖼 ' + imgName)}
+              title="Bu ekran karesine yorum yaz (sonraki tura iliştirilir)"
+              className="absolute right-1.5 top-1.5 hidden rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] group-hover:inline-block hover:bg-brand-600"
+            >
+              💬
+            </button>
+          )}
+        </div>
       )
       return
     }

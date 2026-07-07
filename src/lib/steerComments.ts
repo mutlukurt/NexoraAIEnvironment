@@ -9,14 +9,8 @@
  * Bu modül store'suz saf fonksiyonlardır: `npm run test:steer` doğrudan koşar.
  */
 
-export interface SteerComment {
-  id: string
-  anchor:
-    | { kind: 'diff'; path: string; line: number; excerpt: string }
-    | { kind: 'doc'; doc: string; section: string }
-  text: string
-  createdAt: number
-}
+import type { SteerComment } from '@shared/ipc'
+export type { SteerComment }
 
 const MAX_COMMENTS = 12
 const MAX_TEXT = 300
