@@ -9,6 +9,8 @@ import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
 import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles } from 'lucide-react'
 import { translations } from '@/lib/translations'
+import ModelSelect from './ModelSelect'
+import ComposerOptions from './ComposerOptions'
 
 function FileIcon({ path }: { path: string }) {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
@@ -562,9 +564,6 @@ export default function ChatPanel() {
           >
             {profileLabel}
           </span>
-          <span className="truncate rounded-lg border border-ink-line bg-ink-card px-2.5 py-0.5 text-xs font-bold text-ink-mut">
-            {modelInfo ? modelInfo.name.split('/').pop() : t.modelNotLoaded}
-          </span>
         </div>
       </header>
 
@@ -599,7 +598,7 @@ export default function ChatPanel() {
                   disabled={!modelInfo}
                   className="max-h-40 w-full resize-none bg-transparent text-[15px] text-ink-text placeholder-ink-dim focus:outline-none disabled:opacity-50"
                 />
-                <div className="flex justify-between items-center mt-2 pt-3 border-t border-ink-line">
+                <div className="flex justify-between items-center gap-2 mt-2 pt-3 border-t border-ink-line">
                   <div className="flex items-center gap-2 min-w-0">
                     <button
                       onClick={() => void attachImage()}
@@ -612,16 +611,14 @@ export default function ChatPanel() {
                     >
                       <ImagePlus className="h-4.5 w-4.5" />
                     </button>
-                    {pendingImage ? (
+                    <ModelSelect />
+                    <ComposerOptions />
+                    {pendingImage && (
                       <span className="flex min-w-0 items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-300">
-                        <span className="truncate max-w-[200px]">{pendingImage.name}</span>
+                        <span className="truncate max-w-[140px]">{pendingImage.name}</span>
                         <button onClick={clearImage} className="text-brand-600 dark:text-brand-400 hover:text-brand-200">
                           <X className="h-3.5 w-3.5" />
                         </button>
-                      </span>
-                    ) : (
-                      <span className="text-[11px] font-bold text-ink-dim">
-                        {modelInfo ? t.ggufReady : t.ggufNotLoaded}
                       </span>
                     )}
                   </div>
@@ -922,17 +919,7 @@ export default function ChatPanel() {
           <div className="mx-auto w-full max-w-3xl">
             <MentionChips which="bottom" />
           </div>
-          <div className="mx-auto flex w-full max-w-3xl items-end gap-2.5 rounded-2xl border border-ink-line bg-ink-card px-4 py-3.5 transition focus-within:border-brand-500/50 focus-within:ring-4 focus-within:ring-brand-500/10">
-            <button
-              onClick={() => void attachImage()}
-              title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
-              className={
-                'shrink-0 rounded-lg p-2 transition ' +
-                (pendingImage ? 'text-brand-700 dark:text-brand-300 bg-brand-500/15' : 'text-ink-dim hover:text-ink-mut hover:bg-ink-hi')
-              }
-            >
-              <ImagePlus className="h-5 w-5" />
-            </button>
+          <div className="mx-auto w-full max-w-3xl rounded-2xl border border-ink-line bg-ink-card px-4 py-3 transition focus-within:border-brand-500/50 focus-within:ring-4 focus-within:ring-brand-500/10">
             <textarea
               ref={taRef}
               rows={1}
@@ -950,24 +937,40 @@ export default function ChatPanel() {
                     : 'turn running — Enter queues your text as a TASK'
                   : t.inputPlaceholder
               }
-              className="max-h-40 flex-1 resize-none bg-transparent text-sm text-ink-text placeholder-ink-dim focus:outline-none"
+              className="max-h-40 w-full resize-none bg-transparent text-sm text-ink-text placeholder-ink-dim focus:outline-none"
             />
-            {sending ? (
+            <div className="mt-2 flex items-center gap-2">
               <button
-                onClick={() => void abort()}
-                className="rounded-xl bg-red-600 px-6 py-2 text-sm font-bold text-white hover:bg-red-500 hover:shadow-[0_4px_12px_rgba(220,38,38,0.25)] active:scale-95 transition duration-150 shrink-0"
+                onClick={() => void attachImage()}
+                title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
+                className={
+                  'shrink-0 rounded-lg p-1.5 transition ' +
+                  (pendingImage ? 'text-brand-700 dark:text-brand-300 bg-brand-500/15' : 'text-ink-dim hover:text-ink-mut hover:bg-ink-hi')
+                }
               >
-                {t.stop}
+                <ImagePlus className="h-4.5 w-4.5" />
               </button>
-            ) : (
-              <button
-                onClick={() => submit(text)}
-                disabled={!text.trim()}
-                className="rounded-xl bg-brand-600 px-6 py-2 text-sm font-bold text-white hover:bg-brand-500 hover:shadow-[0_4px_12px_rgba(95,75,240,0.25)] active:scale-95 disabled:opacity-40 transition duration-150 shrink-0"
-              >
-                {t.send}
-              </button>
-            )}
+              <ModelSelect />
+              <ComposerOptions />
+              <div className="ml-auto shrink-0">
+                {sending ? (
+                  <button
+                    onClick={() => void abort()}
+                    className="rounded-xl bg-red-600 px-6 py-2 text-sm font-bold text-white hover:bg-red-500 hover:shadow-[0_4px_12px_rgba(220,38,38,0.25)] active:scale-95 transition duration-150"
+                  >
+                    {t.stop}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => submit(text)}
+                    disabled={!text.trim()}
+                    className="rounded-xl bg-brand-600 px-6 py-2 text-sm font-bold text-white hover:bg-brand-500 hover:shadow-[0_4px_12px_rgba(95,75,240,0.25)] active:scale-95 disabled:opacity-40 transition duration-150"
+                  >
+                    {t.send}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
