@@ -17,19 +17,18 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
 3. [Release Scorecards (newest → oldest)](#watch-it-work--the-volta-live-test-v0151) → [VOLTA output](#volta-output)
-4. [Example output](#example-output)
-5. [Feature Overview](#feature-overview)
-6. [Screenshots](#screenshots)
-5. [Getting Started](#getting-started)
-6. [Usage Guide](#usage-guide)
-7. [Software Architecture](#software-architecture)
-8. [Key Engineering Decisions](#key-engineering-decisions)
-9. [Development Chronicle](#development-chronicle)
-10. [Large-Model Verification](#large-model-verification)
-11. [Project Structure](#project-structure)
-12. [Tech Stack](#tech-stack)
-13. [Roadmap](#roadmap)
-14. [License](#license)
+4. [Feature Overview](#feature-overview)
+5. [Screenshots](#screenshots)
+6. [Getting Started](#getting-started)
+7. [Usage Guide](#usage-guide)
+8. [Software Architecture](#software-architecture)
+9. [Key Engineering Decisions](#key-engineering-decisions)
+10. [Development Chronicle](#development-chronicle)
+11. [Large-Model Verification](#large-model-verification)
+12. [Project Structure](#project-structure)
+13. [Tech Stack](#tech-stack)
+14. [Roadmap](#roadmap)
+15. [License](#license)
 
 ---
 
@@ -223,7 +222,7 @@ On 2026-07-04/05 the entire pipeline was rebuilt and then battle-tested **live, 
 |---|---|---|
 | ![v0.10 plan](docs/screenshots/19-v010-grammar-plan.png) | ![v0.10 build](docs/screenshots/20-v010-file-by-file.png) | ![v0.10 workspace](docs/screenshots/21-v010-workspace.png) |
 
-## Example output
+## The first builds — a 14B restaurant & a 7B portfolio
 
 The earliest projects this app was ever tested on — newest first — each generated locally and refined through the app's own iteration loop. *(The current flagship build, **VOLTA**, leads the [v0.15.1 scorecard](#watch-it-work--the-volta-live-test-v0151) at the top.)*
 
