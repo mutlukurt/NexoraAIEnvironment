@@ -8,6 +8,8 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 ![Chat welcome screen](docs/screenshots/ui-chat-dark.png)
 
+<img src="docs/screenshots/ui-chat-windows.png" width="100%" alt="The same app running on Windows 11 — installed from the CI-built .exe" />
+
 </div>
 
 ---
