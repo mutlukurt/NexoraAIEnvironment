@@ -76,20 +76,28 @@ export function detectAgentIntent(text: string): boolean {
 }
 
 const ITERATION_RULES = `=== ITERATIONS / UPDATES (CRITICAL) ===
-When "Current project files" are provided, the user wants CHANGES to the existing project:
-- Respond with SMALL surgical edit blocks — one block per fix:
+When "Current project files" are provided, the user wants CHANGES to the existing project. Choose the edit style by the size of the file you are changing:
+
+• SMALL file (about 200 lines or fewer — this is almost every component): output the WHOLE corrected file in a normal fenced block with its path. This is the MOST RELIABLE way to change a small file — rewrite it complete with your change applied:
+  \`\`\`tsx src/components/Navbar.tsx
+  (the ENTIRE file — every import, every line — with the requested change made and everything else kept EXACTLY the same)
+  \`\`\`
+
+• LARGE file (more than ~200 lines): do NOT rewrite it. Use small surgical SEARCH/REPLACE blocks — copy the 2–8 changed lines EXACTLY from the current file:
   \`\`\`edit path/to/file
   <<<<<<< SEARCH
-  (the SMALLEST unique snippet that changes — 2 to 8 lines, NEVER more than 12)
+  (2–8 lines copied EXACTLY, character for character, from the current file)
   =======
   (replacement lines)
   >>>>>>> REPLACE
   \`\`\`
-- FORBIDDEN: copying an entire component/section/file into SEARCH. Many changes in one section → several small blocks, one per exact spot.
-- Output a COMPLETE file only when it is brand new (normal fenced format).
-- DO NOT output any unchanged files. DO NOT rewrite the entire project structure.
-- To delete an unnecessary file from the workspace, write: [DELETE] path/to/file on its own line.
-- Keep the existing design language and structure; apply exactly what the user requested.`
+
+RULES:
+- Output ONLY the files you are changing. NEVER output an unchanged file. NEVER rewrite the whole project.
+- For a small-file rewrite: keep ALL existing imports, structure and unrelated code identical — change only what the user asked. Do not shorten or omit anything with "..." or comments.
+- To delete a file, write: [DELETE] path/to/file on its own line.
+- Keep the existing design language; apply exactly what the user requested.
+- Example — to make nav links scroll, add matching id attributes: if the navbar links to \`#projects\` and \`#about\`, rewrite the section files so the wrapping element has \`id="projects"\` / \`id="about"\`.`
 
 /** Order matters: first match wins. The last entry is the default (never matched, id-selected). */
 export const PROFILES: PromptProfile[] = [
@@ -274,7 +282,7 @@ HARD RULES:
 - Realistic Turkish content if the user writes Turkish. NEVER write Chinese, Japanese or Korean text anywhere.
 - Files must be COMPLETE. Never truncate. No explanations after the last block.
 
-UPDATES: when "Current project files" are provided, use SURGICAL edit blocks (never rewrite the whole file):
+UPDATES: when "Current project files" are provided — for a SMALL file (≤200 lines, almost every component) output the WHOLE corrected file (\`\`\`tsx path — keep every unrelated line identical); for a LARGE file use surgical SEARCH/REPLACE (2-10 lines copied EXACTLY):
 \`\`\`edit src/App.tsx
 <<<<<<< SEARCH
 (2-10 lines copied EXACTLY from the current file)
@@ -311,7 +319,7 @@ HARD RULES:
 - Realistic Turkish content if the user writes Turkish. NEVER write Chinese, Japanese or Korean text anywhere.
 - The file must be COMPLETE. Never truncate. No explanations after the block.
 
-UPDATES: when "Current project files" are provided, use SURGICAL edit blocks (never rewrite the whole file):
+UPDATES: when "Current project files" are provided — for a SMALL file (≤200 lines) output the WHOLE corrected file (\`\`\`html path — keep every unrelated line identical); for a LARGE file use surgical SEARCH/REPLACE (2-10 lines copied EXACTLY):
 \`\`\`edit index.html
 <<<<<<< SEARCH
 (2-10 lines copied EXACTLY from the current file)

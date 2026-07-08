@@ -1664,11 +1664,31 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
     // Direktif örneklerinin kopyalandığı sahte "dosyalar" hiç yazılmaz.
     if (isDirectiveOnlyContent(f.code)) continue
     if (!f.path.includes('/') && batchPaths.has('src/' + f.path)) continue
-    // İterasyonda MEVCUT dosyanın tam dosya olarak yeniden yazımı yasaktır:
-    // asla uygulanmaz, akış sürüyorsa üretim de kesilir (bekçi).
+    // İterasyonda mevcut dosyanın tam-yazımı: ARAŞTIRMA (Aider/endüstri, 2026)
+    // — küçük modeller SEARCH/REPLACE'i güvenilir ÜRETEMEZ (whitespace/içeriği
+    // birebir tekrarlayamaz, "0 blok eşleşmedi") ama KÜÇÜK bir dosyanın TAMAMINI
+    // doğru yazar; "whole" formatı zayıf modellerde daha KARARLI. Bu yüzden KÜÇÜK
+    // dosyalarda tam-yazıma İZİN verilir (3B'nin id-fix gibi basit işleri gerçekten
+    // yapabilmesi için), BÜYÜK dosyalarda hâlâ cerrahi şart (17-dk rewrite dersi).
     if (updateTurn && preTurnPaths.has(f.path) && !isEditBlock(f.lang, f.code)) {
-      if (!final) editViolation()
-      continue
+      const existing = useArtifactsStore.getState().files[f.path]
+      const existingLines = existing ? existing.content.split('\n').length : Infinity
+      const SMALL_FILE_LINES = 200
+      if (!existing || existingLines > SMALL_FILE_LINES) {
+        if (!final) editViolation() // büyük/bilinmeyen dosya: tam-yazım yasak
+        continue
+      }
+      // Küçük dosya tam-yazımı: yalnız blok TAMAMLANINCA ve truncated/tembel
+      // DEĞİLSE uygulanır (yarım dosya editöre yazılıp bozmaz; tur transaction +
+      // üretim-sonrası doğrulama zaten koruyor). Aşağıdaki normal yazıma düşer.
+      const completeNow = f.complete || final
+      if (!completeNow) {
+        writing = f.path
+        continue
+      }
+      if (f.code.split('\n').length < Math.max(8, Math.floor(existingLines * 0.4))) {
+        continue // kırpılmış/tembel tam-yazım — dosyayı bozma
+      }
     }
     // On the final pass the stream is over — every block counts as complete.
     const complete = f.complete || final
