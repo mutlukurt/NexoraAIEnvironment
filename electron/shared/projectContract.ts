@@ -134,3 +134,43 @@ export function extractContract(prompt: string): ProjectContract {
 export function specificityScore(prompt: string): number {
   return extractContract(prompt).specificity
 }
+
+export interface Tokenized {
+  /** Slot literalleri __SLOT_id__ token'larıyla değiştirilmiş prompt. */
+  prompt: string
+  /** token -> gerçek literal (rehydrate için). */
+  slotMap: Record<string, string>
+}
+
+/**
+ * FAZ 9.3 — Birebir slotlama. Küçük modeller uzun Türkçe kopyayı / URL'yi /
+ * class dizisini "anlayıp yeniden yazarken" bozar. Çözüm: literalleri üretim
+ * yolundan ÇIKAR — prompt içinde her slot'u kısa, opak bir __SLOT_id__
+ * token'ıyla değiştir; model yalnız YAPIYI + token'ı üretir, sonra rehydrate()
+ * token'ları diskte gerçek baytlarla değiştirir (onarım da hâlâ token'lı
+ * kaynakta koşar, literaller opak kalır → sadakat korunur).
+ */
+export function tokenizeForFidelity(prompt: string, contract: ProjectContract): Tokenized {
+  let out = prompt ?? ''
+  const slotMap: Record<string, string> = {}
+  // Uzun slotları ÖNCE değiştir: kısa bir class dizisi uzun bir kopyanın
+  // parçasıysa, önce uzunu token'lasın (iç içe bozulma olmasın).
+  const sorted = [...contract.slots].sort((a, b) => b.text.length - a.text.length)
+  for (const s of sorted) {
+    const token = `__SLOT_${s.id}__`
+    if (s.text && out.includes(s.text)) {
+      out = out.split(s.text).join(token)
+      slotMap[token] = s.text
+    }
+  }
+  return { prompt: out, slotMap }
+}
+
+/** Üretilen metindeki __SLOT_id__ token'larını gerçek literallerle değiştir. */
+export function rehydrate(text: string, slotMap: Record<string, string>): string {
+  let out = text ?? ''
+  for (const [token, literal] of Object.entries(slotMap)) {
+    out = out.split(token).join(literal)
+  }
+  return out
+}

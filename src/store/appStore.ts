@@ -27,6 +27,7 @@ import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
+import { extractContract, tokenizeForFidelity, rehydrate, type ProjectContract } from '@shared/projectContract'
 
 const AUTO_APPLY_KEY = 'nexora.autoApply'
 
@@ -224,6 +225,13 @@ let lastOutgoingPrompt = ''
 // değil, kullanıcının GÖRÜNÜR son isteği kullanılır ("Az önceki düzenlemen
 // kesildi…" başlıklı commit vakası).
 let lastVisibleUserPrompt = ''
+// FAZ 9.3 — Fidelity Mode durumu, plan→expectFile turları boyunca yaşar.
+// Bir GÖRÜNÜR kullanıcı turu (yeni build) fidelity ise kurulur; sonraki
+// expectFile turları aynı sözleşme/slot haritasını kullanır; rehydrate
+// üretim sonrası __SLOT__ token'larını gerçek baytlarla değiştirir.
+let fidelityActive = false
+let fidelityContract: ProjectContract | null = null
+let fidelitySlotMap: Record<string, string> = {}
 export function getLastOutgoingPrompt(): string {
   return lastOutgoingPrompt
 }
@@ -1865,6 +1873,19 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         ...new Set([...outcome.written, ...outcome.edits.filter((e) => e.applied > 0).map((e) => e.path)])
       ]
 
+      // FAZ 9.3 — Fidelity rehydrate: üretilen dosyalardaki __SLOT__ token'larını
+      // (birebir kopya/URL/class) gerçek baytlarla değiştir. Model token'ları
+      // aynen kopyaladı; literaller üretim boyunca opak kaldı → sadakat korunur.
+      if (Object.keys(fidelitySlotMap).length > 0 && touchedPaths.length > 0) {
+        const store = useArtifactsStore.getState()
+        for (const p of touchedPaths) {
+          const f = store.files[p]
+          if (f && f.content.includes('__SLOT_')) {
+            store.updateFile(p, rehydrate(f.content, fidelitySlotMap))
+          }
+        }
+      }
+
       // Kırık görsel onarımı: var olmayan /assets vb. referansları yer
       // tutucuya çevir ([FETCH] ile gerçekten indirilenler korunur).
       // Prettier'dan ÖNCE ve senkron — yarış olmasın.
@@ -3236,6 +3257,13 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // expectFile turları da makine turudur (planlı dosya/yeniden-üretim):
     // commit mesajına teknik tanı metni sızmasın.
     if (!opts?.hideUser && !opts?.expectFile) lastVisibleUserPrompt = trimmed
+    // FAZ 9.3 — yeni GÖRÜNÜR kullanıcı turu fidelity durumunu sıfırlar (aşağıda
+    // spec sabitse yeniden kurulur); expectFile/gizli turlarda korunur.
+    if (!opts?.hideUser && !opts?.expectFile) {
+      fidelityActive = false
+      fidelityContract = null
+      fidelitySlotMap = {}
+    }
     // 8.1: gerçek bir KULLANICI turu kuyruğu yeniden etkinleştirir (Durdur'un
     // koyduğu duraklama kalkar). Gizli/makine turları duraklamayı kaldırmaz.
     if (!opts?.hideUser && !opts?.expectFile) queuePaused = false
@@ -3378,6 +3406,16 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     const enhanceResend = forceBuildNext
     const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed)
     forceBuildNext = false
+    // FAZ 9.3 — Project Contract: bu tur hiper-detaylı bir spec mi? (Gemini gibi)
+    // Yeni/boş oturumda yüksek-specificity bir build isteği → Fidelity Mode:
+    // çok-dosya (plan-first, boyuttan bağımsız) + FIDELITY_RULES + slotlama.
+    const turnContract = !opts?.hideUser && !opts?.expectFile ? extractContract(trimmed) : null
+    const fidelityBuild =
+      !!turnContract && turnContract.fidelity && buildReq && allFiles.length === 0 && !fixFlow && !visionAnalysis
+    if (fidelityBuild) {
+      fidelityActive = true
+      fidelityContract = turnContract
+    }
     const isEnhanceTurn =
       get().enhancePrompts &&
       !enhanceBypassNext &&
@@ -3404,7 +3442,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !isEnhanceTurn &&
       !opts?.expectFile &&
       !opts?.hideUser &&
-      planEligible(get().planFirst, buildReq, allFiles.length > 0)
+      // FAZ 9.3 — fidelity build boyuttan/planFirst'ten bağımsız plan-first'e gider
+      // (kompakt tek-dosya sıkıştırması sadakati öldürür → çok-dosya mimari şart).
+      (planEligible(get().planFirst, buildReq, allFiles.length > 0) || fidelityBuild)
     planBypassNext = false
     // Sohbet turu: boş oturumda build olmayan mesaj (selamlaşma, soru). Kod
     // üretim sistem prompt'unu bir sohbet direktifiyle geçersiz kıl.
@@ -3693,10 +3733,20 @@ ${ki}
       if (opts.creative) sampling.temperature = 0.55
     }
 
+    // FAZ 9.3 — Fidelity turu: outgoing prompt'taki slot literallerini __SLOT__
+    // token'larıyla değiştir (plan + expectFile turlarında). Model yalnız yapıyı
+    // + token'ı üretir; slotMap birikir, rehydrate üretim sonrası geri koyar.
+    if (fidelityActive && fidelityContract) {
+      const t = tokenizeForFidelity(outgoing, fidelityContract)
+      outgoing = t.prompt
+      fidelitySlotMap = { ...fidelitySlotMap, ...t.slotMap }
+    }
+
     lastOutgoingPrompt = outgoing
     try {
       const res = await window.nexora.chat.send({
         prompt: outgoing,
+        fidelity: fidelityActive || undefined,
         // Brief yeniden gönderimi makine metnidir: içindeki "mobil" gibi
         // kelimeler proje profilini değiştirmesin (RN'e uçan site vakası).
         profileLock: enhanceResend || undefined,

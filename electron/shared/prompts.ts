@@ -137,6 +137,21 @@ RULES:
 5. If the request reports an error or bug, locate the cause in the files above and fix it.
 6. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>`
 
+/**
+ * FAZ 9.3 — FIDELITY MODE önsözü. Harici hiper-detaylı bir spec (Gemini gibi)
+ * saptanınca (Project Contract specificity yüksek) sistem prompt'una eklenir.
+ * Amaç: modeli SPEC'E HARFİYEN uydurmak — istenen stack/sürüm, adlandırılmış
+ * dosya mimarisi ve __SLOT_N__ token'larının BİREBİR korunması. Token'lar spec'in
+ * birebir içeriğidir; model onları AYNEN yerleştirir, ASLA paraphrase etmez.
+ */
+export const FIDELITY_RULES = `=== FIDELITY MODE (CRITICAL — follow the spec to the LETTER) ===
+This request is a PRECISE specification, not a creative brief. Obey it exactly:
+- STACK: use EXACTLY the framework, CSS engine and package versions the spec names. If it says Tailwind v4, write CSS-first (\`@import "tailwindcss";\`, NO tailwind.config.js). Do NOT substitute a different version or library.
+- ARCHITECTURE: create EXACTLY the component/files the spec lists, with those exact names and paths. Do not merge, rename, add or drop files.
+- VERBATIM SLOTS: the spec contains opaque tokens like __SLOT_0__, __SLOT_7__ that stand for EXACT content (copy text, image URLs, class strings). Emit each token EXACTLY as written, in the place the spec indicates. NEVER paraphrase it, translate it, guess it, or replace it with your own text/URL/classes. Copy the token character-for-character.
+- Do NOT add explanations, extra sections, placeholder lorem ipsum, or libraries the spec did not request.
+- Everything the spec does NOT pin is yours to build well; everything it DOES pin is law.`
+
 /** Order matters: first match wins. The last entry is the default (never matched, id-selected). */
 export const PROFILES: PromptProfile[] = [
   {

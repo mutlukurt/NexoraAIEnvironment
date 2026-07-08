@@ -72,6 +72,12 @@ export interface ChatSendInput {
   currentFiles?: Array<{ path: string; content: string }>
   /** Bağlam diyeti: var olan ama içeriği gönderilmeyen proje dosyaları. */
   otherPaths?: string[]
+  /**
+   * FAZ 9.3 — Fidelity Mode: bu tur hiper-detaylı bir spec'e HARFİYEN uymalı
+   * (prompt tokenize edilmiştir, __SLOT__ token'ları birebir korunur). Renderer,
+   * Project Contract specificity yüksekse set eder → main FIDELITY_RULES ekler.
+   */
+  fidelity?: boolean
   options?: {
     temperature?: number
     topP?: number

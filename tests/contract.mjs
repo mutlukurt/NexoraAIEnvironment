@@ -18,9 +18,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-contract-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { extractContract, tailwindVersionFromText } from '${join(repo, 'electron/shared/projectContract.ts')}'\n`)
+writeFileSync(entry, `export { extractContract, tailwindVersionFromText, tokenizeForFidelity, rehydrate } from '${join(repo, 'electron/shared/projectContract.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { extractContract, tailwindVersionFromText } = await import(pathToFileURL(outfile).href)
+const { extractContract, tailwindVersionFromText, tokenizeForFidelity, rehydrate } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -75,6 +75,20 @@ const s = extractContract(SIMPLE)
 check('basit prompt: fidelity KAPALI', s.fidelity === false, JSON.stringify({ spec: s.specificity }))
 check('basit prompt: specificity düşük (<2)', s.specificity < 2, String(s.specificity))
 check('basit prompt: v4 dayatmaz', s.tailwindVersion === null, String(s.tailwindVersion))
+
+// 4) FAZ 9.3 — tokenize/rehydrate
+const tok = tokenizeForFidelity(GEMINI, g)
+check('tokenize: birebir Türkçe kopya prompt\'tan çıktı (token oldu)', !tok.prompt.includes('Yeni nesil modern web') && /__SLOT_/.test(tok.prompt), 'literal hâlâ prompt\'ta')
+check('tokenize: URL prompt\'tan çıktı', !tok.prompt.includes('photo-1600585154340'), 'url hâlâ prompt\'ta')
+check('tokenize: slotMap dolu', Object.keys(tok.slotMap).length >= 5, String(Object.keys(tok.slotMap).length))
+// round-trip: token'lı prompt'u geri rehydrate → birebir kopya + URL geri gelir
+const back = rehydrate(tok.prompt, tok.slotMap)
+check('rehydrate: birebir kopya geri geldi', back.includes('Yeni nesil modern web arayüzleri'), 'kopya geri gelmedi')
+check('rehydrate: URL geri geldi', back.includes('photo-1600585154340'), 'url geri gelmedi')
+// modelin ürettiği kod token içeriyorsa rehydrate literalleri yerleştirir
+const modelOut = `<h1>__SLOT_${g.slots.find((x) => x.kind === 'copy')?.id}__</h1>`
+const hydrated = rehydrate(modelOut, tok.slotMap)
+check('rehydrate: model çıktısındaki token → birebir kopya', !/__SLOT_/.test(hydrated) && /NexoraAI Portfolio|Yeni nesil|Kusursuz/.test(hydrated), hydrated.slice(0, 60))
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\n${pass}/${pass + fail} geçti`)

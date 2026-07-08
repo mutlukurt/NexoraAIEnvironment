@@ -20,7 +20,8 @@ import {
   getProfile,
   detectAgentIntent,
   AGENT_HINT,
-  UPDATE_MODE_RULES
+  UPDATE_MODE_RULES,
+  FIDELITY_RULES
 } from '../shared/prompts'
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { serverEngine } from './llamaServerEngine'
@@ -226,6 +227,13 @@ ${UPDATE_MODE_RULES}
   // Sohbet/brief turunda hiç eklenmez: soru cevaplanacak, eylem yapılmayacak.
   if (!isProseTurn && detectAgentIntent(input.prompt)) {
     prompt += '\n\n' + AGENT_HINT
+  }
+
+  // FAZ 9.3 — Fidelity build/edit turu: spec'e HARFİYEN uy + __SLOT__
+  // token'larını birebir koru. Renderer, Project Contract specificity yüksekse
+  // bu bayrağı set eder (prompt zaten tokenize edilmiştir).
+  if (input.fidelity) {
+    prompt = `${FIDELITY_RULES}\n\n${prompt}`
   }
 
   // Worker yedek motoru istek-başına sistem prompt'u değiştiremez (oturum
