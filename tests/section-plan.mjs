@@ -15,7 +15,7 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-section-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { deriveSectionPlan } from '${join(repo, 'src/lib/sectionPlan.ts')}'\n`)
+writeFileSync(entry, `export { deriveSectionPlan, planEligible, looksLikeBuildRequest } from '${join(repo, 'src/lib/sectionPlan.ts')}'\n`)
 await build({
   entryPoints: [entry],
   bundle: true,
@@ -24,7 +24,7 @@ await build({
   outfile,
   alias: { '@': join(repo, 'src'), '@shared': join(repo, 'electron/shared') }
 })
-const { deriveSectionPlan } = await import(pathToFileURL(outfile).href)
+const { deriveSectionPlan, planEligible, looksLikeBuildRequest } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -59,6 +59,17 @@ check('site niyeti yok → null', deriveSectionPlan('bana bir şiir yaz') === nu
 
 // gallery id yalnız bir kez (de-dup)
 check('gallery tekilleştirilir', templIds('galeri ve portfolyo ve projeler sitesi').filter((x) => x === 'gallery').length === 1)
+
+// v0.14.3 — planEligible: plan turu YALNIZCA yeni/boş oturumda
+check('boş oturum + build isteği → plan uygun', planEligible(true, true, false) === true)
+check('MEVCUT projede build-ölçekli istek → plan YASAK (UPDATE)', planEligible(true, true, true) === false)
+check('planFirst kapalı → plan yok', planEligible(false, true, false) === false)
+check('build isteği değil → plan yok', planEligible(true, false, false) === false)
+// Asıl bulgunun uçtan-uca kanıtı: "menü"+"yap" build sayılıyor AMA mevcut
+// projede plana DÖNMÜYOR (küçük "id ekle" isteği artık UPDATE'e gider).
+const smallEdit = 'Hero başlığına id="hero-title" ekle ki menü oraya kaysın. Sadece bunu yap.'
+check('küçük edit "build" sınıfında (menü+yap)', looksLikeBuildRequest(smallEdit) === true)
+check('…ama mevcut projede plana girmez', planEligible(true, looksLikeBuildRequest(smallEdit), true) === false)
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nsection-plan: ${pass} geçti, ${fail} kaldı`)

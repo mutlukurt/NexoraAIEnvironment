@@ -19,7 +19,8 @@ import {
   buildSystemPrompt,
   getProfile,
   detectAgentIntent,
-  AGENT_HINT
+  AGENT_HINT,
+  UPDATE_MODE_RULES
 } from '../shared/prompts'
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { serverEngine } from './llamaServerEngine'
@@ -215,30 +216,7 @@ ${filesContext}${others}
 UPDATE MODE — the user wants a CHANGE in the existing project.
 User request: ${input.prompt}
 
-Respond ONLY with surgical edit blocks. For EACH separate fix write ONE SMALL block:
-\`\`\`edit src/App.tsx
-<<<<<<< SEARCH
-(the SMALLEST unique snippet that changes — 2 to 8 lines, NEVER more than 12)
-=======
-(the new lines that replace them)
->>>>>>> REPLACE
-\`\`\`
-GOOD example — one heading changes, so SEARCH holds only that line:
-\`\`\`edit src/App.tsx
-<<<<<<< SEARCH
-        <h2 className="text-2xl">Welcome to Aelixa</h2>
-=======
-        <p className="text-xs uppercase tracking-widest">Welcome to Aelixa</p>
->>>>>>> REPLACE
-\`\`\`
-FORBIDDEN: copying an entire component, section or file into SEARCH. If a section needs many changes, write SEVERAL small blocks — one per exact spot. 5 requested fixes → at least 5 separate small blocks.
-Rules:
-1. SEARCH text must exist in the file character-for-character (same indentation).
-2. Blocks are applied in order; each SEARCH must still match after earlier blocks.
-3. A COMPLETE file (normal \`\`\`tsx path format) is allowed ONLY for a brand NEW file that does not exist yet. Rewriting an EXISTING file in full is automatically REJECTED — it will never be applied; generation gets cut off.
-4. Do not output unchanged files. No explanations outside blocks.
-5. If the request reports an error or bug, locate the cause in the files above and fix it with a small edit block.
-6. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>
+${UPDATE_MODE_RULES}
 ==================================================`
   }
 

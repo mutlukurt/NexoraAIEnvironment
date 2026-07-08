@@ -102,6 +102,41 @@ RULES:
 - Keep the existing design language; apply exactly what the user requested.
 - Example — nav links don't scroll because the target section has no matching id: rewrite each section's component file so its wrapping element has the id the navbar links to (navbar \`href="#projects"\` → the projects section gets \`id="projects"\`).`
 
+/**
+ * v0.14.3 — UPDATE turunun kullanıcı-prompt sarmalayıcısı (llamaService).
+ * ÖNCESİ: "SADECE cerrahi edit; var olan dosyayı tam yazmak REDDEDİLİR" diyordu
+ * ve hem ITERATION_RULES (sistem promptu) hem applier ile ÇELİŞİYORDU → zayıf
+ * model (3B) beceremediği cerrahiyi (birebir SEARCH) deneyip düşüyor, "id ekle"
+ * gibi küçük istek sessizce tutmuyordu. ARTIK boyut-farkında ve ITERATION_RULES
+ * ile AYNI politika: küçük dosya = TAM yaz (zayıf modelin güvenilir yolu, applier
+ * ≤200 satırda zaten kabul ediyor), büyük dosya = cerrahi. Gramer (editGrammar)
+ * whole-file'ı `newfile` dalıyla zaten serbest bırakıyordu; eksik olan modele
+ * bunu SÖYLEMEKTİ. Tek kaynak burada, test:iterprompt bu politikayı kilitler.
+ */
+export const UPDATE_MODE_RULES = `Choose the edit format BY THE SIZE of the file you are changing:
+
+SMALL file (≤200 lines — almost every component): output the COMPLETE corrected file in a normal fenced block with its EXACT existing path. Rewrite it top-to-bottom with the change applied, keeping every unrelated import and line byte-for-byte identical. This is the RELIABLE way — never shorten or elide with "…" or comments.
+\`\`\`tsx src/components/Hero.tsx
+(the whole file, corrected)
+\`\`\`
+
+LARGE file (>200 lines): do NOT rewrite it — use one or more SMALL surgical edit blocks:
+\`\`\`edit src/App.tsx
+<<<<<<< SEARCH
+(2–8 lines copied CHARACTER-FOR-CHARACTER from the current file — never more than 12, never empty)
+=======
+(the replacement lines)
+>>>>>>> REPLACE
+\`\`\`
+
+RULES:
+1. FIND THE RIGHT FILE FIRST — a section's visible text lives in ITS OWN component (hero title → Hero.tsx, navbar links → Navbar.tsx), NOT in App.tsx.
+2. Output ONLY the file(s) you actually change. Never re-output an unchanged file; never rewrite the whole project.
+3. If you are not 100% sure a SEARCH snippet matches the file exactly, output the whole (small) file instead — do not guess.
+4. To delete a file: [DELETE] path/to/file on its own line. A brand-NEW file is a normal fenced block.
+5. If the request reports an error or bug, locate the cause in the files above and fix it.
+6. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>`
+
 /** Order matters: first match wins. The last entry is the default (never matched, id-selected). */
 export const PROFILES: PromptProfile[] = [
   {

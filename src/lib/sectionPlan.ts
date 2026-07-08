@@ -142,6 +142,22 @@ const WANT_RE = /\b(istiyorum|ister\s*misin|laz[ıi]m|ihtiyac[ıi]m|olsun|gerek(
 const SIMILARITY_RE =
   /\b(bunun gibi|buna benze|şunun gibi|aynısı|aynisi|birebir|klonla|clone|like this|similar to)\b/i
 
+/**
+ * v0.14.3 — Plan turu (Önce Plan) YALNIZCA yeni/boş oturumda kurulur. Mevcut
+ * projede "Önce Plan" açık olsa bile istekler doğrudan UPDATE turuna gider:
+ *  (a) GÜVENLİK: plan turu dosya İÇERİĞİ görmez; mevcut projede uydurma çok-
+ *      dosyalık yeniden-inşa planı önerip projeyi EZERDİ (canlı 3.1 + 6.x + 8.x
+ *      dersleri — "başlığı değiştir"/"id ekle" küçük isteği 12-dosya planına döndü);
+ *  (b) SINIFLANDIRMA: zayıf modelde "Hero başlığına id ekle ki menü kaysın" gibi
+ *      küçük bir istek bile artefakt kelimesi ("menü") + fiil ("yap") yüzünden
+ *      looksLikeBuildRequest'e takılıp re-plana giriyordu.
+ * Mevcut projede güvenli tek yol UPDATE (cerrahi/whole-file — gerisini korur).
+ * Kullanıcı sıfırdan yeniden inşa istiyorsa "Yeni Sohbet" yolu var.
+ */
+export function planEligible(planFirst: boolean, isBuildScale: boolean, hasProject: boolean): boolean {
+  return planFirst && isBuildScale && !hasProject
+}
+
 /** Mesaj gerçekten bir proje/build isteği mi? (sohbet/soru DEĞİL) */
 export function looksLikeBuildRequest(text: string): boolean {
   if (SIMILARITY_RE.test(text)) return true

@@ -21,7 +21,7 @@ import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
-import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest } from '@/lib/sectionPlan'
+import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, planEligible } from '@/lib/sectionPlan'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
@@ -3388,27 +3388,23 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       allFiles.length === 0 &&
       buildReq
     enhanceBypassNext = false
-    // Plan modu: "Önce Plan" açıkken yalnızca BUILD ÖLÇEKLİ istekler plana
-    // çevrilir — boş oturumda da mevcut projede de. 3.1 canlı testi dersi:
-    // içe aktarılmış gerçek projede "başlığı değiştir" gibi küçük bir istek
-    // plan turuna girince (plan dosya içeriği görmez) model 12 uydurma
-    // dosyalık yeniden-inşa planı önerdi — uygulansa projeyi ezerdi. Küçük
-    // istekler doğrudan cerrahi düzenlemeye (gramerli UPDATE turu) gider.
+    // Plan modu (v0.14.3): "Önce Plan" açıkken plan turu YALNIZCA YENİ/BOŞ
+    // oturumda kurulur (planEligible → hasProject=false). Mevcut projede plan
+    // turu YASAK: plan dosya içeriği görmez, uydurma çok-dosyalık yeniden-inşa
+    // planı önerip projeyi EZERDİ (3.1 + 6.x + 8.x dersleri). Ayrıca zayıf
+    // modelde "Hero başlığına id ekle ki menü kaysın" gibi küçük bir istek bile
+    // "menü"(artefakt)+"yap"(fiil) yüzünden build sanılıp re-plana giriyordu —
+    // artık mevcut projede her istek doğrudan UPDATE (cerrahi/whole-file) turuna.
+    // GİZLİ/İÇ turlar (reality-retry, postGenVerify/runtime onarımı, yorum-uygula
+    // — hepsi {hideUser:true}) da ASLA plana çevrilmez.
     const isPlanTurn =
-      get().planFirst &&
       !planBypassNext &&
       !visionAnalysis &&
       !fixFlow &&
       !isEnhanceTurn &&
       !opts?.expectFile &&
-      // GERÇEK-APP canlı test bulgusu: GİZLİ/İÇ turlar (reality-retry, postGenVerify
-      // onarımı, runtime-error onarımı, yorum-uygula — hepsi {hideUser:true})
-      // ASLA plana çevrilmemeli. "Önce Plan" açıkken eşleşmeyen bir cerrahi
-      // düzenlemenin reality-retry'ı ("Az önceki edit blokları EŞLEŞMEDİ…") build
-      // isteği sanılıp 12-dosyalık YENİDEN-İNŞA planına dönüşüyordu — kullanıcının
-      // istediği küçük düzeltme yerine tüm proje yeniden planlanıyordu.
       !opts?.hideUser &&
-      buildReq
+      planEligible(get().planFirst, buildReq, allFiles.length > 0)
     planBypassNext = false
     // Sohbet turu: boş oturumda build olmayan mesaj (selamlaşma, soru). Kod
     // üretim sistem prompt'unu bir sohbet direktifiyle geçersiz kıl.
