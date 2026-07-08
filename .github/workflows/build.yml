@@ -71,6 +71,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # vendor/ is gitignored → provide the bundled Node the worker needs (linux-x64),
+      # otherwise the CI-built .deb ships without the >4GB inference worker runtime.
+      - name: Provide the bundled Node for the inference worker
+        run: |
+          mkdir -p vendor/node-bin
+          curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz -o /tmp/node.tar.gz
+          mkdir -p /tmp/nodeextract
+          tar -xzf /tmp/node.tar.gz -C /tmp/nodeextract --strip-components=1
+          cp /tmp/nodeextract/bin/node vendor/node-bin/node
+          chmod +x vendor/node-bin/node
+
       - name: Build renderer + main (electron-vite)
         run: npm run build
 
@@ -98,14 +109,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # macos-latest is Apple Silicon (arm64). The committed vendor/node-bin/node
-      # is a Linux binary — swap in a real darwin-arm64 Node so the >4GB worker runs.
-      - name: Bundle a macOS Node for the inference worker
+      # vendor/ is gitignored, so vendor/node-bin does NOT exist in the checkout.
+      # The >4GB inference worker runs on a bundled Node — provide a darwin-arm64 one.
+      - name: Provide the bundled Node for the inference worker
         run: |
-          rm -f vendor/node-bin/node
+          mkdir -p vendor/node-bin
           curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-darwin-arm64.tar.gz -o /tmp/node.tar.gz
-          tar -xzf /tmp/node.tar.gz -C /tmp
-          cp /tmp/node-v20.18.1-darwin-arm64/bin/node vendor/node-bin/node
+          mkdir -p /tmp/nodeextract
+          tar -xzf /tmp/node.tar.gz -C /tmp/nodeextract --strip-components=1
+          cp /tmp/nodeextract/bin/node vendor/node-bin/node
           chmod +x vendor/node-bin/node
 
       - name: Build renderer + main (electron-vite)
