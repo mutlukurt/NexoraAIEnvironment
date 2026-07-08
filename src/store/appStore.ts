@@ -19,7 +19,7 @@ import { makeTask, nextRunnable, transition, clearFinished, deactivateTasks, typ
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
-import { selectContextFiles } from '@/lib/contextSelect'
+import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest } from '@/lib/sectionPlan'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
@@ -3359,6 +3359,13 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !fixFlow &&
       !isEnhanceTurn &&
       !opts?.expectFile &&
+      // GERÇEK-APP canlı test bulgusu: GİZLİ/İÇ turlar (reality-retry, postGenVerify
+      // onarımı, runtime-error onarımı, yorum-uygula — hepsi {hideUser:true})
+      // ASLA plana çevrilmemeli. "Önce Plan" açıkken eşleşmeyen bir cerrahi
+      // düzenlemenin reality-retry'ı ("Az önceki edit blokları EŞLEŞMEDİ…") build
+      // isteği sanılıp 12-dosyalık YENİDEN-İNŞA planına dönüşüyordu — kullanıcının
+      // istediği küçük düzeltme yerine tüm proje yeniden planlanıyordu.
+      !opts?.hideUser &&
       buildReq
     planBypassNext = false
     // Sohbet turu: boş oturumda build olmayan mesaj (selamlaşma, soru). Kod
@@ -3380,7 +3387,13 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Planlı dosya turunda bağlam gönderilmez: gerekli sözleşmeler prompt'un
     // içinde, önceki dosyalar motorun sohbet geçmişinde (prompt cache ucuz).
     if (!isPlanTurn && !opts?.expectFile) {
-      const selection = selectContextFiles(trimmed, allFiles)
+      // Bağlam bütçesini yüklü modelin GERÇEK ctx'ine göre ölçekle: 32k model
+      // 8k'lık diyete mahkûm kalmasın (küçük projede dosyalar dışlanıp körlemesine
+      // edit → mismatch). ctx'in yarısı dosyalara, kalanı sistem+geçmiş+yanıta.
+      const ctxSize = get().modelInfo?.contextSize ?? 4096
+      const charBudget = Math.max(CONTEXT_CHAR_BUDGET, Math.floor(ctxSize * 0.5 * 3.0))
+      const maxFiles = Math.max(CONTEXT_MAX_FILES, Math.floor(ctxSize / 2500))
+      const selection = selectContextFiles(trimmed, allFiles, { charBudget, maxFiles })
       currentFiles = selection.included.map((f) => ({ path: f.path, content: f.content }))
       excludedPaths = selection.excludedPaths
       if (selection.trimmed) {

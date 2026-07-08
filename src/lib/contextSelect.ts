@@ -49,7 +49,18 @@ function countHits(haystack: string, needle: string, cap = 5): number {
   return n
 }
 
-export function selectContextFiles(prompt: string, all: ArtifactFile[]): ContextSelection {
+export function selectContextFiles(
+  prompt: string,
+  all: ArtifactFile[],
+  opts?: { charBudget?: number; maxFiles?: number }
+): ContextSelection {
+  // GERÇEK-APP canlı test bulgusu: bütçe 8k modele göre sabitti (11000 kar / 6
+  // dosya). 32k bağlamlı model yüklüyken 10-dosyalık küçük bir projede bile
+  // dosyalar dışlanıyor → model düzelteceği dosyanın İÇERİĞİNİ görmeden körlemesine
+  // SEARCH üretip ıskalıyor ("dediğimi yapmıyor"). Bütçe artık model ctx'ine göre
+  // ölçeklenir (çağıran hesaplar); varsayılan 8k davranışı korunur.
+  const charBudget = opts?.charBudget ?? CONTEXT_CHAR_BUDGET
+  const maxFiles = opts?.maxFiles ?? CONTEXT_MAX_FILES
   // Küçük projede diyet gerekmez: hepsi gitsin (mevcut davranış).
   if (all.length <= 2) {
     return { included: all, excludedPaths: [], trimmed: false }
@@ -95,9 +106,9 @@ export function selectContextFiles(prompt: string, all: ArtifactFile[]): Context
   const included: ArtifactFile[] = []
   let used = 0
   for (const f of order) {
-    if (included.length >= CONTEXT_MAX_FILES) break
+    if (included.length >= maxFiles) break
     // İlk dosya bütçeyi tek başına aşsa da gider — bağlamsız iterasyon olmaz.
-    if (included.length > 0 && used + f.content.length > CONTEXT_CHAR_BUDGET) continue
+    if (included.length > 0 && used + f.content.length > charBudget) continue
     included.push(f)
     used += f.content.length
   }
