@@ -1,4 +1,4 @@
-name: Build installers (Windows .exe + Linux .deb)
+name: Build installers (Windows .exe + Linux .deb + macOS .dmg)
 
 # Windows makinesi olmadan gerçek bir Windows kurulum .exe'si üretmenin temiz
 # yolu: build gerçek windows-latest runner'da koşar, npm install win prebuild'leri
@@ -84,9 +84,48 @@ jobs:
           path: release/*.deb
           if-no-files-found: error
 
+  macos:
+    name: macOS installer (.dmg, Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # macos-latest is Apple Silicon (arm64). The committed vendor/node-bin/node
+      # is a Linux binary — swap in a real darwin-arm64 Node so the >4GB worker runs.
+      - name: Bundle a macOS Node for the inference worker
+        run: |
+          rm -f vendor/node-bin/node
+          curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-darwin-arm64.tar.gz -o /tmp/node.tar.gz
+          tar -xzf /tmp/node.tar.gz -C /tmp
+          cp /tmp/node-v20.18.1-darwin-arm64/bin/node vendor/node-bin/node
+          chmod +x vendor/node-bin/node
+
+      - name: Build renderer + main (electron-vite)
+        run: npm run build
+
+      - name: Package macOS .dmg (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac dmg --publish never
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: release/*.dmg
+          if-no-files-found: error
+
   release:
     name: Attach installers to the release
-    needs: [windows, linux]
+    needs: [windows, linux, macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -97,10 +136,11 @@ jobs:
         with:
           path: dist-artifacts
 
-      - name: Attach .exe + .deb to the GitHub Release
+      - name: Attach .exe + .deb + .dmg to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist-artifacts/**/*.exe
             dist-artifacts/**/*.deb
+            dist-artifacts/**/*.dmg
           fail_on_unmatched_files: false
