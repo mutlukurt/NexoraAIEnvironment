@@ -71,6 +71,13 @@ const smallEdit = 'Hero başlığına id="hero-title" ekle ki menü oraya kaysı
 check('küçük edit "build" sınıfında (menü+yap)', looksLikeBuildRequest(smallEdit) === true)
 check('…ama mevcut projede plana girmez', planEligible(true, looksLikeBuildRequest(smallEdit), true) === false)
 
+// FAZ 9 canlı bug: İngilizce "Create a premium … website" build sayılmıyordu —
+// MAKE_RE kesik kökü `creat\b` "Create"i (creat+e) kaçırıyordu. \w* eki düzeltti.
+check('EN "Create a premium … website" build sayılır', looksLikeBuildRequest('Create a premium electric mobility (e-bike) website using React, TypeScript, and Tailwind CSS (v4).') === true)
+check('EN "Generate a landing page" build sayılır', looksLikeBuildRequest('Generate a landing page for my app') === true)
+check('EN "Design a dashboard app" build sayılır', looksLikeBuildRequest('Design a dashboard app') === true)
+check('sohbet "Bugün hava nasıl?" build DEĞİL', looksLikeBuildRequest('Bugün hava nasıl?') === false)
+
 rmSync(work, { recursive: true, force: true })
 console.log(`\nsection-plan: ${pass} geçti, ${fail} kaldı`)
 process.exit(fail === 0 ? 0 : 1)

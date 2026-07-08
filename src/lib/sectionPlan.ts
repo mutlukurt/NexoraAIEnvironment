@@ -133,8 +133,11 @@ export const BASE_INDEX_CSS = '@tailwind base;\n@tailwind components;\n@tailwind
 const ARTIFACT_RE =
   /\b(site|web|sayfa|landing|portfoly?o|dashboard|panel|uygulama|app\b|aray[üu]z|e-?ticaret|market\b|blog|oyun|game\b|form\b|tema\b|template|men[üu]|clone|klon)/i
 
+// NOT: `creat\w*`/`generat\w*` — kesik kök + trailing \b "create"/"generate"i
+// KAÇIRIYORDU (creat+e arasında sınır yok). Canlı bug (VOLTA): "Create a … website"
+// build sayılmadı. \w* eki -e/-ing/-ed formlarını yakalar.
 const MAKE_RE =
-  /\b(yap|yapar\s*m[ıi]s[ıi]n|oluştur|olustur|kur\b|kodla|tasarla|üret|uret|geliştir|gelistir|hazırla|hazirla|inşa|insa|build|make|creat|implement|generat|design|develop|klonla|kopyala)\b/i
+  /\b(yap|yapar\s*m[ıi]s[ıi]n|oluştur|olustur|kur\b|kodla|tasarla|üret|uret|geliştir|gelistir|hazırla|hazirla|inşa|insa|build|make|creat\w*|implement\w*|generat\w*|design\w*|develop\w*|klonla|kopyala)\b/i
 
 // Açık istek/ihtiyaç kalıpları (fiil olmadan da build sayılır: "… sitesi lazım")
 const WANT_RE = /\b(istiyorum|ister\s*misin|laz[ıi]m|ihtiyac[ıi]m|olsun|gerek(iyor)?)\b/i

@@ -3628,14 +3628,19 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Bu mesaj gerçekten bir proje/build isteği mi? Sohbet/soru ise enhance ve
     // plan tetiklenmez (canlı-test bulgusu: "kendini tanıt" → site brief'i).
     const enhanceResend = forceBuildNext
-    const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed)
-    forceBuildNext = false
     // FAZ 9.3 — Project Contract: bu tur hiper-detaylı bir spec mi? (Gemini gibi)
     // Yeni/boş oturumda yüksek-specificity bir build isteği → Fidelity Mode:
     // çok-dosya (plan-first, boyuttan bağımsız) + FIDELITY_RULES + slotlama.
     const turnContract = !opts?.hideUser && !opts?.expectFile ? extractContract(trimmed) : null
+    // Hiper-detaylı spec (yüksek specificity + adlandırılmış çok-dosya + birebir
+    // literaller) KESİN bir build isteğidir — kırılgan looksLikeBuildRequest
+    // heuristiğine bağlama. CANLI BUG: "Create a premium ... website" → MAKE_RE
+    // `creat\b` "Create"i kaçırdı (creat+e), VOLTA build sayılmadı, fidelity hiç
+    // tetiklenmedi. Sözleşme fidelity ise buildReq zorlanır.
+    const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed) || !!turnContract?.fidelity
+    forceBuildNext = false
     const fidelityBuild =
-      !!turnContract && turnContract.fidelity && buildReq && allFiles.length === 0 && !fixFlow && !visionAnalysis
+      !!turnContract && turnContract.fidelity && allFiles.length === 0 && !fixFlow && !visionAnalysis
     if (fidelityBuild) {
       fidelityActive = true
       fidelityContract = turnContract
