@@ -22,7 +22,7 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
-3. [Release Scorecards (newest → oldest)](#watch-it-work--the-volta-live-test-v0151) → [VOLTA output](#volta-output)
+3. [Release Scorecards (newest → oldest)](#the-advisor-sizes-by-vram-not-ram--the-v016-scorecard) → [VOLTA output](#volta-output)
 4. [Feature Overview](#feature-overview)
 5. [Screenshots](#screenshots)
 6. [Getting Started](#getting-started)
@@ -57,6 +57,21 @@ Cloud AI builders (Bolt, Lovable, v0) are excellent, but they have three structu
 | **Control** | One fixed model, one fixed pipeline | Any GGUF you want — swap models like cartridges |
 
 NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B model with a strategy tuned for small models; plug a 32B+ model on a workstation and the *same app* automatically switches to full professional multi-file project generation. The tool's value grows every time the open-model ecosystem improves, with zero code changes.
+
+## The advisor sizes by VRAM, not RAM — the v0.16 Scorecard
+
+A user's friend (32 GB RAM, 8 GB VRAM) caught it: the Hardware Advisor recommended **Qwen2.5-Coder-32B (19.9 GB)** as the top pick — sized by *system RAM*, ignoring that on a discrete GPU a model has to fit **VRAM** to run fast. A 19.9 GB model on 8 GB VRAM spills to system RAM and crawls at 3–4 tok/s on the CPU. v0.16 makes the advisor VRAM-aware — the way LM Studio does it.
+
+![Hardware Advisor — VRAM-aware recommendation, live on an RTX 2050 (4 GB VRAM)](docs/screenshots/advisor-vram.png)
+
+| | Before (≤ v0.15.x) | v0.16 |
+| --- | --- | --- |
+| **Recommendation basis** | system RAM | discrete GPU → **VRAM**; Apple Silicon / CPU → RAM |
+| **Top pick on 8 GB VRAM** | a 32B that crawls on CPU | the largest model that **fully fits VRAM** (fast) |
+| **Per-model badge** | speed only | **🟢 fits VRAM** / **🔵 spills to RAM** |
+| **Unified memory** | (same RAM logic) | kept — Apple Silicon shares RAM with the GPU |
+
+**Live-verified** on real hardware (RTX 2050, 4 GB VRAM): the recommended pick is now **Qwen2.5-Coder-3B** (🟢 fits VRAM · Ultra fast); the 7B/14B/DeepSeek/Phi-4 are shown as **🔵 spills to RAM** (slower), and MoE models get an honest *"spills but fast for its size"* note. The 32B is still offered on a GPU that can actually hold it. Locked by `test:advisor` (11 checks).
 
 ## Watch it work — the VOLTA live test (v0.15.1)
 

@@ -37,6 +37,13 @@ export interface CoderOption {
   quality: string
   note: string
   recommended?: boolean
+  /**
+   * Ayrı (discrete) GPU'da model NEREDE koşar:
+   *  'vram' = ağırlıklar+bağlam VRAM'e TAM sığar → hızlı (tam GPU offload)
+   *  'ram'  = VRAM'e sığmaz, RAM/CPU'ya taşar → yavaş (kısmi offload)
+   * Tümleşik/unified bellekte (Apple Silicon, CPU-only) tanımsız kalır.
+   */
+  fit?: 'vram' | 'ram'
 }
 
 export interface AdvisorPlan {
@@ -161,14 +168,70 @@ function speedFor(def: CoderDef, hw: HardwareInfo): SpeedGrade {
   return 'yavas'
 }
 
-function opt(def: CoderDef, hw: HardwareInfo, note: string, recommended = false): CoderOption {
+function opt(def: CoderDef, hw: HardwareInfo, note: string, recommended = false, fit?: 'vram' | 'ram'): CoderOption {
   const { moe: _moe, ...base } = def
-  return { ...base, speed: speedFor(def, hw), note, recommended }
+  return { ...base, speed: speedFor(def, hw), note, recommended, fit }
 }
 
-/** Cihaz ölçümünden öneri planı üret. */
+// Kodlama kalitesine göre sıralı katalog (en iyi → en hafif); VRAM yolunda öneri bu sırayı korur.
+const QUALITY_ORDER = ['c32', 'codestral', 'c14', 'dsLite', 'phi4', 'c7', 'gemma9', 'llama8', 'c3', 'llama3']
+
+/**
+ * Cihaz ölçümünden öneri planı üret.
+ *
+ * AYRI (discrete) GPU varsa öneri VRAM'e GÖREDİR: en iyi pick, ağırlıkları VRAM'e
+ * TAM sığan (tam GPU offload → hızlı) en kaliteli modeldir; VRAM'e sığmayanlar
+ * "RAM'e taşar (yavaş)" diye işaretlenir. Canlı-test bulgusu: eski mantık sistem
+ * RAM'ine bakıp 8GB VRAM'li makineye 32B (19.9GB) öneriyordu → o model VRAM'e
+ * sığmadığı için CPU'da 3-4 tok/s sürünürdü. Tümleşik/unified bellekte (Apple
+ * Silicon) veya GPU yoksa RAM havuzuna göre önerir (orada GPU-RAM ortak ya da
+ * tek seçenek CPU'dur).
+ */
 export function buildPlan(hw: HardwareInfo, CODERS: Record<string, CoderDef> = EMBEDDED_CODERS): AdvisorPlan {
+  const vram = hw.gpu?.vramGb ?? 0
   const r = hw.ramGb
+  const visionFor = (ram: number): { label: string; note: string } =>
+    ram >= 28
+      ? {
+          label: ram >= 48 ? 'Qwen2.5-VL-32B (otomatik)' : 'Qwen2.5-VL-7B (otomatik)',
+          note: 'Görsel eklediğinizde en iyi sığan göz otomatik seçilir; ilk kullanımda indirilir.'
+        }
+      : ram >= 12
+        ? {
+            label: 'Qwen2.5-VL-7B / 3B (otomatik)',
+            note: '7B kodlayıcıyla çalışırken gözler 7B; büyük kodlayıcılar RAM doldurduğunda gözler 3B olur.'
+          }
+        : { label: 'Qwen2.5-VL-3B (otomatik)', note: 'Görsel eklediğinizde otomatik indirilip kullanılır.' }
+
+  // --- AYRI GPU: öneri VRAM'e göre (hızlı = VRAM'e tam sığan en kaliteli) ---
+  if (vram >= 2) {
+    const HEADROOM = 1.5 // bağlam/KV cache/OS için VRAM payı (GB)
+    const fitOf = (d: CoderDef): 'vram' | 'ram' => (d.sizeGb + HEADROOM <= vram ? 'vram' : 'ram')
+    const defs = QUALITY_ORDER.map((k) => CODERS[k]).filter(Boolean)
+    // En azından RAM'e sığıp çalışabilenler (aksi halde hiç listeleme)
+    const usable = defs.filter((d) => d.sizeGb <= Math.max(3, r - 3))
+    const fast = usable.filter((d) => fitOf(d) === 'vram') // kalite sırası korunur
+    const slow = usable.filter((d) => fitOf(d) === 'ram')
+    const recommended = fast[0] ?? usable[usable.length - 1] ?? defs[defs.length - 1]
+    // Önce öneri (hızlı), sonra "kaliteli ama yavaş" büyükler, sonra kalan hızlılar.
+    const ordered = [recommended, ...slow, ...fast]
+      .filter((d, i, a) => a.findIndex((x) => x.id === d.id) === i)
+      .slice(0, 6)
+    const noteFor = (d: CoderDef): string =>
+      fitOf(d) === 'ram'
+        ? d.moe
+          ? "MoE — VRAM'e tam sığmaz ama boyutuna göre hızlı"
+          : "RAM'e taşar — daha yüksek kalite ama yavaş"
+        : d.id === recommended.id
+          ? "VRAM'e tam sığar — bu cihazda en hızlı"
+          : "VRAM'e sığar — hızlı"
+    return {
+      coders: ordered.map((d) => opt(d, hw, noteFor(d), d.id === recommended.id, fitOf(d))),
+      vision: visionFor(r)
+    }
+  }
+
+  // --- Ayrı GPU yok: RAM havuzuna göre (Apple unified / tümleşik / CPU) ---
   if (r >= 28) {
     return {
       coders: [
@@ -178,10 +241,7 @@ export function buildPlan(hw: HardwareInfo, CODERS: Record<string, CoderDef> = E
         opt(CODERS.dsLite, hw, 'MoE: 10 GB boyut, küçük model hızı'),
         opt(CODERS.c7, hw, 'Hızlı taslaklar ve görselli işler için')
       ],
-      vision: {
-        label: r >= 48 ? 'Qwen2.5-VL-32B (otomatik)' : 'Qwen2.5-VL-7B (otomatik)',
-        note: 'Görsel eklediğinizde en iyi sığan göz otomatik seçilir; ilk kullanımda indirilir.'
-      }
+      vision: visionFor(r)
     }
   }
   if (r >= 12) {
@@ -196,13 +256,7 @@ export function buildPlan(hw: HardwareInfo, CODERS: Record<string, CoderDef> = E
     if (r >= 14) {
       coders.splice(2, 0, opt(CODERS.dsLite, hw, 'MoE: 14B kalitesine yakın, çok daha hızlı'))
     }
-    return {
-      coders,
-      vision: {
-        label: 'Qwen2.5-VL-7B / 3B (otomatik)',
-        note: '7B kodlayıcıyla çalışırken gözler 7B; büyük kodlayıcılar RAM doldurduğundan gözler 3B olur.'
-      }
-    }
+    return { coders, vision: visionFor(r) }
   }
   if (r >= 8) {
     const coders = [
@@ -214,17 +268,14 @@ export function buildPlan(hw: HardwareInfo, CODERS: Record<string, CoderDef> = E
     if (r >= 10) {
       coders.splice(2, 0, opt(CODERS.gemma9, hw, 'Genel amaçlı alternatif'))
     }
-    return {
-      coders,
-      vision: { label: 'Qwen2.5-VL-3B (otomatik)', note: 'Görsel eklediğinizde otomatik indirilip kullanılır.' }
-    }
+    return { coders, vision: visionFor(r) }
   }
   return {
     coders: [
       opt(CODERS.c3, hw, 'Bu cihaza uygun güvenli seçenek', true),
       opt(CODERS.llama3, hw, 'Genel amaçlı, hafif alternatif')
     ],
-    vision: { label: 'Qwen2.5-VL-3B (otomatik)', note: 'Görsel desteği sınırlı olabilir (RAM).' }
+    vision: visionFor(r)
   }
 }
 

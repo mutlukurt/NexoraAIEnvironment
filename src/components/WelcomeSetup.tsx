@@ -27,6 +27,12 @@ const SPEED_TEXT: Record<'tr' | 'en', Record<SpeedGrade, string>> = {
   en: { ultra: 'Ultra fast', hizli: 'Fast', orta: 'Medium', yavas: 'Slow but worth it' }
 }
 
+// Ayrı GPU'da modelin nerede koştuğu: VRAM'e sığar (hızlı) / RAM'e taşar (yavaş).
+const FIT_TEXT: Record<'tr' | 'en', { vram: string; ram: string }> = {
+  tr: { vram: '🟢 VRAM’e sığar', ram: '🔵 RAM’e taşar' },
+  en: { vram: '🟢 Fits VRAM', ram: '🔵 Spills to RAM' }
+}
+
 function pct(d: DownloadState): number {
   if (d.total <= 0) return 0
   return Math.min(100, Math.round((d.downloaded / d.total) * 100))
@@ -52,6 +58,7 @@ export default function WelcomeSetup() {
   const language = useAppStore((s) => s.language)
   const t = translations[language]
   const speedText = SPEED_TEXT[language] ?? SPEED_TEXT.tr
+  const fitText = FIT_TEXT[language] ?? FIT_TEXT.tr
 
   const close = useCallback(() => setOpen(false), [])
 
@@ -192,6 +199,18 @@ export default function WelcomeSetup() {
                           <span className={'rounded-lg border px-2 py-0.5 text-[10px] font-bold ' + SPEED_STYLES[c.speed]}>
                             {speedText[c.speed]}
                           </span>
+                          {c.fit && (
+                            <span
+                              className={
+                                'rounded-lg border px-2 py-0.5 text-[10px] font-bold ' +
+                                (c.fit === 'vram'
+                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                  : 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300')
+                              }
+                            >
+                              {c.fit === 'vram' ? fitText.vram : fitText.ram}
+                            </span>
+                          )}
                           {/* 4.5: kağıt-üstü notun yanında BU makinede ölçülmüş gerçek skor */}
                           {bench[c.file] && (
                             <span
