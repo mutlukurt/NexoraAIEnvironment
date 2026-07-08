@@ -306,37 +306,51 @@ Every screen ships in both themes — a soft, VS Code-grade dark and a clean lig
 
 ### Platform Support
 
-| Platform | How | Status |
-|---|---|---|
-| Ubuntu / Debian / Mint / Pop!_OS | install the `.deb` | ✅ fully supported |
-| Any other Linux (Fedora, Arch…) | run from source (`npm run dev`) | ✅ fully supported — verified with a fresh clone |
-| macOS | run from source | ✅ expected to work (POSIX shell, PATH node) |
-| Windows | run from source | ⚙️ core + agent run via `cmd.exe` shell; not yet CI-tested |
+Installers for all three desktop platforms are built automatically on GitHub Actions and attached to every [release](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest).
 
-Running from source gives the complete experience — inference worker, agent actions, dev server, export — because in dev mode the worker uses the Node.js already on your PATH (no bundled runtime needed).
+| Platform | Download | Status |
+|---|---|---|
+| **Windows** 10/11 (x64) | `NexoraAI-Setup-<version>.exe` | ✅ CI-built NSIS installer |
+| **macOS** (Apple Silicon) | `NexoraAI-<version>-arm64.dmg` | ✅ CI-built |
+| **Ubuntu** / Debian / Mint / Pop!_OS | `nexora-ai_<version>_amd64.deb` | ✅ fully supported |
+| Any other Linux (Fedora, Arch…) | run from source (`npm run dev`) | ✅ fully supported |
+
+> The Windows and macOS installers are **unsigned** (no paid code-signing certificate), so the OS shows a one-time first-run warning you dismiss — see the per-platform notes below. Everything else is complete: local inference, agent actions, dev server and export all work. Running from source also gives the full experience (in dev mode the worker uses the Node.js on your PATH).
 
 ### Requirements
 
-- Linux x64 for the `.deb` (built and tested on Ubuntu)
+- Windows 10/11 x64, macOS Apple Silicon, or Linux x64 (Ubuntu for the `.deb`)
 - ~8 GB RAM minimum (16 GB recommended for 7B models)
 - Node.js 20+ and npm (for the Run/dev-server feature; the app ships its own Node runtime for inference)
 - A GGUF model file — good starters:
   - `Qwen2.5-Coder-7B-Instruct` Q4_K_M (~4.7 GB) — best quality/speed balance on 16 GB RAM
   - `Qwen2.5-Coder-3B-Instruct` Q5_K_M (~2.4 GB) — for lighter machines
 
-### Install from the .deb (Debian / Ubuntu / Mint / Pop!_OS)
+Grab the installer for your OS from the [**Releases page**](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest).
 
-Download the latest `.deb` from the [**Releases page**](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest), then:
+### Install — Windows (`.exe`)
+
+Download **`NexoraAI-Setup-<version>.exe`** and run it (per-user install, no admin needed; you can choose the install folder).
+
+> **First launch (unsigned build):** Windows SmartScreen shows *"Windows protected your PC."* Click **More info → Run anyway** — once. The installer is built in the open on GitHub Actions; the exact pipeline is in [`.github/workflows/build.yml`](.github/workflows/build.yml). On first use the app downloads the matching `llama-server.exe`.
+
+### Install — macOS (`.dmg`, Apple Silicon)
+
+Download **`NexoraAI-<version>-arm64.dmg`**, open it, and drag **NexoraAI** to Applications.
+
+> **First launch (unsigned / un-notarized):** macOS Gatekeeper blocks it once. Either:
+> - **Right-click** (Control-click) NexoraAI → **Open** → **Open** in the dialog, **or**
+> - if macOS says the app is *"damaged and can't be opened"* (the download quarantine flag), clear it once in Terminal, then open normally:
+>   ```bash
+>   xattr -cr /Applications/NexoraAI.app
+>   ```
+
+### Install — Linux (`.deb`, Debian / Ubuntu / Mint / Pop!_OS)
+
+Download **`nexora-ai_<version>_amd64.deb`**, then:
 
 ```bash
-sudo dpkg -i nexora-ai_0.10.0_amd64.deb
-```
-
-Or as a single copy-paste:
-
-```bash
-wget https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest/download/nexora-ai_0.10.0_amd64.deb
-sudo dpkg -i nexora-ai_0.10.0_amd64.deb
+sudo dpkg -i ~/Downloads/nexora-ai_*_amd64.deb
 ```
 
 ### Build from source
