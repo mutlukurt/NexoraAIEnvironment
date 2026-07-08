@@ -1,0 +1,106 @@
+name: Build installers (Windows .exe + Linux .deb)
+
+# Windows makinesi olmadan gerçek bir Windows kurulum .exe'si üretmenin temiz
+# yolu: build gerçek windows-latest runner'da koşar, npm install win prebuild'leri
+# kendi çeker, electron-builder NSIS installer üretir. Linux .deb de aynı anda çıkar.
+#
+# Tetikleme:
+#   - bir sürüm tag'i push edilince (v*)  → hem .exe hem .deb release'e eklenir
+#   - Actions sekmesinden "Run workflow"  → .exe/.deb indirilebilir ARTIFACT olur
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows installer (.exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Uygulama, >4GB modelleri Electron'un V8 sınırı dışında koşturmak için
+      # harici bir Node worker'ı paketli node ile çalıştırır. Repo'daki
+      # vendor/node-bin/node bir LINUX binary'sidir — Windows build'i için
+      # yerine gerçek bir Windows node.exe koyuyoruz.
+      - name: Bundle a Windows Node for the inference worker
+        shell: pwsh
+        run: |
+          Remove-Item -Force vendor/node-bin/node -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path vendor/node-bin | Out-Null
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.18.1/win-x64/node.exe" -OutFile "vendor/node-bin/node.exe"
+
+      - name: Build renderer + main (electron-vite)
+        run: npm run build
+
+      - name: Package Windows NSIS installer
+        run: npx electron-builder --win --publish never
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/*.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux package (.deb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer + main (electron-vite)
+        run: npm run build
+
+      - name: Package Linux .deb
+        run: npx electron-builder --linux deb --publish never
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: release/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Attach installers to the release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Attach .exe + .deb to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-artifacts/**/*.exe
+            dist-artifacts/**/*.deb
+          fail_on_unmatched_files: false

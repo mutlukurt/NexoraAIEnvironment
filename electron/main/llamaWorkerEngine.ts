@@ -52,9 +52,13 @@ let activeProgressCb: LoadProgressCallback | null = null
  * PATH'teki node kullanılır. Electron binary'si işe yaramaz (aynı V8 cage).
  */
 export function findNodeBinary(): string {
-  const bundled = join(process.resourcesPath ?? '', 'node-bin', 'node')
+  // Windows'ta paketlenen worker Node'u node.exe adıyla taşınır (CI win job'u
+  // vendor/node-bin/node.exe koyar); POSIX'te düz 'node'. Paketli değilse
+  // PATH'teki node'a düş (geliştirme).
+  const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
+  const bundled = join(process.resourcesPath ?? '', 'node-bin', nodeName)
   if (existsSync(bundled)) return bundled
-  return 'node'
+  return nodeName
 }
 
 function workerScriptPath(): string {
