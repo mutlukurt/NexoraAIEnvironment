@@ -1993,6 +1993,26 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         if (violationStop) {
           violationStop = false
           updateTurn = false
+          // GERÇEK-APP canlı test bulgusu: baştan-yazma denemesi CANLI-UYGULAMA ile
+          // dosyayı mid-stream BOZUYORDU (App.tsx'ten `export default function App`
+          // silinip dangling `) }` kalıyor, proje derlenmiyor) ve hiç geri
+          // alınmıyordu — kullanıcı "dediğimi yapmıyor + proje bozuldu" yaşıyordu.
+          // İhlal reddedilince turun TÜM değişiklikleri tur-öncesi anlık görüntüye
+          // ATOMİK geri alınır (6.4 tur transaction'ının aynısı); yeni dosyalar korunur.
+          let reverted = 0
+          if (turnSnapshot) {
+            const filesNow = useArtifactsStore.getState().files
+            for (const [path, original] of turnSnapshot) {
+              const cur = filesNow[path]?.content
+              if (cur !== undefined && cur !== original) {
+                useArtifactsStore.getState().upsertFile(path, original)
+                reverted++
+              }
+            }
+            turnSnapshot = null
+          }
+          useArtifactsStore.getState().finishStreaming()
+          if (reverted > 0) logRepair({ layer: 'violation-rollback', notes: [`${reverted} dosya geri alındı`] })
           set((s) => ({
             messages: [
               ...s.messages,
@@ -2000,7 +2020,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 id: nanoid(),
                 role: 'assistant',
                 content:
-                  '⛔ Model uyarıya rağmen yine baştan yazmaya kalktı — üretim durduruldu (iterasyonda baştan yazmak yasak). O ana kadar tamamlanan küçük düzeltmeler uygulandı. Kalan düzeltmeleri daha küçük parçalara bölüp tek tek isteyin.'
+                  reverted > 0
+                    ? `⛔ Model baştan yazmaya kalktı — üretim durduruldu ve bu turun bozduğu ${reverted} dosya çalışan hâline GERİ ALINDI (iterasyonda baştan yazmak yasak; proje bozulmadan korundu). Değişiklikleri küçük parçalara bölüp tek tek isteyin — örn. "Navbar'daki #projects bağlantısını #galeri yap".`
+                    : '⛔ Model uyarıya rağmen yine baştan yazmaya kalktı — üretim durduruldu (iterasyonda baştan yazmak yasak). Kalan düzeltmeleri daha küçük parçalara bölüp tek tek isteyin.'
               }
             ]
           }))
