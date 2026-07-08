@@ -3414,7 +3414,11 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       // edit → mismatch). ctx'in yarısı dosyalara, kalanı sistem+geçmiş+yanıta.
       const ctxSize = get().modelInfo?.contextSize ?? 4096
       const charBudget = Math.max(CONTEXT_CHAR_BUDGET, Math.floor(ctxSize * 0.5 * 3.0))
-      const maxFiles = Math.max(CONTEXT_MAX_FILES, Math.floor(ctxSize / 2500))
+      // maxFiles cömert: gerçek sınır char bütçesi (aşınca zaten atlanır). 16k
+      // modelde bile küçük bir proje TAMAMEN girsin (ctx/2500=6 fazla kısıtlıydı;
+      // canlı test: 16k'da 10-dosyalık projede 4 dosya dışlanıp model körlemesine
+      // App.tsx edit'i yapıp ıskaladı/asıldı).
+      const maxFiles = Math.max(CONTEXT_MAX_FILES, Math.floor(ctxSize / 1200))
       const selection = selectContextFiles(trimmed, allFiles, { charBudget, maxFiles })
       currentFiles = selection.included.map((f) => ({ path: f.path, content: f.content }))
       excludedPaths = selection.excludedPaths

@@ -41,20 +41,31 @@ const prompt = 'projelerim ve hakkımda kısımlarının idleri yok, düzelt'
   check('8k default: bazı dosyalar dışlanır (trimmed)', sel.trimmed && sel.included.length <= CONTEXT_MAX_FILES, `dahil=${sel.included.length}`)
 }
 
-// 32k model bütçesi: 32768 * 0.5 * 3.0 ≈ 49k kar, 32768/2500 ≈ 13 dosya → HEPSİ girer
+// appStore'daki bütçe hesabının aynısı (tek kaynak).
+const budgetFor = (ctx) => ({
+  charBudget: Math.max(CONTEXT_CHAR_BUDGET, Math.floor(ctx * 0.5 * 3.0)),
+  maxFiles: Math.max(CONTEXT_MAX_FILES, Math.floor(ctx / 1200))
+})
+
+// 32k model: HEPSİ girer
 {
-  const charBudget = Math.max(CONTEXT_CHAR_BUDGET, Math.floor(32768 * 0.5 * 3.0))
-  const maxFiles = Math.max(CONTEXT_MAX_FILES, Math.floor(32768 / 2500))
-  const sel = selectContextFiles(prompt, files, { charBudget, maxFiles })
-  check('32k bütçe: 10 dosyanın HEPSİ dahil (trimmed değil)', !sel.trimmed && sel.included.length === 10, `dahil=${sel.included.length}, budget=${charBudget}, max=${maxFiles}`)
+  const sel = selectContextFiles(prompt, files, budgetFor(32768))
+  check('32k bütçe: 10 dosyanın HEPSİ dahil (trimmed değil)', !sel.trimmed && sel.included.length === 10, `dahil=${sel.included.length}`)
+}
+
+// 16k model: canlı test bulgusu — ctx/2500=6 fazla kısıtlıydı, 4 dosya dışlanıp
+// model körlemesine edit yapıyordu. ctx/1200=13 → 10 dosyanın hepsi girer.
+{
+  const b = budgetFor(16384)
+  const sel = selectContextFiles(prompt, files, b)
+  check('16k bütçe: 10 dosyanın HEPSİ dahil (eskiden 6 ile kapanıyordu)', !sel.trimmed && sel.included.length === 10, `dahil=${sel.included.length}, max=${b.maxFiles}`)
 }
 
 // 4k model: dar kalır (küçük model korunur)
 {
-  const charBudget = Math.max(CONTEXT_CHAR_BUDGET, Math.floor(4096 * 0.5 * 3.0))
-  const maxFiles = Math.max(CONTEXT_MAX_FILES, Math.floor(4096 / 2500))
-  check('4k model: default 11000/6 korunur', charBudget === CONTEXT_CHAR_BUDGET && maxFiles === CONTEXT_MAX_FILES, `budget=${charBudget}, max=${maxFiles}`)
-  const sel = selectContextFiles(prompt, files, { charBudget, maxFiles })
+  const b = budgetFor(4096)
+  check('4k model: default 11000/6 korunur', b.charBudget === CONTEXT_CHAR_BUDGET && b.maxFiles === CONTEXT_MAX_FILES, `budget=${b.charBudget}, max=${b.maxFiles}`)
+  const sel = selectContextFiles(prompt, files, b)
   check('4k model: dosyalar hâlâ dışlanır (dar bağlam)', sel.trimmed)
 }
 
