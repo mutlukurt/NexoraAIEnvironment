@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore, fmtBytes } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
 import { ChevronUp, Cpu, FolderOpen, Database, RefreshCw, Check, Zap, Gauge, AlertTriangle } from 'lucide-react'
@@ -30,6 +31,32 @@ export default function ModelSelect() {
   const [benchBusy, setBenchBusy] = useState(false)
   const [benchMsg, setBenchMsg] = useState<string | null>(null)
   const tr = language === 'tr'
+
+  // Menü, ekrandaki boşluğa göre yukarı/aşağı açılır ve yüksekliği o boşlukla
+  // sınırlanır (uzun model listesi ekranın üstünü aşıp kırpılmasın — canlıda
+  // 8+ modelle sıkışıyordu). `fixed` konum, ata öğelerin overflow'undan bağımsız.
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxH: number } | null>(null)
+
+  const toggle = (): void => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const el = btnRef.current
+    if (el) {
+      const r = el.getBoundingClientRect()
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const spaceAbove = r.top
+      const spaceBelow = vh - r.bottom
+      const openUp = spaceAbove > spaceBelow
+      const maxH = Math.max(160, Math.min(460, (openUp ? spaceAbove : spaceBelow) - 16))
+      const left = Math.max(8, Math.min(r.left, vw - 296))
+      setPos(openUp ? { left, bottom: vh - r.top + 8, maxH } : { left, top: r.bottom + 8, maxH })
+    }
+    setOpen(true)
+  }
 
   const runBench = async (): Promise<void> => {
     setBenchBusy(true)
@@ -67,7 +94,8 @@ export default function ModelSelect() {
   return (
     <div className="relative shrink-0">
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={toggle}
         title={modelInfo?.name ?? (tr ? 'Bir GGUF model seç' : 'Select a GGUF model')}
         className={
           'flex max-w-[220px] items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition ' +
@@ -87,10 +115,13 @@ export default function ModelSelect() {
         <ChevronUp className={'h-3.5 w-3.5 shrink-0 opacity-60 transition ' + (open ? '' : 'rotate-180')} />
       </button>
 
-      {open && (
+      {open && pos && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-50 mb-2 flex max-h-[60vh] w-72 flex-col overflow-hidden rounded-2xl border border-ink-line bg-ink-card shadow-2xl">
+          <div
+            className="fixed z-50 flex w-72 flex-col overflow-hidden rounded-2xl border border-ink-line bg-ink-card shadow-2xl"
+            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH }}
+          >
             <div className="flex items-center justify-between border-b border-ink-line px-3 py-2">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-ink-dim">
                 {tr ? 'İndirilmiş modeller' : 'Downloaded models'} ({localModels.length})
@@ -203,7 +234,8 @@ export default function ModelSelect() {
               )}
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )

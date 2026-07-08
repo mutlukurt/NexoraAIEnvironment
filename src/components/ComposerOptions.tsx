@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore } from '@/store/appStore'
 import { translations } from '@/lib/translations'
 import { SlidersHorizontal } from 'lucide-react'
@@ -20,7 +21,8 @@ function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; labe
 /**
  * Composer'daki ⚙ popover: eskiden sidebar'da hep görünen üç güç toggle'ı
  * (Otomatik uygula / Önce Plan / Prompt Güçlendir) artık geçişle ulaşılan bir
- * menüde. Aktif toggle sayısı düğmede küçük bir nokta ile belli olur.
+ * menüde. ModelSelect ile AYNI akıllı konumlandırma (portal + boşluğa göre
+ * aşağı/yukarı) — ikisi de tutarlı açılır, cam yüzeyin transform'undan bağımsız.
  */
 export default function ComposerOptions() {
   const autoApply = useAppStore((s) => s.autoApply)
@@ -34,18 +36,42 @@ export default function ComposerOptions() {
   const tr = language === 'tr'
 
   const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxH: number } | null>(null)
+
+  const toggle = (): void => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const el = btnRef.current
+    if (el) {
+      const r = el.getBoundingClientRect()
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const spaceAbove = r.top
+      const spaceBelow = vh - r.bottom
+      const openUp = spaceAbove > spaceBelow
+      const maxH = Math.max(140, Math.min(340, (openUp ? spaceAbove : spaceBelow) - 16))
+      const left = Math.max(8, Math.min(r.left, vw - 272))
+      setPos(openUp ? { left, bottom: vh - r.top + 8, maxH } : { left, top: r.bottom + 8, maxH })
+    }
+    setOpen(true)
+  }
+
   const activeCount = (autoApply ? 1 : 0) + (planFirst ? 1 : 0) + (enhancePrompts ? 1 : 0)
 
-  const rows: Array<{ label: string; hint?: string; on: boolean; toggle: () => void }> = [
-    { label: t.autoApply, on: autoApply, toggle: () => setAutoApply(!autoApply) },
-    { label: t.planFirst, hint: t.planFirstHint, on: planFirst, toggle: () => setPlanFirst(!planFirst) },
-    { label: t.enhanceToggle, hint: t.enhanceHint, on: enhancePrompts, toggle: () => setEnhancePrompts(!enhancePrompts) }
+  const rows: Array<{ label: string; hint?: string; on: boolean; toggleFn: () => void }> = [
+    { label: t.autoApply, on: autoApply, toggleFn: () => setAutoApply(!autoApply) },
+    { label: t.planFirst, hint: t.planFirstHint, on: planFirst, toggleFn: () => setPlanFirst(!planFirst) },
+    { label: t.enhanceToggle, hint: t.enhanceHint, on: enhancePrompts, toggleFn: () => setEnhancePrompts(!enhancePrompts) }
   ]
 
   return (
     <div className="relative shrink-0">
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={toggle}
         title={tr ? 'Tur ayarları' : 'Turn options'}
         className={
           'relative grid h-8 w-8 place-items-center rounded-lg border transition ' +
@@ -62,10 +88,13 @@ export default function ComposerOptions() {
         )}
       </button>
 
-      {open && (
+      {open && pos && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-2xl border border-ink-line bg-ink-card p-1.5 shadow-2xl">
+          <div
+            className="fixed z-50 w-64 overflow-y-auto rounded-2xl border border-ink-line bg-ink-card p-1.5 shadow-2xl"
+            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH }}
+          >
             <p className="px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-ink-dim">
               {tr ? 'Tur ayarları' : 'Turn options'}
             </p>
@@ -79,11 +108,12 @@ export default function ComposerOptions() {
                   <span className="block text-xs font-bold text-ink-text">{r.label}</span>
                   {r.hint && <span className="block truncate text-[10px] font-medium text-ink-dim">{r.hint}</span>}
                 </div>
-                <Toggle on={r.on} onClick={r.toggle} label={r.label} />
+                <Toggle on={r.on} onClick={r.toggleFn} label={r.label} />
               </label>
             ))}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )
