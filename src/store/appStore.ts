@@ -236,6 +236,10 @@ let fidelitySlotMap: Record<string, string> = {}
 // FAZ 9.4 — son fidelity build'in deterministik sadakat sonucu (9.5 escalation
 // bunu somut sinyal olarak okur; kör retry yerine skor-kapılı tırmanış).
 let lastFidelityResult: SpecVerifyResult | null = null
+// FAZ 9.5 — bir fidelity build sadakat testinden geçemeyince (SpecVerifier fail)
+// TEK bir escalate'li yeniden deneme (frontier model) tetiklenir; bu bayrak
+// döngüyü önler (yalnız escalate-DIŞI görünür turda sıfırlanır).
+let fidelityRetried = false
 export function getFidelityResult(): SpecVerifyResult | null {
   return lastFidelityResult
 }
@@ -1914,6 +1918,26 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               }
             ]
           }))
+          // FAZ 9.5 — verifier-gated escalation: sadakat testi geçmediyse VE
+          // hibrit API yapılandırılmışsa, TEK seferlik escalate'li yeniden
+          // deneme frontier modele tırmanır (kör retry değil, ölçülen fail).
+          if (!fr.ok && !fidelityRetried) {
+            const st = useSettingsStore.getState()
+            const apiReady = st.apiMode !== 'off' && !!st.apiModel && !!st.apiBaseUrl
+            if (apiReady) {
+              fidelityRetried = true
+              const retryPrompt = lastVisibleUserPrompt
+              set((s) => ({
+                messages: [
+                  ...s.messages,
+                  { id: nanoid(), role: 'assistant', content: `↑ Sadakat eksik — güçlü modele (${st.apiModel}) tırmandırılıyor…` }
+                ]
+              }))
+              setTimeout(() => {
+                if (retryPrompt) void get().sendMessage(retryPrompt, { escalate: true })
+              }, 400)
+            }
+          }
         }
       }
 
@@ -3294,6 +3318,8 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       fidelityActive = false
       fidelityContract = null
       fidelitySlotMap = {}
+      // escalate'li yeniden deneme fidelityRetried'ı SIFIRLAMAZ (döngü olmasın).
+      if (!opts?.escalate) fidelityRetried = false
     }
     // 8.1: gerçek bir KULLANICI turu kuyruğu yeniden etkinleştirir (Durdur'un
     // koyduğu duraklama kalkar). Gizli/makine turları duraklamayı kaldırmaz.

@@ -272,7 +272,10 @@ ${UPDATE_MODE_RULES}
     input.currentFiles.length > 0 &&
     /(^|\n)\s*düzelt\b|BUILD ERROR|RUNTIME ERROR|does NOT compile|GÖRSEL denetim/i.test(input.prompt)
   const escalate = !!input.options?.escalate
-  if (shouldUseApi(isFixTurn, escalate)) {
+  // FAZ 9.5 — fidelity build'i escalate ile geldiyse (SpecVerifier fail sonrası
+  // tırmanış), 'fix' modunda isFixTurn olmasa da frontier modele yükselt.
+  const fidelityEscalate = !!input.fidelity && escalate
+  if (shouldUseApi(isFixTurn, escalate, fidelityEscalate)) {
     apiAbort = new AbortController()
     try {
       console.log(`[NexoraAI] tur API motoruna yönlendirildi (hibrit${escalate ? ', tırmanış 5.5' : ' 4.1'})`)

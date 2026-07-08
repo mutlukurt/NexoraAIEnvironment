@@ -43,6 +43,22 @@ for (const [mode, baseUrl, model, isFix, escalate, want, name] of CASES) {
   else { fail++; failures.push(`✗ ${name} — beklenen ${want}, gelen ${got}`) }
 }
 
+// FAZ 9.5 — verifier-gated fidelity escalation (3. parametre: fidelityEscalate)
+const FCASES = [
+  // [mode, baseUrl, model, isFix, escalate, fidelityEsc, beklenen, ad]
+  ['fix', 'http://x', 'm', false, false, true, true, 'fix: sadakat-fail tırmanışı → API (isFix olmasa da)'],
+  ['fix', 'http://x', 'm', false, false, false, false, 'fix: fidelity sinyali yoksa API yok'],
+  ['off', 'http://x', 'm', false, false, true, false, 'off: sadakat-fail olsa da asla'],
+  ['fix', '', 'm', false, false, true, false, 'fix: baseUrl yoksa sadakat-fail bile API açmaz'],
+  ['all', 'http://x', 'm', false, false, false, true, 'all: fidelity sinyali olmadan da API']
+]
+for (const [mode, baseUrl, model, isFix, escalate, fidelityEsc, want, name] of FCASES) {
+  setApiConfig({ mode, baseUrl, model, apiKey: 'k' })
+  const got = shouldUseApi(isFix, escalate, fidelityEsc)
+  if (got === want) { pass++; console.log(`✓ ${name}`) }
+  else { fail++; failures.push(`✗ ${name} — beklenen ${want}, gelen ${got}`) }
+}
+
 rmSync(work, { recursive: true, force: true })
 console.log(`\n${pass}/${pass + fail} geçti`)
 if (fail > 0) {

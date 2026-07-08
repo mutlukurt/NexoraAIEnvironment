@@ -37,10 +37,13 @@ export function getApiConfig(): ApiConfig {
  * çözemeyip tur TIRMANDIRILDIĞINDA (escalate) devreye girer. 'all' modu
  * kullanıcının açık tercihi olduğundan tırmanış beklemez.
  */
-export function shouldUseApi(isFixTurn: boolean, escalate = false): boolean {
+export function shouldUseApi(isFixTurn: boolean, escalate = false, fidelityEscalate = false): boolean {
   if (!cfg.baseUrl || !cfg.model || cfg.mode === 'off') return false
   if (cfg.mode === 'all') return true
-  return cfg.mode === 'fix' && isFixTurn && escalate
+  // 'fix' modu: klasik düzelt-tırmanışı (isFixTurn && escalate) VEYA
+  // FAZ 9.5 sadakat-tırmanışı — SpecVerifier somut fail verdiğinde (kör retry
+  // değil, ölçülen eksik) fidelity build'i frontier modele yükselt.
+  return cfg.mode === 'fix' && ((isFixTurn && escalate) || fidelityEscalate)
 }
 
 /** OpenAI-uyumlu uzak uca durumsuz sohbet (SSE akışı). */
