@@ -497,7 +497,20 @@ export function buildReactPreview(
 
   return `<!doctype html>
 <html><head><meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
 <script>
+// FAZ 9.6 — Dış görsel paritesi: Unsplash/uzak URL'ler yüklenemezse (ölü URL,
+// ağ yok) sayfa BOŞ KALMASIN — capture-fazında yakalayıp yer tutucuya çevir.
+(function(){
+  var PH = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect width='100%25' height='100%25' fill='%23e5e7eb'/%3E%3Ctext x='50%25' y='50%25' font-family='sans-serif' font-size='15' fill='%239ca3af' text-anchor='middle' dominant-baseline='middle'%3Eg%C3%B6rsel%3C/text%3E%3C/svg%3E";
+  window.addEventListener('error', function(e){
+    var t = e && e.target;
+    if (t && t.tagName === 'IMG' && !t.dataset.nexFallback) {
+      t.dataset.nexFallback = '1';
+      t.src = PH;
+    }
+  }, true);
+})();
 ${STORAGE_MOCK_JS}
 // NexoraAI hata overlay'i — beyaz ekran yerine her hatayı görünür yapar.
 window.__nexErr = function (msg) {

@@ -139,22 +139,22 @@ check('v3 regresyon: postcss + autoprefixer VAR', !!v3dev['postcss'] && !!v3dev[
 check('v3 regresyon: @tailwindcss/vite YOK', !v3dev['@tailwindcss/vite'])
 
 // === FAZ 9.2 — faithful mode (model manifest'i otorite) ===
-// Model kendi package.json'ını yazdı + spec sabit → bilinmeyen dep (recharts)
-// AYNEN korunur, çekirdek dep (react) güvenli-sürümle sabitlenir.
-const ffPkg = JSON.stringify({ name: 'x', dependencies: { react: '^18.0.0', recharts: '^2.12.0' }, devDependencies: {} })
+// Model kendi package.json'ını yazdı + spec sabit → KNOWN_VERSIONS'ta OLMAYAN
+// bir dep (@acme/widgets) AYNEN korunur, çekirdek dep (react) güvenli sürümle sabitlenir.
+const ffPkg = JSON.stringify({ name: 'x', dependencies: { react: '^18.0.0', '@acme/widgets': '^3.1.0' }, devDependencies: {} })
 const ffFiles = [
-  { path: 'src/App.tsx', content: `import React from 'react'\nimport { LineChart } from 'recharts'\nexport default function App(){ return <div className="p-2"><LineChart/></div> }` },
+  { path: 'src/App.tsx', content: `import React from 'react'\nimport { Widget } from '@acme/widgets'\nexport default function App(){ return <div className="p-2"><Widget/></div> }` },
   { path: 'src/index.css', content: '@tailwind base;\n' },
   { path: 'package.json', content: ffPkg }
 ]
 const ffout = scaffoldProject(ffFiles, 'Faithful', { faithful: true })
 const ffdeps = JSON.parse(ffout.find((f) => f.path === 'package.json').content).dependencies || {}
-check('faithful: bilinmeyen dep (recharts) AYNEN korundu', ffdeps['recharts'] === '^2.12.0', ffdeps['recharts'])
+check('faithful: bilinmeyen dep (@acme/widgets) AYNEN korundu', ffdeps['@acme/widgets'] === '^3.1.0', ffdeps['@acme/widgets'])
 check('faithful: çekirdek dep (react) güvenli-sürümle sabitlendi', ffdeps['react'] === '^18.3.1', ffdeps['react'])
-// creative (faithful DEĞİL) modda recharts import edildiği için 'latest'e düşer (ezilir)
+// creative (faithful DEĞİL) modda @acme/widgets import edildiği için 'latest'e düşer
 const crout = scaffoldProject(ffFiles.map((f) => ({ ...f })), 'Creative')
 const crdeps = JSON.parse(crout.find((f) => f.path === 'package.json').content).dependencies || {}
-check('creative: manifest ezilir (recharts import → latest, ^2.12 DEĞİL)', crdeps['recharts'] === 'latest', crdeps['recharts'])
+check('creative: manifest ezilir (@acme/widgets import → latest, ^3.1 DEĞİL)', crdeps['@acme/widgets'] === 'latest', crdeps['@acme/widgets'])
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nscaffold: ${pass} geçti, ${fail} kaldı`)

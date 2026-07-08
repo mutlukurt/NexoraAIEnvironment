@@ -103,7 +103,15 @@ const KNOWN_VERSIONS: Record<string, string> = {
   next: '^14.2.5',
   // FAZ 9.2 — Tailwind v4 araç zinciri (import-rebuild 'latest'e düşmesin)
   '@tailwindcss/vite': '^4.1.0',
-  '@tailwindcss/postcss': '^4.1.0'
+  '@tailwindcss/postcss': '^4.1.0',
+  // FAZ 9.6 — yaygın ikon/font/util kütüphaneleri: import edilince 'latest'
+  // (kırıcı major riski) yerine bilinen-güvenli sürümle sabitlensin.
+  '@heroicons/react': '^2.1.5',
+  'react-icons': '^5.3.0',
+  'date-fns': '^3.6.0',
+  recharts: '^2.12.7',
+  'class-variance-authority': '^0.7.0',
+  '@radix-ui/react-slot': '^1.1.0'
 }
 
 function detectBareImports(files: ProjectFileInput[]): string[] {
