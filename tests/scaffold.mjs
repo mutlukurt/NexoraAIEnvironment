@@ -100,6 +100,62 @@ check('react-scripts hiçbir yerde kalmadı', !JSON.stringify(pkgOut).includes('
 check('tailwind.config plugins boşaltıldı (cannot-find-module önlendi)', /plugins:\s*\[\s*\]/.test(twOut), twOut.match(/plugins:[^\n]*/)?.[0])
 check('tailwind.config custom theme korundu', /brand.*#123456|#123456/.test(twOut))
 
+// === FAZ 9.2 — Tailwind v4 dalı ===
+// CSS-first imza (@import "tailwindcss") → v4 araç zinciri, config dosyası YOK.
+const v4Files = [
+  { path: 'src/App.tsx', content: `import React from 'react'\nexport default function App(){ return <div className="p-4">Serene</div> }` },
+  { path: 'src/index.css', content: '@import "tailwindcss";\n' }
+]
+const v4out = scaffoldProject(v4Files, 'Serene v4')
+const v4pkg = JSON.parse(v4out.find((f) => f.path === 'package.json').content)
+const v4dev = v4pkg.devDependencies || {}
+const v4vite = v4out.find((f) => f.path === 'vite.config.ts')?.content || ''
+const v4css = v4out.find((f) => f.path === 'src/index.css')?.content || ''
+check('v4: tailwindcss ^4 devDep', /^\^4/.test(v4dev['tailwindcss'] || ''), v4dev['tailwindcss'])
+check('v4: @tailwindcss/vite devDep', !!v4dev['@tailwindcss/vite'], JSON.stringify(Object.keys(v4dev)))
+check('v4: postcss/autoprefixer YOK', !v4dev['postcss'] && !v4dev['autoprefixer'])
+check('v4: tailwind.config.js YOK', !v4out.some((f) => f.path === 'tailwind.config.js'))
+check('v4: postcss.config.js YOK', !v4out.some((f) => f.path === 'postcss.config.js'))
+check('v4: vite.config @tailwindcss/vite eklentili', /@tailwindcss\/vite/.test(v4vite) && /tailwindcss\(\)/.test(v4vite), v4vite.match(/plugins:[^\n]*/)?.[0])
+check('v4: index.css @import "tailwindcss" (model dokunulmadı)', /@import\s+["']tailwindcss["']/.test(v4css))
+
+// v4 ipucu (opts.tailwindVersion) ile: model v4 imzası yazmasa bile v4 kurulur
+const hintFiles = [
+  { path: 'src/App.tsx', content: `import React from 'react'\nexport default function App(){ return <div className="p-4">Hi</div> }` }
+]
+const hintOut = scaffoldProject(hintFiles, 'Hint v4', { tailwindVersion: 'v4' })
+const hintDev = JSON.parse(hintOut.find((f) => f.path === 'package.json').content).devDependencies || {}
+check('v4 ipucu: contract tailwindVersion=v4 → tailwindcss ^4', /^\^4/.test(hintDev['tailwindcss'] || ''), hintDev['tailwindcss'])
+
+// v3 REGRESYON: v3 imzalı proje eskisi gibi (config'li) kalır
+const v3Files = [
+  { path: 'src/App.tsx', content: `import React from 'react'\nexport default function App(){ return <div className="p-4">Hi</div> }` },
+  { path: 'src/index.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n' }
+]
+const v3out = scaffoldProject(v3Files, 'Klasik v3')
+const v3dev = JSON.parse(v3out.find((f) => f.path === 'package.json').content).devDependencies || {}
+check('v3 regresyon: tailwind.config.js VAR', v3out.some((f) => f.path === 'tailwind.config.js'))
+check('v3 regresyon: postcss + autoprefixer VAR', !!v3dev['postcss'] && !!v3dev['autoprefixer'])
+check('v3 regresyon: @tailwindcss/vite YOK', !v3dev['@tailwindcss/vite'])
+
+// === FAZ 9.2 — faithful mode (model manifest'i otorite) ===
+// Model kendi package.json'ını yazdı + spec sabit → bilinmeyen dep (recharts)
+// AYNEN korunur, çekirdek dep (react) güvenli-sürümle sabitlenir.
+const ffPkg = JSON.stringify({ name: 'x', dependencies: { react: '^18.0.0', recharts: '^2.12.0' }, devDependencies: {} })
+const ffFiles = [
+  { path: 'src/App.tsx', content: `import React from 'react'\nimport { LineChart } from 'recharts'\nexport default function App(){ return <div className="p-2"><LineChart/></div> }` },
+  { path: 'src/index.css', content: '@tailwind base;\n' },
+  { path: 'package.json', content: ffPkg }
+]
+const ffout = scaffoldProject(ffFiles, 'Faithful', { faithful: true })
+const ffdeps = JSON.parse(ffout.find((f) => f.path === 'package.json').content).dependencies || {}
+check('faithful: bilinmeyen dep (recharts) AYNEN korundu', ffdeps['recharts'] === '^2.12.0', ffdeps['recharts'])
+check('faithful: çekirdek dep (react) güvenli-sürümle sabitlendi', ffdeps['react'] === '^18.3.1', ffdeps['react'])
+// creative (faithful DEĞİL) modda recharts import edildiği için 'latest'e düşer (ezilir)
+const crout = scaffoldProject(ffFiles.map((f) => ({ ...f })), 'Creative')
+const crdeps = JSON.parse(crout.find((f) => f.path === 'package.json').content).dependencies || {}
+check('creative: manifest ezilir (recharts import → latest, ^2.12 DEĞİL)', crdeps['recharts'] === 'latest', crdeps['recharts'])
+
 rmSync(work, { recursive: true, force: true })
 console.log(`\nscaffold: ${pass} geçti, ${fail} kaldı`)
 process.exit(fail === 0 ? 0 : 1)

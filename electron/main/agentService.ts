@@ -100,7 +100,10 @@ const KNOWN_VERSIONS: Record<string, string> = {
   'tailwind-merge': '^2.5.4',
   'framer-motion': '^11.11.0',
   zustand: '^5.0.0',
-  next: '^14.2.5'
+  next: '^14.2.5',
+  // FAZ 9.2 — Tailwind v4 araç zinciri (import-rebuild 'latest'e düşmesin)
+  '@tailwindcss/vite': '^4.1.0',
+  '@tailwindcss/postcss': '^4.1.0'
 }
 
 function detectBareImports(files: ProjectFileInput[]): string[] {
@@ -121,15 +124,55 @@ function detectBareImports(files: ProjectFileInput[]): string[] {
 
 function usesTailwind(files: ProjectFileInput[]): boolean {
   return files.some(
-    (f) => /@tailwind\s+(base|components|utilities)/.test(f.content) || f.path === 'tailwind.config.js'
+    (f) =>
+      /@tailwind\s+(base|components|utilities)/.test(f.content) ||
+      /@import\s+["']tailwindcss["']/.test(f.content) ||
+      f.path === 'tailwind.config.js'
   ) || files.some((f) => /\.(tsx|jsx)$/.test(f.path) && /className=/.test(f.content))
+}
+
+/**
+ * FAZ 9.2 — Üretilen dosyalardan Tailwind sürümünü sapta. v4 imzaları
+ * (CSS-first @import/@theme/@utility ya da @tailwindcss/vite|postcss veya
+ * tailwindcss@^4) önceliklidir; yoksa contract ipucu; yoksa v3 (app varsayılanı).
+ */
+function detectTailwindVersion(files: ProjectFileInput[], hint?: 'v3' | 'v4' | null): 'v3' | 'v4' {
+  const v4Css = files.some(
+    (f) =>
+      f.path.endsWith('.css') &&
+      /@import\s+["']tailwindcss["']|@theme\b|@utility\b|@custom-variant\b|@plugin\b/.test(f.content)
+  )
+  const v3Css = files.some(
+    (f) => f.path.endsWith('.css') && /@tailwind\s+(base|components|utilities)/.test(f.content)
+  )
+  let pkgV4 = false
+  let pkgV3 = false
+  const pkg = files.find((f) => f.path === 'package.json')
+  if (pkg) {
+    try {
+      const j = JSON.parse(pkg.content)
+      const all: Record<string, string> = { ...(j.dependencies ?? {}), ...(j.devDependencies ?? {}) }
+      if (all['@tailwindcss/vite'] || all['@tailwindcss/postcss'] || /^[\^~]?4/.test(all['tailwindcss'] ?? '')) pkgV4 = true
+      if (/^[\^~]?3/.test(all['tailwindcss'] ?? '')) pkgV3 = true
+    } catch {
+      /* bozuk manifest — yok say */
+    }
+  }
+  if (v4Css || pkgV4) return 'v4'
+  if (hint === 'v4') return 'v4'
+  if (v3Css || pkgV3 || hint === 'v3') return 'v3'
+  return 'v3'
 }
 
 /**
  * Chat'te üretilen dosyaları eksiksiz, kurulup çalışabilir bir projeye dönüştür.
  * Var olan dosyalara ASLA dokunmaz; yalnızca eksik standart dosyaları ekler.
  */
-export function scaffoldProject(files: ProjectFileInput[], projectName: string): ProjectFileInput[] {
+export function scaffoldProject(
+  files: ProjectFileInput[],
+  projectName: string,
+  opts?: { tailwindVersion?: 'v3' | 'v4' | null; faithful?: boolean }
+): ProjectFileInput[] {
   const map = new Map(files.map((f) => [f.path, f]))
   const has = (p: string) => map.has(p)
   const slug = slugifyName(projectName)
@@ -146,6 +189,10 @@ export function scaffoldProject(files: ProjectFileInput[], projectName: string):
   const appEntry = has('src/App.tsx') ? 'src/App.tsx' : has('src/App.jsx') ? 'src/App.jsx' : has('App.tsx') ? 'App.tsx' : null
   const isStaticHtml = has('index.html') && !appEntry && !isNext
   const tailwind = usesTailwind(out)
+  // FAZ 9.2 — hangi Tailwind? v4 = config'siz + @tailwindcss/vite eklentili
+  const twVersion: 'v3' | 'v4' = tailwind ? detectTailwindVersion(out, opts?.tailwindVersion) : 'v3'
+  const tailwindV4 = tailwind && twVersion === 'v4'
+  const faithful = opts?.faithful === true
 
   // Türkçe kesme işareti onarımı (gerçek 14B testinde 4 kez yakalandı):
   // model 'İstanbul'un lezzetleri' gibi tek tırnaklı stringler yazıyor ve
@@ -274,9 +321,15 @@ export function cn(...inputs: ClassInput[]): string {
     '@types/react-dom': '^18.3.0'
   }
   if (tailwind) {
-    devDeps['tailwindcss'] = '^3.4.6'
-    devDeps['postcss'] = '^8.4.39'
-    devDeps['autoprefixer'] = '^10.4.19'
+    if (tailwindV4) {
+      // FAZ 9.2 — v4: PostCSS/autoprefixer/config YOK; Vite eklentisi var
+      devDeps['tailwindcss'] = '^4.1.0'
+      devDeps['@tailwindcss/vite'] = '^4.1.0'
+    } else {
+      devDeps['tailwindcss'] = '^3.4.6'
+      devDeps['postcss'] = '^8.4.39'
+      devDeps['autoprefixer'] = '^10.4.19'
+    }
   }
 
   // package.json (model YA DA [PKG] aksiyonu yazmis olabilir) KOSULSUZ
@@ -307,7 +360,20 @@ export function cn(...inputs: ClassInput[]): string {
       // 'latest') YETKİLİ setle KOMPLE değiştirilir: import edilmeyen uydurma
       // paketler (aspect-ratio, emotion…) budanır, kötü versiyonlar ezilir →
       // ETARGET yapısal olarak imkansız. ('latest' her zaman çözülür.)
-      pj.dependencies = { ...deps }
+      // FAZ 9.2 faithful mode: model kendi manifest'ini yazdıysa VE spec sabitse,
+      // sürümlerini EZME — import edilip eksik olanı ekle, çekirdek depleri
+      // (KNOWN_VERSIONS) güvenli-sürümle sabitle, modelin diğer deplerini AYNEN koru.
+      // Aksi halde (greenfield/creative) eski KOMPLE-değiştir yolu (ETARGET sertliği).
+      if (faithful) {
+        const merged: Record<string, string> = { ...((pj.dependencies as Record<string, string>) ?? {}) }
+        for (const k of detectBareImports(out)) {
+          if (!(k in merged)) merged[k] = KNOWN_VERSIONS[k] ?? 'latest'
+          else if (k in KNOWN_VERSIONS) merged[k] = KNOWN_VERSIONS[k]
+        }
+        pj.dependencies = merged
+      } else {
+        pj.dependencies = { ...deps }
+      }
       // Calistirma script'leri her zaman zorlanir; react-scripts referansli
       // artik script'ler atilir.
       const scripts: Record<string, string> = {}
@@ -366,25 +432,31 @@ export function cn(...inputs: ClassInput[]): string {
     // Tailwind dosyaları main.tsx'ten ÖNCE eklenmeli — aksi halde index.css
     // import'u üretilmez ve stiller dev/export'ta hiç yüklenmez.
     if (tailwind) {
-      add(
-        'tailwind.config.js',
-        `/** @type {import('tailwindcss').Config} */
+      if (tailwindV4) {
+        // FAZ 9.2 — Tailwind v4: config dosyası YOK, CSS-first tek satır.
+        // (Model kendi index.css'ini yazdıysa add() dokunmaz.)
+        add('src/index.css', '@import "tailwindcss";\n')
+      } else {
+        add(
+          'tailwind.config.js',
+          `/** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: { extend: {} },
   plugins: []
 }
 `
-      )
-      add('postcss.config.js', `export default { plugins: { tailwindcss: {}, autoprefixer: {} } }\n`)
-      add('src/index.css', '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n')
-      // 8.x SERTLEŞTİRME: model kendi tailwind.config'ini yazdıysa, az önce
-      // budadığımız eklentileri require() ediyor olabilir (plugins: [require(
-      // '@tailwindcss/aspect-ratio')]) — bu da build'i "cannot find module" ile
-      // kırardı. Herhangi bir tailwind.config'in plugins dizisini güvenli boşalt.
-      const twCfg = out.find((f) => /(^|\/)tailwind\.config\.(js|ts|cjs|mjs)$/.test(f.path))
-      if (twCfg && /plugins\s*:\s*\[[^\]]/.test(twCfg.content)) {
-        twCfg.content = twCfg.content.replace(/plugins\s*:\s*\[[\s\S]*?\]/, 'plugins: []')
+        )
+        add('postcss.config.js', `export default { plugins: { tailwindcss: {}, autoprefixer: {} } }\n`)
+        add('src/index.css', '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n')
+        // 8.x SERTLEŞTİRME: model kendi tailwind.config'ini yazdıysa, az önce
+        // budadığımız eklentileri require() ediyor olabilir (plugins: [require(
+        // '@tailwindcss/aspect-ratio')]) — bu da build'i "cannot find module" ile
+        // kırardı. Herhangi bir tailwind.config'in plugins dizisini güvenli boşalt.
+        const twCfg = out.find((f) => /(^|\/)tailwind\.config\.(js|ts|cjs|mjs)$/.test(f.path))
+        if (twCfg && /plugins\s*:\s*\[[^\]]/.test(twCfg.content)) {
+          twCfg.content = twCfg.content.replace(/plugins\s*:\s*\[[\s\S]*?\]/, 'plugins: []')
+        }
       }
     }
 
@@ -427,7 +499,18 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     )
     add(
       'vite.config.ts',
-      `import { defineConfig } from 'vite'
+      tailwindV4
+        ? `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import { resolve } from 'path'
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { '@': resolve(__dirname, 'src') } }
+})
+`
+        : `import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
@@ -437,6 +520,18 @@ export default defineConfig({
 })
 `
     )
+    // FAZ 9.2 — v4 ama model kendi vite.config'ini yazıp eklentiyi koymadıysa enjekte et
+    if (tailwindV4) {
+      const vc = out.find((f) => /(^|\/)vite\.config\.(ts|js|mjs)$/.test(f.path))
+      if (vc && !/@tailwindcss\/vite/.test(vc.content)) {
+        vc.content =
+          `import tailwindcss from '@tailwindcss/vite'\n` +
+          vc.content.replace(
+            /plugins:\s*\[([^\]]*)\]/,
+            (_m, inner) => `plugins: [${inner.trim().replace(/,\s*$/, '')}${inner.trim() ? ', ' : ''}tailwindcss()]`
+          )
+      }
+    }
     add(
       'tsconfig.json',
       JSON.stringify(
