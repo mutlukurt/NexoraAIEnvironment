@@ -297,9 +297,17 @@ export function cn(...inputs: ClassInput[]): string {
       }
       // Derleme araclari dependencies'e degil devDependencies'e aittir;
       // bizim bilinen-iyi surumlerimiz modelinkileri EZER.
-      for (const tool of Object.keys(devDeps)) delete pj.dependencies[tool]
       pj.devDependencies = { ...pj.devDependencies, ...devDeps }
-      for (const [k, v] of Object.entries(deps)) if (!pj.dependencies[k]) pj.dependencies[k] = v
+      // 8.x SERTLEŞTİRME (gerçek-app canlı test bulgusu): model uydurma bir CRA
+      // package.json'ı yazıp `@tailwindcss/aspect-ratio@^0.4.3` gibi VAR OLMAYAN
+      // bir versiyon ekledi → `npm install` ETARGET ile patladı → dev sunucu HİÇ
+      // kalkmadı. Eski mantık yalnızca EKSİK depi ekliyor, modelin uydurma/kötü-
+      // versiyon deplerini ne buduyor ne düzeltiyordu. Artık dependencies KODDA
+      // GERÇEKTEN import edilen + bilinen-güvenli versiyonlu (KNOWN_VERSIONS ??
+      // 'latest') YETKİLİ setle KOMPLE değiştirilir: import edilmeyen uydurma
+      // paketler (aspect-ratio, emotion…) budanır, kötü versiyonlar ezilir →
+      // ETARGET yapısal olarak imkansız. ('latest' her zaman çözülür.)
+      pj.dependencies = { ...deps }
       // Calistirma script'leri her zaman zorlanir; react-scripts referansli
       // artik script'ler atilir.
       const scripts: Record<string, string> = {}
@@ -370,6 +378,14 @@ export default {
       )
       add('postcss.config.js', `export default { plugins: { tailwindcss: {}, autoprefixer: {} } }\n`)
       add('src/index.css', '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n')
+      // 8.x SERTLEŞTİRME: model kendi tailwind.config'ini yazdıysa, az önce
+      // budadığımız eklentileri require() ediyor olabilir (plugins: [require(
+      // '@tailwindcss/aspect-ratio')]) — bu da build'i "cannot find module" ile
+      // kırardı. Herhangi bir tailwind.config'in plugins dizisini güvenli boşalt.
+      const twCfg = out.find((f) => /(^|\/)tailwind\.config\.(js|ts|cjs|mjs)$/.test(f.path))
+      if (twCfg && /plugins\s*:\s*\[[^\]]/.test(twCfg.content)) {
+        twCfg.content = twCfg.content.replace(/plugins\s*:\s*\[[\s\S]*?\]/, 'plugins: []')
+      }
     }
 
     // main.tsx projedeki TÜM css dosyalarını import eder (modelin styles.css

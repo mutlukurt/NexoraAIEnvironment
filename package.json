@@ -39,8 +39,9 @@
     "test:e2e": "node tests/e2e.mjs",
     "test:goal": "node tests/goal-check.mjs",
     "test:section": "node tests/section-plan.mjs",
+    "test:scaffold": "node tests/scaffold.mjs",
     "test:e2e-real": "node tests/e2e-real.mjs",
-    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:sourcemap && npm run test:tsdiag && npm run test:anchor && npm run test:reprosig && npm run test:learn && npm run test:tasklist && npm run test:artifacts && npm run test:review && npm run test:steer && npm run test:trust && npm run test:procrun && npm run test:queue && npm run test:knowledge && npm run test:e2e && npm run test:goal && npm run test:section && npm run test:ground",
+    "test:engine": "npm run test:corpus && npm run test:scan && npm run test:locate && npm run test:routing && npm run test:probe && npm run test:sourcemap && npm run test:tsdiag && npm run test:anchor && npm run test:reprosig && npm run test:learn && npm run test:tasklist && npm run test:artifacts && npm run test:review && npm run test:steer && npm run test:trust && npm run test:procrun && npm run test:queue && npm run test:knowledge && npm run test:e2e && npm run test:goal && npm run test:section && npm run test:scaffold && npm run test:ground",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"
