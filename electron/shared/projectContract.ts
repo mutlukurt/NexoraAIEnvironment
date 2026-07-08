@@ -18,6 +18,8 @@ export interface ContractSlot {
   /** Modelin AYNEN kopyalaması gereken metin (birebir kopya / URL / class dizisi). */
   text: string
   kind: 'copy' | 'url' | 'class'
+  /** class slot'ları için: spec'te bu class hangi element üzerindeydi (ör. 'nav'). */
+  tag?: string
 }
 
 export interface ProjectContract {
@@ -43,6 +45,8 @@ export interface ProjectContract {
 export const FIDELITY_THRESHOLD = 2
 
 const CLASS_RE = /class(?:Name)?\s*=\s*["'`]([^"'`\n]{3,})["'`]/g
+// class + üzerinde olduğu element etiketi (ör. <nav className="…"> → tag='nav').
+const TAG_CLASS_RE = /<([a-zA-Z][\w-]*)\b[^>]*?class(?:Name)?\s*=\s*["'`]([^"'`\n]{3,})["'`]/g
 const URL_RE = /\bhttps?:\/\/[^\s"'`)\]]+/g
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g
 // pkg@version  → ör. tailwindcss@^4.1.0, react@18.3.1, @tailwindcss/vite@^4
@@ -87,6 +91,13 @@ export function extractContract(prompt: string): ProjectContract {
   if (tailwindVersion === 'v4' && !pinnedDeps['tailwindcss']) pinnedDeps['tailwindcss'] = '^4'
 
   const classLiterals = uniq([...text.matchAll(CLASS_RE)].map((m) => m[1].trim()))
+  // class → element etiketi (deterministik enforcement için): spec `<nav
+  // className="…">` verdiyse, üretilen dosyadaki <nav>'ın class'ı garanti edilir.
+  const classTag: Record<string, string> = {}
+  for (const m of text.matchAll(TAG_CLASS_RE)) {
+    const cls = m[2].trim()
+    if (!classTag[cls]) classTag[cls] = m[1].toLowerCase()
+  }
   const imageUrls = uniq([...text.matchAll(URL_RE)].map((m) => m[0]))
   const colorTokens = uniq([...text.matchAll(HEX_RE)].map((m) => m[0]))
   const fileArchitecture = uniq([...text.matchAll(FILE_RE)].map((m) => m[1]))
@@ -103,7 +114,7 @@ export function extractContract(prompt: string): ProjectContract {
   let n = 0
   for (const s of copyStrings) slots.push({ id: `S${n++}`, text: s, kind: 'copy' })
   for (const s of imageUrls) slots.push({ id: `S${n++}`, text: s, kind: 'url' })
-  for (const s of classLiterals) slots.push({ id: `S${n++}`, text: s, kind: 'class' })
+  for (const s of classLiterals) slots.push({ id: `S${n++}`, text: s, kind: 'class', tag: classTag[s] })
 
   // Sertlik sinyalleri (roadmap): varsayılan-dışı stack, birebir class, dış
   // görsel, sabit sürüm, ≥3 adlandırılmış dosya, ≥2 renk token'ı.
@@ -171,6 +182,39 @@ export function rehydrate(text: string, slotMap: Record<string, string>): string
   let out = text ?? ''
   for (const [token, literal] of Object.entries(slotMap)) {
     out = out.split(token).join(literal)
+  }
+  return out
+}
+
+export interface EnforceFile {
+  path: string
+  content: string
+}
+
+/**
+ * FAZ 9.3 — Deterministik className enforcement. Canlı bug: 3B en dış element'e
+ * (ör. `<nav>`) kendi layout class'ını yazma önyargısıyla, verilen __SLOT__
+ * token'ını yok sayıp kendi class'ını uyduruyor (logo gibi iç element'lerde ise
+ * token'ı koruyor → 9/10). Çözüm zayıf modele daha çok yalvarmak DEĞİL: spec
+ * `<nav className="X">` verdiyse, üretilen dosyadaki İLK `<nav>`'ın className'i
+ * BİREBİR X yapılır. Yalnız EKSİK (hiçbir dosyada bulunmayan) class slot'ları
+ * için çalışır → modelin doğru koyduğu class'lara dokunmaz.
+ */
+export function enforceClassSlots(files: EnforceFile[], contract: ProjectContract): EnforceFile[] {
+  const out = files.map((f) => ({ ...f }))
+  const present = (t: string): boolean => out.some((f) => f.content.includes(t))
+  for (const s of contract.slots) {
+    if (s.kind !== 'class' || !s.tag || !s.text) continue
+    if (present(s.text)) continue // model zaten doğru koymuş
+    // İlk `<tag … className="…">` (çift tırnak — JSX'te model bunu üretir).
+    const re = new RegExp(`(<${s.tag}\\b[^>]*?\\bclass(?:Name)?\\s*=\\s*")([^"]*)(")`, 'i')
+    for (const f of out) {
+      if (!/\.(tsx|jsx|ts|html)$/i.test(f.path)) continue
+      if (re.test(f.content)) {
+        f.content = f.content.replace(re, (_m, p1: string, _old: string, p3: string) => p1 + s.text + p3)
+        break
+      }
+    }
   }
   return out
 }

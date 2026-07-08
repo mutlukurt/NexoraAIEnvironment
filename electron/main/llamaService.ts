@@ -251,6 +251,12 @@ ${UPDATE_MODE_RULES}
   //  - UPDATE turu: cerrahi düzenleme; SEARCH ≤12 satır, hedef yol yalnızca
   //    gerçekten var olan dosyalar.
   const options: PromptOptions = { ...(input.options ?? {}) }
+  // FAZ 9.3 — fidelity bileşen turu: motor geçmişini yalıt. Aksi hâlde model KV
+  // geçmişindeki önceki dosyayı (Navbar) sonraki bileşene klonluyor (Hero=Navbar
+  // kopyası canlı bug). Her bileşen dilimlenmiş brief'inden bağımsız üretilir.
+  if (input.fidelity && input.expectFile) {
+    options.isolate = true
+  }
   if (input.expectFile) {
     options.grammar = buildFileGrammar(input.expectFile)
   } else if (input.expectPlan) {

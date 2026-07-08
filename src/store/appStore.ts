@@ -27,7 +27,7 @@ import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
-import { extractContract, tokenizeForFidelity, rehydrate, type ProjectContract } from '@shared/projectContract'
+import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
 import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
 
 const AUTO_APPLY_KEY = 'nexora.autoApply'
@@ -233,6 +233,11 @@ let lastVisibleUserPrompt = ''
 let fidelityActive = false
 let fidelityContract: ProjectContract | null = null
 let fidelitySlotMap: Record<string, string> = {}
+// FAZ 9.3 — fidelity dosya turunda model bazen HEDEF-DIŞI code block (ör.
+// index.css'i v3'e döndürüp v4'ü ezen) yazar. Bu kilit set'liyken
+// applyStreamingContent yalnız bu yolu diske geçirir — model'in ekstra
+// dosyaları sessizce yutulur (canlı bug: v4 index.css ezildi).
+let restrictWriteToPath: string | null = null
 // FAZ 9.4 — son fidelity build'in deterministik sadakat sonucu (9.5 escalation
 // bunu somut sinyal olarak okur; kör retry yerine skor-kapılı tırmanış).
 let lastFidelityResult: SpecVerifyResult | null = null
@@ -1550,6 +1555,76 @@ function parsePlanFiles(planText: string): Array<{ path: string; desc: string }>
 }
 
 /**
+ * FAZ 9.3 — Fidelity planı SÖZLEŞMEDEN üretilir, generic sectionPlan'dan DEĞİL.
+ * Canlı bug: Gemini portfolyo spec'i (Navbar/Hero/Projeler/Footer) verilince
+ * deriveSectionPlan restoran şablonuna düştü (Hizmetler/İletişim uydurdu) —
+ * spec'in adlandırdığı dosyalar yok sayıldı. Fidelity modunda plan = spec'in
+ * fileArchitecture'ı: çıplak `X.tsx` → src/components/X.tsx, App.tsx/index.css
+ * deterministik (otomatik) yazılır, bileşenler spec sırasında.
+ */
+/**
+ * FAZ 9.3 — JSX-güvenli rehydrate. Canlı bug: 3B birebir metni JSX-ifadesi gibi
+ * tek süslü parantezle sarıyor (<p>{__SLOT_S3__}</p>) → rehydrate sonrası
+ * <p>{Ultra minimalist…}</p> GEÇERSİZ sözdizimi (bare-word expression) → build
+ * kırılır. Child/arg pozisyonundaki {__SLOT__} parantezini soy (attribute'taki
+ * ={__SLOT__} DOKUNULMAZ), sonra literalleri yerleştir.
+ */
+function rehydrateJsxSafe(content: string, slotMap: Record<string, string>): string {
+  const unwrapped = content.replace(/(^|[>\s(,])\{(__SLOT_[A-Za-z0-9]+__)\}/gm, '$1$2')
+  return rehydrate(unwrapped, slotMap)
+}
+
+function buildFidelityPlanText(contract: ProjectContract): string {
+  const base = (p: string): string => p.split('/').pop() ?? p
+  const comps: string[] = []
+  const seen = new Set<string>()
+  for (const raw of contract.fileArchitecture) {
+    const b = base(raw)
+    if (/^App\.(tsx|jsx|ts)$/i.test(b)) continue // App.tsx aşağıda ayrı (otomatik)
+    if (/\.css$/i.test(b)) continue // index.css aşağıda ayrı (otomatik)
+    let p = raw.replace(/^\.\//, '')
+    if (!p.includes('/')) p = 'src/components/' + p // çıplak ad → components
+    if (!/\.(tsx|jsx|ts)$/i.test(p)) continue
+    if (seen.has(p)) continue
+    seen.add(p)
+    comps.push(p)
+  }
+  if (comps.length < 2) return '' // yeterince bileşen yok → generic plana bırak
+  const lines: string[] = []
+  let n = 1
+  lines.push(`${n++}. src/index.css — Tailwind taban stilleri (otomatik)`)
+  for (const p of comps) lines.push(`${n++}. ${p} — spec bileşeni (birebir class/metin/URL)`)
+  lines.push(`${n++}. src/App.tsx — bölümlerin kompozisyonu (otomatik)`)
+  return lines.join('\n')
+}
+
+/**
+ * FAZ 9.3 — Bileşen-başına brief dilimi. Canlı bug: 3B'ye TÜM brief verilince
+ * (Navbar+Hero+Projeler+Footer) model boğulup ilk gördüğü bölümü (Navbar) HER
+ * dosyaya klonluyor → Hero aslında Navbar kopyası oluyor, slotlar düşüyor. Spec
+ * `[Hero.tsx]` gibi başlıklarla bölümlü ise, o dosyanın turuna GLOBAL önsöz +
+ * YALNIZ kendi bölümü verilir → model başka bölümü kopyalayamaz.
+ */
+function sliceBriefForFile(request: string, path: string): string {
+  const base = (path.split('/').pop() ?? path).replace(/\.(tsx|jsx|ts)$/i, '')
+  const lines = request.split('\n')
+  // Bölüm başlığı: [Navbar.tsx] / [Hero] gibi tek-satır köşeli başlık.
+  const headRe = /^\s*\[([A-Za-z0-9]+)(?:\.(?:tsx|jsx|ts))?\]\s*$/
+  const marks: Array<{ name: string; start: number }> = []
+  lines.forEach((l, i) => {
+    const m = l.match(headRe)
+    if (m) marks.push({ name: m[1].toLowerCase(), start: i })
+  })
+  if (marks.length < 2) return request // bölümlü değil → tam brief
+  const preamble = lines.slice(0, marks[0].start).join('\n').trim()
+  const idx = marks.findIndex((mk) => mk.name === base.toLowerCase())
+  if (idx < 0) return request // bu dosya için bölüm yok → tam brief (App vb.)
+  const end = idx + 1 < marks.length ? marks[idx + 1].start : lines.length
+  const section = lines.slice(marks[idx].start, end).join('\n').trim()
+  return (preamble ? preamble + '\n\n' : '') + section
+}
+
+/**
  * Planlı üretimde tek dosyanın turu için prompt. Kısa ve dar kapsamlı:
  * brief + plan manifesti + (varsa) temel sözleşme dosyalarının tam içeriği.
  * Önceki dosyaların tamamı motorun sohbet geçmişinde zaten durur; sözleşme
@@ -1576,7 +1651,21 @@ function buildPlannedFilePrompt(
   // Açık şablon etiketi ([şablon: id]) tahmini eşleşmeden ÖNCE gelir —
   // deterministik plan hangi şablonu istediğini kendisi söyler.
   const tagged = f.desc.match(/\[şablon:\s*(\w+)\]/i)?.[1]
-  const tpl = (tagged ? SECTION_TEMPLATES.find((t) => t.id === tagged) : null) ?? findSectionTemplate(f.path, f.desc)
+  // FAZ 9.3 — fidelity modunda ŞABLON YOK: generic iskelet spec'in birebir
+  // class/metin'ini ezerdi ("MUST be this exact skeleton"). Spec'in KENDİSİ
+  // iskelettir; model yalnız __SLOT_N__ token'larını aynen yerleştirir.
+  const tpl = fidelityActive ? null : ((tagged ? SECTION_TEMPLATES.find((t) => t.id === tagged) : null) ?? findSectionTemplate(f.path, f.desc))
+  const fidelityBlock = fidelityActive
+    ? `
+=== FIDELITY (birebir) ===
+This build must follow the brief to the LETTER. The brief above contains __SLOT_N__ tokens standing for exact copy / URLs / className strings.
+- Reproduce every __SLOT_N__ token EXACTLY as written (same underscores, same digits). NEVER paraphrase, translate, or "improve" a slot. NEVER invent a className not given by a slot.
+- Build ONLY the components named in the file plan. Do NOT add extra sections (no services, no contact, no pricing) unless the brief names them.
+- Reproduce ONLY the items the brief lists. If it gives "Project 1" only, output EXACTLY one project — do NOT invent Project 2, Project 3, etc. Keep the file SHORT and focused; stop when the brief's content is done.
+- Put slot text for visible copy as plain JSX text (e.g. <p>__SLOT_N__</p>) or a quoted attribute (className="__SLOT_N__") — NEVER wrap a slot in single braces like {__SLOT_N__}.
+- Match the exact structure and element types the brief specifies for THIS file.
+`
+    : ''
   const templateBlock = tpl
     ? `
 A PROVEN premium skeleton for this section type ("${tpl.id}") is below. Your file MUST be this exact skeleton — same structure, same classes — with ONLY the {{MARKER}} contents (and array item counts) changed. Do NOT restructure, do NOT add other sections:
@@ -1588,20 +1677,25 @@ A PROVEN premium skeleton for this section type ("${tpl.id}") is below. Your fil
 ${tpl.code}--- END SKELETON ---
 `
     : ''
+  // FAZ 9.3 — fidelity: yalnız bu dosyanın brief bölümü (model başka bölümü
+  // klonlayamaz). Bölümsüz spec'te tam brief döner (davranış değişmez).
+  const brief = fidelityActive ? sliceBriefForFile(request, f.path) : request
   return `=== PLANNED BUILD — FILE ${idx + 1}/${files.length} ===
-Project brief: ${request}
+Project brief: ${brief}
 
 File plan:
 ${manifest}
-${contracts}${templateBlock}
+${contracts}${templateBlock}${fidelityBlock}
 Write ONLY the COMPLETE content of: ${f.path}${f.desc ? ' — ' + f.desc : ''}
 
 Rules:
-- Output EXACTLY ONE fenced code block for ${f.path}. Nothing before or after it.
+- Output EXACTLY ONE fenced code block for ${f.path} — and NOTHING for any other file (do NOT write index.css, App.tsx, or other files; they are handled separately).
 - The file must be COMPLETE — never truncate.
 - Allowed imports: react, lucide-react, and ONLY the planned project files above (relative paths). Nothing else.
 - Everything you reference must be imported from a planned file or defined in this file.
-- Modern, premium Tailwind design; visible text in the user's language.`
+${fidelityActive
+      ? '- Use the EXACT className strings, text and URLs the brief gives (as __SLOT_N__ tokens). Do NOT invent your own Tailwind classes where a token is given. Reproduce every token character-for-character.'
+      : '- Modern, premium Tailwind design; visible text in the user\'s language.'}`
 }
 
 /**
@@ -1682,6 +1776,9 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
   for (const f of files) {
     // Direktif örneklerinin kopyalandığı sahte "dosyalar" hiç yazılmaz.
     if (isDirectiveOnlyContent(f.code)) continue
+    // FAZ 9.3 — fidelity dosya turu: yalnız hedef dosya kabul edilir; model'in
+    // yan-ürün blokları (App.tsx/index.css'i ezmek) yutulur.
+    if (restrictWriteToPath && f.path !== restrictWriteToPath) continue
     if (!f.path.includes('/') && batchPaths.has('src/' + f.path)) continue
     // İterasyonda mevcut dosyanın tam-yazımı: ARAŞTIRMA (Aider/endüstri, 2026)
     // — küçük modeller SEARCH/REPLACE'i güvenilir ÜRETEMEZ (whitespace/içeriği
@@ -1892,7 +1989,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         for (const p of touchedPaths) {
           const f = store.files[p]
           if (f && f.content.includes('__SLOT_')) {
-            store.updateFile(p, rehydrate(f.content, fidelitySlotMap))
+            store.updateFile(p, rehydrateJsxSafe(f.content, fidelitySlotMap))
           }
         }
       }
@@ -1904,7 +2001,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const wf = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
         const fr = specVerify(fidelityContract, wf)
         lastFidelityResult = fr
-        if (fr.filesOk) {
+        // Planlı build sırasında NİHAİ hüküm applyPlan'da (enforcement + son
+        // rehydrate sonrası) verilir; per-tur mesaj/escalation susturulur.
+        if (fr.filesOk && !plannedBuildActive) {
           const twv = fidelityContract.tailwindVersion ?? '—'
           set((s) => ({
             messages: [
@@ -3124,7 +3223,11 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       if (/App\.tsx$/.test(af.path) && componentSections.length > 0) {
         useArtifactsStore.getState().upsertFile(af.path, composeAppTsx(componentSections), 'typescript')
       } else if (/index\.css$/.test(af.path)) {
-        useArtifactsStore.getState().upsertFile(af.path, BASE_INDEX_CSS, 'css')
+        // FAZ 9.3 — fidelity v4 spec'i ise CSS-first giriş yaz (@import
+        // "tailwindcss"); scaffold bunu görüp v4 araç zincirini kurar, aksi
+        // halde v3 BASE_INDEX_CSS. SpecVerifier de bu CSS'ten sürümü okur.
+        const wantV4 = fidelityActive && fidelityContract?.tailwindVersion === 'v4'
+        useArtifactsStore.getState().upsertFile(af.path, wantV4 ? '@import "tailwindcss";\n' : BASE_INDEX_CSS, 'css')
       }
     }
 
@@ -3168,7 +3271,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
         const stepIdx = stepIndexByPath.get(f.path) ?? -1
         taskCardStep(cardId, stepIdx, { status: 'running' })
         const filePrompt = buildPlannedFilePrompt(p.request, genFiles, i)
-        await get().sendMessage(filePrompt, { expectFile: f.path, creative: /\[şablon:/.test(f.desc) || !!findSectionTemplate(f.path, f.desc) })
+        await get().sendMessage(filePrompt, { expectFile: f.path, creative: !fidelityActive && (/\[şablon:/.test(f.desc) || !!findSectionTemplate(f.path, f.desc)) })
         // Dosya-bazlı retry: tur bu dosyayı üretmediyse bir kez daha dene.
         // Dosya uretilmediyse YA DA sablon isaretleyicileri ({{...}}) dolmadan
         // kaldiysa bir kez daha dene — kucuk model bosluklari doldurmali.
@@ -3222,6 +3325,65 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       ]
     }))
     scheduleSessionSave()
+    // FAZ 9.3 — SON rehydrate süpürmesi: dizin bitince HİÇBİR dosyada ham
+    // __SLOT__ token'ı kalmasın (per-tur rehydrate bir turu kaçırmışsa ya da bir
+    // fix turu token'ı yeniden getirmişse sigorta). postGenVerify/scaffold gerçek
+    // baytları görsün — token'lı derleme/doğrulama olmaz.
+    if (Object.keys(fidelitySlotMap).length > 0) {
+      const store = useArtifactsStore.getState()
+      for (const [path, f] of Object.entries(store.files)) {
+        if (f.content.includes('__SLOT_')) store.updateFile(path, rehydrateJsxSafe(f.content, fidelitySlotMap))
+      }
+    }
+    // FAZ 9.3 — className enforcement: model bir class slot'unu (özellikle en dış
+    // element'in) yok saydıysa, spec'in tag'iyle üretilen dosyaya BİREBİR enjekte
+    // et → sadakat modele değil deterministik pas'a bağlı (9/10 → 10/10).
+    if (fidelityActive && fidelityContract) {
+      const store = useArtifactsStore.getState()
+      const wf = Object.values(store.files).map((f) => ({ path: f.path, content: f.content }))
+      const enforced = enforceClassSlots(wf, fidelityContract)
+      for (const ef of enforced) {
+        const cur = store.files[ef.path]
+        if (cur && cur.content !== ef.content) store.updateFile(ef.path, ef.content)
+      }
+      // FAZ 9.4/9.5 — NİHAİ sadakat hükmü (rehydrate + enforcement sonrası). Per-tur
+      // denetim susturuldu; kesin skor + eksikler + (gerekirse) escalation burada.
+      const finalFiles = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
+      const fr = specVerify(fidelityContract, finalFiles)
+      lastFidelityResult = fr
+      if (fr.filesOk) {
+        const twv = fidelityContract.tailwindVersion ?? '—'
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: fr.ok
+                ? `✅ Sadakat: ${fr.found}/${fr.total} birebir · Tailwind ${twv} · adlandırılmış dosyalar tam`
+                : `⚠ Sadakat ${fr.found}/${fr.total} birebir${fr.tailwindOk ? '' : ` · Tailwind ${twv} istendi ama kurulmadı`}${fr.missing.length ? ' — eksik: ' + fr.missing.slice(0, 3).join(' · ') : ''}`
+            }
+          ]
+        }))
+        if (!fr.ok && !fidelityRetried) {
+          const st = useSettingsStore.getState()
+          const apiReady = st.apiMode !== 'off' && !!st.apiModel && !!st.apiBaseUrl
+          if (apiReady) {
+            fidelityRetried = true
+            const retryPrompt = lastVisibleUserPrompt
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                { id: nanoid(), role: 'assistant', content: `↑ Sadakat eksik — güçlü modele (${st.apiModel}) tırmandırılıyor…` }
+              ]
+            }))
+            setTimeout(() => {
+              if (retryPrompt) void get().sendMessage(retryPrompt, { escalate: true })
+            }, 400)
+          }
+        }
+      }
+    }
     // Roadmap 2.3: dosya basina degil, dizinin SONUNDA bir dogrulama gecisi —
     // dosyalar arasi tutarsizliklar da (eksik import vb.) burada yakalanir.
     if (!plannedBuildAbort && built > 0) {
@@ -3240,7 +3402,12 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
           detail: st.detail
         }))
       }
-      void postGenVerify(get, set)
+      // FAZ 9.3 — fidelity build'de postGenVerify'nin SEZGİSEL onarımı ATLANIR:
+      // spec-exact üretim (dilimlenmiş+isolate+enforcement) zaten SpecVerifier'dan
+      // 10/10 geçti. postGenVerify fidelity-farkında değil — canlı bug: v4
+      // index.css'i v3'e döndürdü, framer-motion ekledi, bir bileşeni yeniden
+      // üretip slotları düşürdü. Gerçek sözleşme SpecVerifier'dır; onu korur.
+      if (!fidelityActive) void postGenVerify(get, set)
     }
   },
 
@@ -3481,6 +3648,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !fixFlow &&
       !opts?.expectFile &&
       allFiles.length === 0 &&
+      // FAZ 9.3 — fidelity build brief GENİŞLETİLMEZ: precise spec'i yaratıcı
+      // yeniden yazmak (birebir metni parafraz etmek) sadakati bozar.
+      !fidelityBuild &&
       buildReq
     enhanceBypassNext = false
     // Plan modu (v0.14.3): "Önce Plan" açıkken plan turu YALNIZCA YENİ/BOŞ
@@ -3596,6 +3766,25 @@ ${buildErr}
     const answerLang = get().language === 'tr' ? 'TURKISH (yanıtı TÜRKÇE yaz)' : 'English'
 
     if (isPlanTurn) {
+      // FAZ 9.3 — fidelity build'de plan SÖZLEŞMEDEN gelir: spec'in adlandırdığı
+      // dosyalar (Navbar/Hero/Projeler/Footer) aynen planlanır. Generic
+      // deriveSectionPlan bu spec'i restoran şablonuna düşürüyordu (canlı bug).
+      if (fidelityActive && fidelityContract) {
+        const ftxt = buildFidelityPlanText(fidelityContract)
+        if (ftxt) {
+          lastPlanRequest = trimmed
+          set((st) => ({
+            sending: false,
+            generating: false,
+            planPending: { planText: ftxt, request: trimmed },
+            messages: st.messages.map((m) =>
+              m.streaming ? { ...m, content: ftxt, streaming: false } : m
+            )
+          }))
+          scheduleSessionSave()
+          return
+        }
+      }
       // Deterministik plan (canli-test dersi): web isteklerinde bolum seti
       // istekten anahtar kelimeyle cikarilir — model bolum uyduramaz
       // ("Teknoloji" sayfasi vakasi). Model plani yalnizca yedektir.
@@ -3788,6 +3977,14 @@ ${ki}
     if (opts?.expectFile) {
       sampling.maxTokens = 4096
       if (opts.creative) sampling.temperature = 0.55
+      // FAZ 9.3 — fidelity turu: düşük sıcaklık, model birebir token'ları
+      // "yaratıcı" yeniden yazmasın (kendi class'ını uydurma eğilimi düşer).
+      // maxTokens da kısılır: bileşen spec-exact ve KISA; 12KB runaway (model
+      // Project 2/3 uyduruyordu) bu tavanla kesilir (canlı bug).
+      if (fidelityActive) {
+        sampling.temperature = 0.1
+        sampling.maxTokens = 2048
+      }
     }
 
     // FAZ 9.3 — Fidelity turu: outgoing prompt'taki slot literallerini __SLOT__
@@ -3798,6 +3995,9 @@ ${ki}
       outgoing = t.prompt
       fidelitySlotMap = { ...fidelitySlotMap, ...t.slotMap }
     }
+    // FAZ 9.3 — fidelity dosya turunda yazımı yalnız hedefe kilitle (model'in
+    // index.css/App.tsx'i ezen yan blokları yutulur). finally'de çözülür.
+    if (fidelityActive && opts?.expectFile) restrictWriteToPath = opts.expectFile
 
     lastOutgoingPrompt = outgoing
     try {
@@ -3834,6 +4034,10 @@ ${ki}
         )
       }))
       scheduleSessionSave()
+    } finally {
+      // Fidelity yazım kilidi bu turla sınırlıdır — sonraki tur (auto App.tsx
+      // vb.) serbest yazabilsin.
+      restrictWriteToPath = null
     }
   },
 

@@ -57,6 +57,13 @@ export interface PromptOptions {
    * yeniden gönderiminde 3B'yi kod yerine brief'i tekrarlamaya itiyordu.
    */
   ephemeral?: boolean
+  /**
+   * FAZ 9.3 — Tur, motor geçmişini NE OKUR NE YAZAR (tam yalıtım). Fidelity
+   * planlı üretimde her bileşen turu için: aksi hâlde model KV geçmişindeki
+   * önceki dosyayı (ör. Navbar) sonraki bileşene KLONLUYOR (canlı bug: Hero =
+   * Navbar kopyası). Her bileşen kendi dilimlenmiş brief'inden bağımsız üretilir.
+   */
+  isolate?: boolean
 }
 
 export interface InferenceEngine {

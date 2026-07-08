@@ -18,9 +18,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-contract-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { extractContract, tailwindVersionFromText, tokenizeForFidelity, rehydrate } from '${join(repo, 'electron/shared/projectContract.ts')}'\n`)
+writeFileSync(entry, `export { extractContract, tailwindVersionFromText, tokenizeForFidelity, rehydrate, enforceClassSlots } from '${join(repo, 'electron/shared/projectContract.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { extractContract, tailwindVersionFromText, tokenizeForFidelity, rehydrate } = await import(pathToFileURL(outfile).href)
+const { extractContract, tailwindVersionFromText, tokenizeForFidelity, rehydrate, enforceClassSlots } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -89,6 +89,32 @@ check('rehydrate: URL geri geldi', back.includes('photo-1600585154340'), 'url ge
 const modelOut = `<h1>__SLOT_${g.slots.find((x) => x.kind === 'copy')?.id}__</h1>`
 const hydrated = rehydrate(modelOut, tok.slotMap)
 check('rehydrate: model çıktısındaki token → birebir kopya', !/__SLOT_/.test(hydrated) && /NexoraAI Portfolio|Yeni nesil|Kusursuz/.test(hydrated), hydrated.slice(0, 60))
+
+// 5) FAZ 9.3 — className enforcement (canlı bug: 3B en dış <nav>'a kendi class'ını yazıyor)
+const NAV_SPEC = `Portfolio (Tailwind CSS v4).
+[Navbar.tsx]
+- <nav className="fixed top-0 left-0 w-full z-50 bg-black/80 backdrop-blur-md border-b border-white/5 px-6 py-4 flex justify-between items-center">
+- Logo: <div className="text-xl font-bold tracking-tighter text-white">NexoraAI</div>
+[Hero.tsx]
+- <img className="w-full h-[60vh] object-cover grayscale contrast-125" src="https://images.unsplash.com/photo-x" />`
+const nc = extractContract(NAV_SPEC)
+const navSlot = nc.slots.find((s) => s.kind === 'class' && /^fixed top-0/.test(s.text))
+check('contract: nav class slot etiketi (tag) yakalandı', navSlot && navSlot.tag === 'nav', navSlot ? String(navSlot.tag) : 'slot yok')
+const imgSlot = nc.slots.find((s) => s.kind === 'class' && /object-cover/.test(s.text))
+check('contract: img class slot etiketi img', imgSlot && imgSlot.tag === 'img', imgSlot ? String(imgSlot.tag) : 'slot yok')
+// Model <nav>'a KENDİ class'ını yazdı (spec class'ı EKSİK) → enforcement düzeltir
+const modelFiles = [
+  { path: 'src/components/Navbar.tsx', content: `export default function Navbar(){ return (<nav className="bg-black text-white p-4 flex justify-between items-center"><div className="text-xl font-bold tracking-tighter text-white">NexoraAI</div></nav>) }` }
+]
+const enforced = enforceClassSlots(modelFiles, nc)
+const navOut = enforced.find((f) => f.path.endsWith('Navbar.tsx')).content
+check('enforce: eksik <nav> class birebir enjekte edildi', navOut.includes('fixed top-0 left-0 w-full z-50 bg-black/80'), navOut.slice(0, 90))
+check('enforce: modelin doğru koyduğu logo class korundu (dokunulmadı)', navOut.includes('text-xl font-bold tracking-tighter text-white'), 'logo class kayboldu')
+check('enforce: modelin kendi nav class\'ı gitti', !navOut.includes('bg-black text-white p-4 flex justify-between'), 'eski class hâlâ var')
+// Model ZATEN doğru koymuşsa enforcement DOKUNMAZ (idempotent)
+const already = [{ path: 'a.tsx', content: `<nav className="fixed top-0 left-0 w-full z-50 bg-black/80 backdrop-blur-md border-b border-white/5 px-6 py-4 flex justify-between items-center">x</nav>` }]
+const same = enforceClassSlots(already, nc)
+check('enforce: doğru class varsa değişmez (idempotent)', same[0].content === already[0].content, 'içerik değişti')
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\n${pass}/${pass + fail} geçti`)

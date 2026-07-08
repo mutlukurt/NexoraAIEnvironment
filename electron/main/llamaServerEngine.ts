@@ -633,7 +633,10 @@ export const serverEngine: InferenceEngine = {
     // Yalnızca BU isteğin sistemi değişir; oturum geçmişi ve kod turlarının
     // prompt cache öneki aynı kalır.
     const sysForTurn = options?.purpose ? chatSystemPrompt(options.answerLang, options.purpose) : systemPrompt
-    const messages: ChatMsg[] = [{ role: 'system', content: sysForTurn }, ...history, { role: 'user', content: promptText }]
+    // FAZ 9.3 — isolate: geçmişi HİÇ gönderme (fidelity bileşen turu bağımsız).
+    const messages: ChatMsg[] = options?.isolate
+      ? [{ role: 'system', content: sysForTurn }, { role: 'user', content: promptText }]
+      : [{ role: 'system', content: sysForTurn }, ...history, { role: 'user', content: promptText }]
     // abortCtl EN BAŞTA yaratıldı (yukarı bkz.) — burada YENİDEN yaratmıyoruz:
     // aksi hâlde sıkıştırma sırasında basılan Durdur kaybolurdu.
     try {
@@ -677,7 +680,7 @@ export const serverEngine: InferenceEngine = {
       // Kısmi çıktı da geçmişe girer: tokenlar üretildi ve kullanıcı gördü.
       // ephemeral turlar (enhance) HARİÇ: meta talimatları geçmişe yazmak,
       // sonraki turu zehirliyor (brief-tekrarı vakası) ve bağlamı şişiriyor.
-      if (!options?.ephemeral) {
+      if (!options?.ephemeral && !options?.isolate) {
         history.push({ role: 'user', content: promptText })
         history.push({ role: 'assistant', content: r.text })
         if (r.usage?.total_tokens) ctxUsed = r.usage.total_tokens

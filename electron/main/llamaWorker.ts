@@ -44,7 +44,7 @@ interface PromptRequest {
   id: number
   cmd: 'prompt'
   text: string
-  options?: { temperature?: number; topP?: number; maxTokens?: number }
+  options?: { temperature?: number; topP?: number; maxTokens?: number; isolate?: boolean }
 }
 
 interface SimpleRequest {
@@ -426,20 +426,45 @@ async function handlePrompt(req: PromptRequest): Promise<void> {
   // CJK dilli kullanıcı kendi dilinde cevap alabilmeli. Diğer tüm dillerde
   // yasak aktif kalır ve Qwen'in Çinceye sürüklenmesini engeller.
   const userWritesCjk = CJK_RE.test(promptText)
-  const full = await session!.prompt(promptText, {
-    onTextChunk: (chunk: string) => send({ event: 'token', token: chunk }),
-    tokenBias: userWritesCjk ? undefined : (cjkBias ?? undefined),
-    temperature: req.options?.temperature ?? 0.2,
-    topP: req.options?.topP ?? 0.9,
-    repeatPenalty: {
-      penalty: 1.15,
-      lastTokens: 128,
-      frequencyPenalty: 0.05
-    },
-    maxTokens: req.options?.maxTokens,
-    signal: abortController.signal
-  })
-  send({ id: req.id, ok: true, full })
+  // FAZ 9.3 — isolate: geçmişi anlık kaydet, boşalt, tur bitince geri yükle →
+  // fidelity bileşen turu ne önceki dosyayı görür ne de sonrakini zehirler.
+  const isoSession = session as unknown as {
+    getChatHistory?: () => unknown[]
+    setChatHistory?: (h: unknown[]) => void
+  }
+  let isoSnapshot: unknown[] | null = null
+  if (req.options?.isolate && isoSession.getChatHistory && isoSession.setChatHistory) {
+    try {
+      isoSnapshot = isoSession.getChatHistory()
+      isoSession.setChatHistory([])
+    } catch {
+      isoSnapshot = null
+    }
+  }
+  try {
+    const full = await session!.prompt(promptText, {
+      onTextChunk: (chunk: string) => send({ event: 'token', token: chunk }),
+      tokenBias: userWritesCjk ? undefined : (cjkBias ?? undefined),
+      temperature: req.options?.temperature ?? 0.2,
+      topP: req.options?.topP ?? 0.9,
+      repeatPenalty: {
+        penalty: 1.15,
+        lastTokens: 128,
+        frequencyPenalty: 0.05
+      },
+      maxTokens: req.options?.maxTokens,
+      signal: abortController.signal
+    })
+    send({ id: req.id, ok: true, full })
+  } finally {
+    if (isoSnapshot && isoSession.setChatHistory) {
+      try {
+        isoSession.setChatHistory(isoSnapshot)
+      } catch {
+        /* geri yükleme başarısızsa bir sonraki tur zaten dosyaları taşır */
+      }
+    }
+  }
 }
 
 async function handleReset(req: ResetRequest): Promise<void> {
