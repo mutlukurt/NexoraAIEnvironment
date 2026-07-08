@@ -513,6 +513,38 @@ export function applySearchReplace(original: string, block: string): EditApplyRe
       }
     }
 
+    // 6. kademe (Aider replace_closest_edit_distance ruhu — ARAŞTIRMA 2026):
+    // çok-satırlı SEARCH hiçbir kademede tutmadıysa, dosyada satır-benzerliği
+    // EN YÜKSEK pencereyi bul; yeterince benzer VE tek belirgin adaysa oraya
+    // uygula. Zayıf modeller 1-2 satırı paraphrase eder ama pencere tanınabilir
+    // kalır ("0 blok eşleşmedi"in en büyük sebebi buydu). Güvenlik: yüksek eşik
+    // (≥0.82 ort. Dice) + ikinciye net üstünlük; yanlış yere yazmayı önler.
+    if (sTrim.length >= 2) {
+      const oLines3 = content.split('\n')
+      let bestI = -1
+      let bestScore = 0
+      let secondScore = 0
+      for (let i = 0; i + sTrim.length <= oLines3.length; i++) {
+        let sum = 0
+        for (let j = 0; j < sTrim.length; j++) sum += diceSimilarity(oLines3[i + j].trim(), sTrim[j])
+        const avg = sum / sTrim.length
+        if (avg > bestScore) {
+          secondScore = bestScore
+          bestScore = avg
+          bestI = i
+        } else if (avg > secondScore) {
+          secondScore = avg
+        }
+      }
+      if (bestI >= 0 && bestScore >= 0.82 && bestScore - secondScore >= 0.05) {
+        const rLines = seg.replace.split('\n')
+        oLines3.splice(bestI, sTrim.length, ...rLines)
+        content = oLines3.join('\n')
+        applied++
+        continue
+      }
+    }
+
     failed++
     failures.push(seg.search)
   }

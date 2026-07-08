@@ -106,6 +106,33 @@ const HIZMETLER = [
   check('birebir kademe + idempotenlik yaşıyor', r1.applied === 1 && r2.applied === 1 && r2.content === r1.content, JSON.stringify(r2))
 }
 
+// 7) Fuzzy kademe (ARAŞTIRMA 2026 — Aider replace_closest_edit_distance ruhu):
+// model 1 satırı paraphrase etti (birebir/trim/dequote ıskalar) ama pencere
+// tanınabilir → uygula. "0 blok eşleşmedi"in en büyük sebebi buydu.
+{
+  const file = [
+    'export function Hero() {',
+    '  return (',
+    '    <section className="hero">',
+    '      <h1 className="text-4xl font-bold text-white">Merhaba, ben Ahmet</h1>',
+    '      <p className="mt-4 text-lg">Full-Stack Developer</p>',
+    '    </section>',
+    '  )',
+    '}'
+  ].join('\n')
+  const search = '      <h1 className="text-4xl font-bold">Merhaba, ben Ahmet</h1>\n      <p className="mt-4 text-lg">Full-Stack Developer</p>'
+  const replace = '      <h1 id="hero-title" className="text-4xl font-bold text-white">Merhaba Dünya</h1>\n      <p className="mt-4 text-lg">Full-Stack Developer</p>'
+  const r = applySearchReplace(file, seg(search, replace))
+  check('fuzzy: paraphrase edilmiş SEARCH tanınabilir pencereye uygulanır', r.applied === 1 && r.content.includes('Merhaba Dünya') && r.content.includes('id="hero-title"'), JSON.stringify(r))
+}
+
+// 8) Fuzzy güvenlik: düşük benzerlikte YANLIŞ yere yazmaz
+{
+  const file = 'const a = 1\nconst b = 2\nconst c = 3\n'
+  const r = applySearchReplace(file, seg('tamamen alakasiz bir\nsatir grubu burada', 'X'))
+  check('fuzzy: düşük benzerlikte yanlış yere yazmaz (yanlış onarım yok)', r.applied === 0 && r.failed === 1, JSON.stringify(r))
+}
+
 rmSync(work, { recursive: true, force: true })
 console.log(`\n${pass}/${pass + fail} geçti`)
 if (fail > 0) {
