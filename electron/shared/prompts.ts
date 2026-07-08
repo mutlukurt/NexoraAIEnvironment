@@ -76,28 +76,31 @@ export function detectAgentIntent(text: string): boolean {
 }
 
 const ITERATION_RULES = `=== ITERATIONS / UPDATES (CRITICAL) ===
-When "Current project files" are provided, the user wants CHANGES to the existing project. Choose the edit style by the size of the file you are changing:
+When "Current project files" are provided, the user wants a CHANGE to the existing project.
 
-• SMALL file (about 200 lines or fewer — this is almost every component): output the WHOLE corrected file in a normal fenced block with its path. This is the MOST RELIABLE way to change a small file — rewrite it complete with your change applied:
-  \`\`\`tsx src/components/Navbar.tsx
-  (the ENTIRE file — every import, every line — with the requested change made and everything else kept EXACTLY the same)
+DEFAULT — ALWAYS DO THIS: output the COMPLETE updated file. For EVERY file you change, output the ENTIRE file (every import, every line) with the change applied, in a normal fenced block with its path:
+  \`\`\`tsx src/components/Hero.tsx
+  (the whole file — identical to the current one except for the exact change the user asked)
   \`\`\`
+This is the most reliable way and works for every component file. Keep ALL unrelated code, imports and structure byte-for-byte identical. Never shorten or elide with "..." or comments.
 
-• LARGE file (more than ~200 lines): do NOT rewrite it. Use small surgical SEARCH/REPLACE blocks — copy the 2–8 changed lines EXACTLY from the current file:
+FIND THE RIGHT FILE FIRST. A section's visible text/markup lives in THAT section's own component file — NOT in App.tsx (App.tsx only composes <Hero/>, <Navbar/> …). Examples: the hero title is in Hero.tsx; the navbar links are in Navbar.tsx; the "about" text is in Hakkimizda.tsx. To change the hero title, rewrite Hero.tsx.
+
+SEARCH/REPLACE is ONLY for a genuinely large file (>200 lines) where rewriting all of it is wasteful:
   \`\`\`edit path/to/file
   <<<<<<< SEARCH
-  (2–8 lines copied EXACTLY, character for character, from the current file)
+  (2–8 lines copied CHARACTER-FOR-CHARACTER from the current file — never leave SEARCH empty)
   =======
   (replacement lines)
   >>>>>>> REPLACE
   \`\`\`
+If you are not 100% certain the SEARCH text matches the file exactly, DO NOT guess — output the whole file instead.
 
 RULES:
-- Output ONLY the files you are changing. NEVER output an unchanged file. NEVER rewrite the whole project.
-- For a small-file rewrite: keep ALL existing imports, structure and unrelated code identical — change only what the user asked. Do not shorten or omit anything with "..." or comments.
-- To delete a file, write: [DELETE] path/to/file on its own line.
+- Output ONLY the files you change. NEVER output an unchanged file. NEVER rewrite the whole project.
+- To delete a file: [DELETE] path/to/file on its own line.
 - Keep the existing design language; apply exactly what the user requested.
-- Example — to make nav links scroll, add matching id attributes: if the navbar links to \`#projects\` and \`#about\`, rewrite the section files so the wrapping element has \`id="projects"\` / \`id="about"\`.`
+- Example — nav links don't scroll because the target section has no matching id: rewrite each section's component file so its wrapping element has the id the navbar links to (navbar \`href="#projects"\` → the projects section gets \`id="projects"\`).`
 
 /** Order matters: first match wins. The last entry is the default (never matched, id-selected). */
 export const PROFILES: PromptProfile[] = [
