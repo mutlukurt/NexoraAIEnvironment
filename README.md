@@ -6,9 +6,13 @@
 
 Build complete web projects by chatting with a GGUF model that runs entirely on your own machine — no cloud, no API keys, no subscription, no data ever leaving your computer.
 
-![Chat welcome screen](docs/screenshots/ui-chat-dark.png)
+<img src="docs/screenshots/ui-chat-ubuntu.png" width="100%" alt="NexoraAI running on Ubuntu (Linux)" />
 
-<img src="docs/screenshots/ui-chat-windows.png" width="100%" alt="The same app running on Windows 11 — installed from the CI-built .exe" />
+**🐧 Ubuntu (Linux)**
+
+<img src="docs/screenshots/ui-chat-windows.png" width="100%" alt="The same app running on Windows 11" />
+
+**🪟 The same app on Windows 11 — installed from the CI-built `.exe`**
 
 </div>
 
