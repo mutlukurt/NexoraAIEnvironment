@@ -28,6 +28,7 @@ import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning } from '@/lib/agentActions'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, type ProjectContract } from '@shared/projectContract'
+import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
 
 const AUTO_APPLY_KEY = 'nexora.autoApply'
 
@@ -232,6 +233,12 @@ let lastVisibleUserPrompt = ''
 let fidelityActive = false
 let fidelityContract: ProjectContract | null = null
 let fidelitySlotMap: Record<string, string> = {}
+// FAZ 9.4 — son fidelity build'in deterministik sadakat sonucu (9.5 escalation
+// bunu somut sinyal olarak okur; kör retry yerine skor-kapılı tırmanış).
+let lastFidelityResult: SpecVerifyResult | null = null
+export function getFidelityResult(): SpecVerifyResult | null {
+  return lastFidelityResult
+}
 export function getLastOutgoingPrompt(): string {
   return lastOutgoingPrompt
 }
@@ -1883,6 +1890,30 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           if (f && f.content.includes('__SLOT_')) {
             store.updateFile(p, rehydrate(f.content, fidelitySlotMap))
           }
+        }
+      }
+
+      // FAZ 9.4 — SpecVerifier: fidelity build tamamlanınca (tüm adlandırılmış
+      // dosyalar geldi) birebir literaller / Tailwind sürümü / dosyalar
+      // deterministik denetlenir. "Derlendi" değil "spec karşılandı" hükmü.
+      if (fidelityActive && fidelityContract && touchedPaths.length > 0) {
+        const wf = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
+        const fr = specVerify(fidelityContract, wf)
+        lastFidelityResult = fr
+        if (fr.filesOk) {
+          const twv = fidelityContract.tailwindVersion ?? '—'
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: fr.ok
+                  ? `✅ Sadakat: ${fr.found}/${fr.total} birebir · Tailwind ${twv} · adlandırılmış dosyalar tam`
+                  : `⚠ Sadakat ${fr.found}/${fr.total} birebir${fr.tailwindOk ? '' : ` · Tailwind ${twv} istendi ama kurulmadı`}${fr.missing.length ? ' — eksik: ' + fr.missing.slice(0, 3).join(' · ') : ''}`
+              }
+            ]
+          }))
         }
       }
 
