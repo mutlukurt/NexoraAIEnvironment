@@ -87,6 +87,13 @@ export interface ChatSendInput {
    * Project Contract specificity yüksekse set eder → main FIDELITY_RULES ekler.
    */
   fidelity?: boolean
+  /**
+   * 10.14 — "API UNLEASHED": bu tur, güçlü bir API modeliyle YENİ bir build.
+   * Ana süreç 3B kösteklerini (kod personası/COMPACT, gramer, düşük tavan) atar,
+   * frontierBuildSystemPrompt'u kullanır: tek seferde çok-dosyalı, üst düzey
+   * modern proje. Yalnız API modeli aktifken + build isteğinde set edilir.
+   */
+  frontier?: boolean
   options?: {
     temperature?: number
     topP?: number

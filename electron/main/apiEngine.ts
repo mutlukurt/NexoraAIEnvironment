@@ -50,6 +50,12 @@ function active(): { baseUrl: string; apiKey: string; model: string; adapter: 'o
   return { baseUrl: c.baseUrl, apiKey: c.apiKey, model: c.model, adapter: c.adapter ?? 'openai' }
 }
 
+/** 10.14 — Kullanıcı açık bir API modeli seçti mi? (yerel GGUF olmadan da tur
+ * API'ye gidebilsin diye llamaService bunu kontrol eder). */
+export function hasApiOverride(): boolean {
+  return !!override
+}
+
 /**
  * Bu tur API'ye mi gitmeli? — 5.5 çift-modlu cerrah kuralı:
  * 'fix' modunda API EN SON ÇAREDİR: ilk düzeltme denemesi daima yerelde koşar

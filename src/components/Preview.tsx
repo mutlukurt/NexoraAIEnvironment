@@ -185,18 +185,145 @@ function makeLucideIcon(localName: string, iconKey?: string): string {
 const CLSX_IMPL = `function(){var out=[];function go(a){if(!a)return;var t=typeof a;if(t==='string'||t==='number'){out.push(a)}else if(Array.isArray(a)){for(var i=0;i<a.length;i++)go(a[i])}else if(t==='object'){for(var k in a){if(a[k])out.push(k)}}}for(var i=0;i<arguments.length;i++)go(arguments[i]);return out.join(' ')}`
 // tailwind-merge: önizleme için sınıfları birleştirmek yeterli (çakışma çözümü gerekmez).
 const TWMERGE_IMPL = `function(){return Array.prototype.slice.call(arguments).filter(Boolean).join(' ')}`
-// framer-motion: motion.div vb. animasyon prop'larını atıp gerçek DOM etiketine düşer.
-const MOTION_IMPL = `new Proxy(function(){}, { get: function(_t, tag) {
-  if (tag === '__esModule') return false;
-  return function(props){
-    props = props || {};
-    var skip = {initial:1,animate:1,exit:1,transition:1,variants:1,whileHover:1,whileTap:1,whileInView:1,whileFocus:1,whileDrag:1,viewport:1,layout:1,layoutId:1,drag:1,dragConstraints:1,onAnimationComplete:1,onAnimationStart:1};
-    var clean = {};
-    for (var p in props) { if (!skip[p] && p !== 'children') clean[p] = props[p]; }
-    return window.React.createElement(String(tag), clean, props.children);
-  };
-} })`
+// 10.14 — framer-motion GERÇEK animasyon: motion.div vb. `initial/animate`,
+// `whileInView` (scroll-reveal), `whileHover` prop'larını GERÇEK CSS geçişlerine
+// çevirir (window.__nxMotion runtime'ı, buildReactPreview'de tanımlı). Eski stub
+// prop'ları atıp statik render ediyordu → API modeli framer-motion yazınca
+// hiçbir şey kımıldamıyordu. Artık giriş/kaydırma/hover animasyonları CANLI akar.
+// Runtime yoksa (bir hata olursa) güvenli statik render'a düşer.
+const MOTION_IMPL = `(window.__nxMotion ? window.__nxMotion.motion : new Proxy(function(){}, { get: function(_t, tag){ if(tag==='__esModule')return false; return function(props){ props=props||{}; var c={}; for(var p in props){ if(p!=='children') c[p]=props[p]; } return window.React.createElement(String(tag), c, props.children); }; } }))`
 const PASSTHROUGH_IMPL = `function(p){ return p && p.children != null ? p.children : null }`
+// 10.14 — Hafif framer-motion runtime'ı. GERÇEK bir kütüphane (150KB+) bundle
+// etmeden en etkili görsel kazanımları CANLI verir: giriş animasyonları
+// (initial→animate), kaydırınca-belir (whileInView, IntersectionObserver), hover
+// (whileHover). Prop'ları GERÇEK CSS transition'a çevirir. Parallax hook'ları
+// (useScroll/useTransform) güvenli no-op (çökmez); parallax için model CSS'e
+// yönlendirilir. React'ten SONRA, modüllerden ÖNCE inject edilir.
+const NX_MOTION_RUNTIME = `(function(){
+  var R = window.React;
+  if (!R) return;
+  function num(v, unit){ return (typeof v === 'number') ? (v + (unit||'')) : v; }
+  function toStyle(t){
+    var s = {}; var tf = [];
+    if (!t || typeof t !== 'object') return s;
+    for (var k in t){
+      var v = t[k];
+      if (v == null) continue;
+      if (typeof v === 'object') continue; // keyframe dizileri/motion value → atla
+      if (k === 'opacity') s.opacity = v;
+      else if (k === 'x') tf.push('translateX(' + num(v,'px') + ')');
+      else if (k === 'y') tf.push('translateY(' + num(v,'px') + ')');
+      else if (k === 'z') tf.push('translateZ(' + num(v,'px') + ')');
+      else if (k === 'scale') tf.push('scale(' + v + ')');
+      else if (k === 'scaleX') tf.push('scaleX(' + v + ')');
+      else if (k === 'scaleY') tf.push('scaleY(' + v + ')');
+      else if (k === 'rotate') tf.push('rotate(' + num(v,'deg') + ')');
+      else if (k === 'rotateX') tf.push('perspective(1000px) rotateX(' + num(v,'deg') + ')');
+      else if (k === 'rotateY') tf.push('perspective(1000px) rotateY(' + num(v,'deg') + ')');
+      else if (k === 'skewX') tf.push('skewX(' + num(v,'deg') + ')');
+      else if (k === 'skewY') tf.push('skewY(' + num(v,'deg') + ')');
+      else s[k] = v; // filter, backgroundColor, color, width, height, ...
+    }
+    if (tf.length) s.transform = tf.join(' ');
+    return s;
+  }
+  function apply(el, s){ for (var k in s){ try { el.style[k] = s[k]; } catch(_){} } }
+  function ease(e){
+    if (Object.prototype.toString.call(e) === '[object Array]' && e.length === 4) return 'cubic-bezier(' + e.join(',') + ')';
+    if (e === 'linear') return 'linear';
+    if (e === 'easeIn') return 'cubic-bezier(0.4,0,1,1)';
+    if (e === 'easeOut') return 'cubic-bezier(0,0,0.2,1)';
+    if (e === 'anticipate' || e === 'backOut') return 'cubic-bezier(0.34,1.56,0.64,1)';
+    if (e === 'easeInOut') return 'cubic-bezier(0.4,0,0.2,1)';
+    return 'cubic-bezier(0.22,1,0.36,1)';
+  }
+  function sanitizeStyle(st){
+    if (!st || typeof st !== 'object') return st;
+    var out = {}; for (var k in st){ var v = st[k]; if (v == null || typeof v !== 'object') out[k] = v; } return out;
+  }
+  var SKIP = {initial:1,animate:1,exit:1,transition:1,variants:1,whileHover:1,whileTap:1,whileInView:1,whileFocus:1,whileDrag:1,viewport:1,layout:1,layoutId:1,drag:1,dragConstraints:1,dragElastic:1,dragMomentum:1,onAnimationComplete:1,onAnimationStart:1,onViewportEnter:1,onViewportLeave:1,onHoverStart:1,onHoverEnd:1,custom:1,style:1,children:1,ref:1};
+  function makeComp(tag){
+    return function(props){
+      props = props || {};
+      var rest = {};
+      for (var p in props){ if (!SKIP[p]) rest[p] = props[p]; }
+      var ref = R.useRef(null);
+      var trans = props.transition || {};
+      var dur = (trans.duration != null ? trans.duration : 0.6);
+      var delay = (trans.delay != null ? trans.delay : 0);
+      var initial = props.initial, animate = props.animate, whileInView = props.whileInView,
+          viewport = props.viewport || {}, whileHover = props.whileHover;
+      R.useEffect(function(){
+        var el = ref.current; if (!el) return;
+        var transCss = 'all ' + dur + 's ' + ease(trans.ease) + ' ' + delay + 's';
+        var hasEntrance = (initial && typeof initial === 'object');
+        if (hasEntrance) apply(el, toStyle(initial));
+        void el.offsetWidth; // reflow → geçiş ilk kareden başlasın
+        function settle(target){ el.style.transition = transCss; if (target && typeof target === 'object') apply(el, toStyle(target)); }
+        if (whileInView && typeof whileInView === 'object'){
+          if (typeof IntersectionObserver !== 'undefined'){
+            var once = viewport.once !== false;
+            var io = new IntersectionObserver(function(ents){
+              for (var i=0;i<ents.length;i++){
+                if (ents[i].isIntersecting){ settle(whileInView); if (once){ io.unobserve(el); } }
+                else if (!once && hasEntrance){ el.style.transition = transCss; apply(el, toStyle(initial)); }
+              }
+            }, { threshold: (viewport.amount === 'all' ? 0.9 : 0.15) });
+            io.observe(el);
+            return function(){ try { io.disconnect(); } catch(_){} };
+          } else { settle(whileInView); }
+        } else if (animate && typeof animate === 'object'){
+          requestAnimationFrame(function(){ requestAnimationFrame(function(){ settle(animate); }); });
+        } else if (hasEntrance){
+          el.style.transition = transCss;
+        }
+      }, []);
+      if (whileHover && typeof whileHover === 'object'){
+        var ue = rest.onMouseEnter, ul = rest.onMouseLeave;
+        var hoverDur = (trans.duration != null ? Math.min(trans.duration, 0.35) : 0.28);
+        rest.onMouseEnter = function(ev){ var el=ref.current; if(el){ el.style.transition = 'all ' + hoverDur + 's ' + ease(trans.ease); apply(el, toStyle(whileHover)); } if(ue) ue(ev); };
+        rest.onMouseLeave = function(ev){ var el=ref.current; if(el){ var resting = toStyle(animate && typeof animate==='object' ? animate : {}); var hs = toStyle(whileHover); for (var k in hs){ if (!(k in resting)) el.style[k] = ''; } apply(el, resting); } if(ul) ul(ev); };
+      }
+      rest.ref = ref;
+      if (props.style) rest.style = sanitizeStyle(props.style);
+      return R.createElement(String(tag), rest, props.children);
+    };
+  }
+  var compCache = {};
+  var motionProxy = (typeof Proxy !== 'undefined')
+    ? new Proxy(function(){}, { get: function(_t, tag){
+        if (tag === '__esModule') return false;
+        if (tag === 'custom' || tag === 'create') return function(c){ return makeComp(typeof c === 'string' ? c : 'div'); };
+        var key = String(tag);
+        if (!compCache[key]) compCache[key] = makeComp(key);
+        return compCache[key];
+      } })
+    : (function(){ var o={}; ['div','span','section','header','footer','nav','a','button','ul','li','img','h1','h2','h3','p','article','main','aside','form'].forEach(function(t){ o[t]=makeComp(t); }); return o; })();
+  function MV(v){
+    var val = v;
+    return { get: function(){ return val; }, set: function(n){ val = n; }, getVelocity: function(){ return 0; },
+      onChange: function(){ return function(){}; }, on: function(){ return function(){}; }, clearListeners: function(){}, destroy: function(){}, isAnimating: function(){ return false; } };
+  }
+  window.__nxMV = MV;
+  window.__nxMotion = {
+    motion: motionProxy,
+    useScroll: function(){ return { scrollX: MV(0), scrollY: MV(0), scrollXProgress: MV(0), scrollYProgress: MV(0) }; },
+    useTransform: function(){ var out = arguments.length >= 3 ? arguments[2] : null; return MV(out && out.length ? out[0] : 0); }
+  };
+})();`
+const MOTION_HOOK_IMPL: Record<string, string> = {
+  useScroll: `function(){ return window.__nxMotion ? window.__nxMotion.useScroll() : {scrollY:window.__nxMV(0),scrollYProgress:window.__nxMV(0),scrollX:window.__nxMV(0),scrollXProgress:window.__nxMV(0)}; }`,
+  useTransform: `function(){ return window.__nxMotion ? window.__nxMotion.useTransform.apply(null,arguments) : window.__nxMV(0); }`,
+  useMotionValue: `function(v){ return window.__nxMV(v); }`,
+  useSpring: `function(v){ return window.__nxMV(typeof v==='object'?0:v); }`,
+  useMotionTemplate: `function(){ return window.__nxMV(''); }`,
+  useInView: `function(){ return true; }`,
+  useAnimation: `function(){ return {start:function(){return Promise.resolve();},stop:function(){},set:function(){},mount:function(){}}; }`,
+  useAnimationControls: `function(){ return {start:function(){return Promise.resolve();},stop:function(){},set:function(){},mount:function(){}}; }`,
+  useMotionValueEvent: `function(){}`,
+  useVelocity: `function(){ return window.__nxMV(0); }`,
+  useReducedMotion: `function(){ return false; }`
+}
 
 function stubImport(clause: string, from: string): string {
   const info = extractImportNames(clause)
@@ -225,11 +352,16 @@ function stubImport(clause: string, from: string): string {
     for (const n of info.named) parts.push(`${n.local} = ${TWMERGE_IMPL}`)
     return parts.length ? `var ${parts.join(', ')};\n` : ''
   }
-  if (from === 'framer-motion' || from === 'motion/react') {
+  if (from === 'framer-motion' || from === 'motion/react' || from === 'motion') {
+    const nsObj =
+      `{ motion: ${MOTION_IMPL}, AnimatePresence: ${PASSTHROUGH_IMPL}, LazyMotion: ${PASSTHROUGH_IMPL}, MotionConfig: ${PASSTHROUGH_IMPL}, domAnimation: {}, domMax: {}, ` +
+      Object.entries(MOTION_HOOK_IMPL).map(([k, v]) => `${k}: ${v}`).join(', ') +
+      ` }`
     if (info.default) parts.push(`${info.default} = ${MOTION_IMPL}`)
-    if (info.ns) parts.push(`${info.ns} = { motion: ${MOTION_IMPL}, AnimatePresence: ${PASSTHROUGH_IMPL} }`)
+    if (info.ns) parts.push(`${info.ns} = ${nsObj}`)
     for (const n of info.named) {
       if (n.imported === 'motion' || n.imported === 'm') parts.push(`${n.local} = ${MOTION_IMPL}`)
+      else if (MOTION_HOOK_IMPL[n.imported]) parts.push(`${n.local} = ${MOTION_HOOK_IMPL[n.imported]}`)
       else if (n.imported === 'AnimatePresence' || n.imported === 'LazyMotion' || n.imported === 'MotionConfig')
         parts.push(`${n.local} = ${PASSTHROUGH_IMPL}`)
       else parts.push(`${n.local} = function(){ return {} }`)
@@ -549,6 +681,12 @@ if (window.React) {
     }
   }
 }
+</script>
+<script>
+// 10.14 — framer-motion CANLI animasyon runtime'ı (React'ten sonra, modüllerden önce).
+try { ${NX_MOTION_RUNTIME} } catch (e) { window.__nexErr && window.__nexErr('motion runtime: ' + (e.message||e)); }
+</script>
+<script>
 window.__modules = {};
 window.__cache = {};
 

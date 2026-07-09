@@ -22,14 +22,15 @@ import {
   AGENT_HINT,
   UPDATE_MODE_RULES,
   FIDELITY_RULES,
-  chatSystemPrompt
+  chatSystemPrompt,
+  frontierBuildSystemPrompt
 } from '../shared/prompts'
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
 import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
-import { shouldUseApi, promptApi, getLastApiUsage } from './apiEngine'
+import { shouldUseApi, promptApi, getLastApiUsage, hasApiOverride } from './apiEngine'
 import { getLastServerUsage } from './llamaServerEngine'
 import type { UsageSample } from '../shared/ipc'
 import { appendRepairLog } from './agentService'
@@ -180,8 +181,12 @@ export async function chat(
   input: ChatSendInput,
   onChunk: (token: string) => void
 ): Promise<string> {
-  if (!isModelLoaded()) {
-    throw new Error('Model yüklenmemiş. Önce bir GGUF seç.')
+  // 10.13/10.14 — API modeli aktifken YEREL GGUF ŞART DEĞİL. Eskiden burada
+  // koşulsuz throw vardı → pure-API sohbet/build "Model yüklenmemiş" hatası
+  // veriyordu. Bir API override'ı varsa (kullanıcı açıkça API modeli seçmiş) tur
+  // API'ye gider; yerel motor gerekmez.
+  if (!isModelLoaded() && !hasApiOverride()) {
+    throw new Error('Önce bir model seç (yerel GGUF ya da API modeli).')
   }
 
   // Proje türüne duyarlı prompt: açık bir sinyal ("electron app", "next.js site"…)
@@ -306,10 +311,13 @@ ${UPDATE_MODE_RULES}
       // Telemetri (5.5): hangi kademe hangi vakayı aldı — zayıf sınıflar saha
       // verisinden çıksın diye her yönlendirme kararı kalıcı günlüğe yazılır.
       void appendRepairLog({ layer: escalate ? 'api-escalated' : 'api-turn' })
-      // 10.13 BUG DÜZELTMESİ: sohbet/soru turunda API'ye de KOD personası değil
-      // KONUŞMA sistem prompt'u gider (server motoru zaten böyle yapıyordu). Yoksa
-      // qwen-plus "Ben NexoraAI, senior React mühendisiyim" diye cevap veriyordu.
-      const apiSys = input.options?.purpose
+      // 10.14 "API UNLEASHED": frontier build turunda 3B kod personası (COMPACT
+      // tek-dosya) YERİNE elit çok-dosya frontier personası → güçlü model tam
+      // gücünü kullanır (üst düzey modern, çok bileşenli proje).
+      // 10.13: sohbet/soru turunda konuşma sistem prompt'u (kod personası değil).
+      const apiSys = input.frontier
+        ? frontierBuildSystemPrompt(input.options?.answerLang)
+        : input.options?.purpose
         ? chatSystemPrompt(input.options.answerLang, input.options.purpose)
         : getFullSystemPrompt()
       // 10.13: uzak model DURUMSUZ — önceki sohbet turlarını + tur-hedefli

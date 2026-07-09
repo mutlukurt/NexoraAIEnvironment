@@ -3940,7 +3940,24 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // tetiklenmedi. Sözleşme fidelity ise buildReq zorlanır.
     const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed) || !!turnContract?.fidelity
     forceBuildNext = false
+    // 10.14 "API UNLEASHED": güçlü bir API modeli aktif + YENİ bir build isteği →
+    // frontier modu. NexoraAI'nın tüm 3B kösteklerini (deterministik plan, bölüm-
+    // bölüm üretim, __SLOT__ tokenizasyon, gramer, düşük tavan, COMPACT tek-dosya)
+    // ATLAR: tek seferde çok-dosyalı, üst düzey modern proje. Yerel model
+    // varsayılanı hiç etkilenmez (apiActive=false → tüm bu davranış kapalı).
+    const apiActive = !!useSettingsStore.getState().activeApiModel
+    const frontierNewBuild =
+      apiActive &&
+      buildReq &&
+      allFiles.length === 0 &&
+      !opts?.expectFile &&
+      !opts?.hideUser &&
+      !fixFlow &&
+      !visionAnalysis
+    // Frontier build fidelity slotlamasını KULLANMAZ — güçlü model spec'e zaten
+    // sadık; slot/enforcement 3B köstekleridir.
     const fidelityBuild =
+      !frontierNewBuild &&
       !!turnContract && turnContract.fidelity && allFiles.length === 0 && !fixFlow && !visionAnalysis
     if (fidelityBuild) {
       fidelityActive = true
@@ -3957,6 +3974,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       // FAZ 9.3 — fidelity build brief GENİŞLETİLMEZ: precise spec'i yaratıcı
       // yeniden yazmak (birebir metni parafraz etmek) sadakati bozar.
       !fidelityBuild &&
+      // 10.14 — frontier build brief-enhance turu KULLANMAZ: güçlü model tek
+      // seferde doğrudan üst düzey projeyi kurar (meta-tur gecikmesi yok).
+      !frontierNewBuild &&
       buildReq
     enhanceBypassNext = false
     // Plan modu (v0.14.3): "Önce Plan" açıkken plan turu YALNIZCA YENİ/BOŞ
@@ -3975,6 +3995,10 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !isEnhanceTurn &&
       !opts?.expectFile &&
       !opts?.hideUser &&
+      // 10.14 — frontier build deterministik bölüm planını ATLAR: güçlü model
+      // mimariyi kendi kurar (regex-plan "IA'yı öldürür" — köstek analizi). Tek
+      // seferde tüm dosyaları döker; plan-onay ekranı yok (OpenCode gibi).
+      !frontierNewBuild &&
       // FAZ 9.3 — fidelity build boyuttan/planFirst'ten bağımsız plan-first'e gider
       // (kompakt tek-dosya sıkıştırması sadakati öldürür → çok-dosya mimari şart).
       (planEligible(get().planFirst, buildReq, allFiles.length > 0) || fidelityBuild)
@@ -4283,7 +4307,12 @@ ${outgoing}`
       answerLang?: 'tr' | 'en'
       ephemeral?: boolean
       escalate?: boolean
-    } = isChatTurn
+    } = frontierNewBuild
+      ? // 10.14 "API UNLEASHED": güçlü modele tam nefes — modern tasarım için
+        // yaratıcı sıcaklık (0.6) + tüm projeyi tek akışta dökebilmesi için ÇOK
+        // geniş tavan (16384). 3B'nin 2048/4096 tavanları burada geçersiz.
+        { temperature: 0.6, maxTokens: 16384 }
+      : isChatTurn
       ? // Sohbet: doğal-dil örneklemesi (Qwen3 kartı: 0.6/0.95). Kod sıcaklığı
         // (0.2) + tekrar cezaları Türkçe cevapları bozuyordu. maxTokens tavanı
         // düşünen modellerin sınırsız düşünme spiraline karşı emniyet.
@@ -4340,6 +4369,9 @@ ${outgoing}`
         // 10.13: uzak (API) model durumsuz — önceki turları taşı (main yalnız
         // API yolunda kullanır; yerel motor kendi history'sini tutar).
         history: apiHistory.length > 0 ? apiHistory : undefined,
+        // 10.14 — frontier build: main 3B kod personası yerine elit çok-dosya
+        // frontier personasını kullanır (güçlü model tam gücünü kullanır).
+        frontier: frontierNewBuild || undefined,
         fidelity: fidelityActive || undefined,
         // Brief yeniden gönderimi makine metnidir: içindeki "mobil" gibi
         // kelimeler proje profilini değiştirmesin (RN'e uçan site vakası).
