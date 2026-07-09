@@ -25,6 +25,11 @@ export default function SettingsModal() {
   const setEnableGpu = useSettingsStore((s) => s.setEnableGpu)
   const gpuLayers = useSettingsStore((s) => s.gpuLayers)
   const setGpuLayers = useSettingsStore((s) => s.setGpuLayers)
+  const visionModelPath = useSettingsStore((s) => s.visionModelPath)
+  const setVisionModelPath = useSettingsStore((s) => s.setVisionModelPath)
+  const [visionModels, setVisionModels] = useState<
+    Array<{ label: string; model: string; mmproj: string; sizeGb: number }>
+  >([])
   const save = useSettingsStore((s) => s.save)
   const customCommands = useSettingsStore((s) => s.customCommands)
   const apiMode = useSettingsStore((s) => s.apiMode)
@@ -80,6 +85,13 @@ export default function SettingsModal() {
         .then((r: { content: string }) => setGlobalRules(r.content))
         .catch(() => setGlobalRules(''))
       refreshKnowledge(name)
+      // Yereldeki görsel (VL) GGUF'ları getir — kullanıcı hangisini kullanacağını seçsin.
+      void window.nexora.vision
+        .listModels?.()
+        .then((list: Array<{ label: string; model: string; mmproj: string; sizeGb: number }>) =>
+          setVisionModels(list ?? [])
+        )
+        .catch(() => setVisionModels([]))
     }
     window.addEventListener('nexora:openSettings', handler)
     return () => window.removeEventListener('nexora:openSettings', handler)
@@ -359,6 +371,41 @@ export default function SettingsModal() {
               </div>
             </div>
           )}
+
+          {/* Yerel görsel (VL) modeli — Qwen'e SABİT DEĞİL. Kullanıcı indirdiği
+              herhangi bir görsel GGUF'u (Qwen3-VL, LLaVA, MiniCPM-V, InternVL…)
+              görsel analizi için seçebilir; oto = RAM'e sığan en büyük yüklü VL. */}
+          <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
+              {language === 'tr' ? 'Yerel Görsel Modeli (analiz)' : 'Local Vision Model (analysis)'}
+            </label>
+            <p className="mb-3 text-xs font-medium text-ink-dim leading-relaxed">
+              {language === 'tr'
+                ? 'İliştirilen görselleri YEREL olarak analiz eden model (yalnız yerel modelde; API modelinde görsel doğrudan API’ye gider). Qwen’e sabit değil — indirdiğin herhangi bir VL GGUF (model + mmproj) burada çıkar. Oto: RAM’e sığan en büyük yüklü model.'
+                : "The model that analyzes attached images LOCALLY (local-model only; on an API model the image goes straight to the API). Not fixed to Qwen — any VL GGUF you download (model + mmproj) shows up here. Auto: the largest installed model that fits RAM."}
+            </p>
+            <select
+              value={visionModelPath ?? ''}
+              onChange={(e) => setVisionModelPath(e.target.value || null)}
+              className="w-full rounded-xl border border-ink-line bg-ink-card px-3.5 py-2.5 text-sm text-ink-text focus:bg-ink-hi focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition"
+            >
+              <option value="">
+                {language === 'tr' ? 'Otomatik (RAM’e sığan en büyük)' : 'Auto (largest that fits RAM)'}
+              </option>
+              {visionModels.map((v) => (
+                <option key={v.model} value={v.model}>
+                  {v.label} · {v.sizeGb.toFixed(1)} GB
+                </option>
+              ))}
+            </select>
+            {visionModels.length === 0 && (
+              <p className="mt-2 text-[11px] font-medium text-ink-dim">
+                {language === 'tr'
+                  ? 'Yüklü görsel modeli bulunamadı. İlk görsel analizinde cihazına uygun bir Qwen-VL otomatik iner; ya da models klasörüne kendi VL GGUF’unu (model + mmproj) koy.'
+                  : 'No installed vision model found. A device-appropriate Qwen-VL downloads on first image analysis; or drop your own VL GGUF (model + mmproj) into the models folder.'}
+              </p>
+            )}
+          </div>
 
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">

@@ -13,7 +13,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { homedir, freemem } from 'os'
 import { join, dirname } from 'path'
 import { mkdir, readFile, rename, rm } from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, readdirSync, statSync } from 'fs'
 import { nativeImage } from 'electron'
 
 const BIN_TAG = 'b9870'
@@ -87,16 +87,93 @@ function pickDownloadTarget(): VlCandidate {
   return VL_CANDIDATES[VL_CANDIDATES.length - 1] // 3B tabanı
 }
 
-/** RAM'e sığan en iyi mevcut gözü seç (yoksa 3B varsayılanına düşülür). */
-function pickVisionModel(): { label: string; model: string; mmproj: string } {
-  const freeGb = freemem() / 1e9
-  for (const c of VL_CANDIDATES) {
-    const m = join(MODELS_DIR, c.model)
-    const p = join(MODELS_DIR, c.mmproj)
-    if (existsSync(m) && existsSync(p) && freeGb >= c.needGb) {
-      return { label: c.label, model: m, mmproj: p }
+// mmproj (çok-modlu projektör) dosyalarını tanı — Qwen'e SABİT değil.
+const MMPROJ_RE = /mmproj|mm-proj|projector/i
+
+/** İki GGUF adının ortak (aile) çekirdeğini kıyasla: quant/instruct/mmproj
+ *  etiketlerini soyup normalize eder. Aynı modelin model+mmproj çifti eşleşsin. */
+function vlCore(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\.gguf$/, '')
+    .replace(MMPROJ_RE, '')
+    .replace(/[-_.](q\d[_a-z0-9]*|iq\d[_a-z0-9]*|bf16|fp?16|f16|f32|instruct|it|chat|base)\b/gi, '')
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+/**
+ * Modeller klasöründeki TÜM görsel (VL) GGUF çiftlerini (ana model + mmproj) tara.
+ * Qwen'e SABİT DEĞİL — kullanıcı hangi görsel GGUF'u indirirse (Qwen3-VL, LLaVA,
+ * MiniCPM-V, InternVL, Gemma-VL…) mmproj'uyla eşleşip kullanılabilir. En büyük
+ * (kalite) önce sıralanır.
+ */
+export function scanInstalledVisionModels(): Array<{ label: string; model: string; mmproj: string; sizeGb: number }> {
+  let files: string[]
+  try {
+    files = readdirSync(MODELS_DIR)
+  } catch {
+    return []
+  }
+  const ggufs = files.filter((f) => f.toLowerCase().endsWith('.gguf'))
+  const mmprojs = ggufs.filter((f) => MMPROJ_RE.test(f))
+  const mains = ggufs.filter((f) => !MMPROJ_RE.test(f))
+  const out: Array<{ label: string; model: string; mmproj: string; sizeGb: number }> = []
+  const usedMain = new Set<string>()
+  for (const mm of mmprojs) {
+    const mmCore = vlCore(mm)
+    if (!mmCore) continue
+    // En iyi eşleşen ana model: çekirdek biri diğerini içeriyorsa (aynı aile+boyut).
+    let best: string | null = null
+    let bestLen = 0
+    for (const m of mains) {
+      if (usedMain.has(m)) continue
+      const mc = vlCore(m)
+      if (!mc) continue
+      const match = mc.includes(mmCore) || mmCore.includes(mc)
+      if (match) {
+        const len = Math.min(mc.length, mmCore.length)
+        if (len > bestLen) {
+          bestLen = len
+          best = m
+        }
+      }
+    }
+    if (best && bestLen >= 6) {
+      usedMain.add(best)
+      const model = join(MODELS_DIR, best)
+      let sizeGb = 0
+      try {
+        sizeGb = statSync(model).size / 1e9
+      } catch {
+        /* ignore */
+      }
+      out.push({ label: best.replace(/\.gguf$/i, ''), model, mmproj: join(MODELS_DIR, mm), sizeGb })
     }
   }
+  out.sort((a, b) => b.sizeGb - a.sizeGb)
+  return out
+}
+
+/** Görsel modeli seç: (1) kullanıcının açık seçimi, (2) RAM'e sığan en büyük YÜKLÜ
+ *  VL (herhangi aile), (3) yüklü ama RAM dar → en küçüğü, (4) hiçbiri → Qwen 3B taban.
+ *  Artık Qwen'e SABİT değil — kullanıcı istediği görsel GGUF'u seçebilir. */
+function pickVisionModel(preferredPath?: string): { label: string; model: string; mmproj: string } {
+  const installed = scanInstalledVisionModels()
+  const freeGb = freemem() / 1e9
+  // 1) Kullanıcının açıkça seçtiği model (yol eşleşiyorsa ve mmproj'u varsa).
+  if (preferredPath) {
+    const chosen = installed.find((v) => v.model === preferredPath)
+    if (chosen) return { label: chosen.label, model: chosen.model, mmproj: chosen.mmproj }
+  }
+  // 2) RAM'e sığan en büyük yüklü VL (+~1.5GB bağlam/çalışma payı).
+  const fits = installed.find((v) => freeGb >= v.sizeGb + 1.5)
+  if (fits) return { label: fits.label, model: fits.model, mmproj: fits.mmproj }
+  // 3) Yüklü var ama RAM dar → yine de en küçüğünü dene.
+  if (installed.length) {
+    const smallest = installed[installed.length - 1]
+    return { label: smallest.label, model: smallest.model, mmproj: smallest.mmproj }
+  }
+  // 4) Hiç yok → Qwen 3B taban (ensureVisionReady indirmiş olur).
   return { label: 'Qwen2.5-VL-3B', model: VL_MODEL, mmproj: VL_MMPROJ }
 }
 
@@ -168,11 +245,10 @@ export async function ensureVisionReady(onStatus: VisionStatusCallback): Promise
       await rm(archivePath, { force: true })
       if (!existsSync(serverBinaryPath())) return { ok: false, error: 'llama-server çıkarılamadı.' }
     }
-    // Görsel bug düzeltmesi: SABİT 3B yerine CİHAZA uygun VL indirilir. Zaten
-    // herhangi bir VL çifti (3B/7B/32B) diskteyse yeniden indirme yapılmaz.
-    const anyVl = VL_CANDIDATES.some(
-      (c) => existsSync(join(MODELS_DIR, c.model)) && existsSync(join(MODELS_DIR, c.mmproj))
-    )
+    // SABİT 3B yerine: diskte HERHANGİ bir görsel GGUF çifti (Qwen/LLaVA/MiniCPM-V/
+    // InternVL/Qwen3-VL…) varsa yeniden indirme YAPILMAZ — kullanıcı kendi VL'ini
+    // getirebilir. Hiç yoksa cihaza uygun Qwen taban indirilir (kolay başlangıç).
+    const anyVl = scanInstalledVisionModels().length > 0
     if (!anyVl) {
       const tgt = pickDownloadTarget()
       const modelPath = join(MODELS_DIR, tgt.model)
@@ -193,10 +269,20 @@ export async function ensureVisionReady(onStatus: VisionStatusCallback): Promise
 }
 
 let visionProc: ChildProcess | null = null
+let visionModelInUse: string | null = null
 
-async function startVisionServer(onStatus: VisionStatusCallback): Promise<{ ok: boolean; error?: string }> {
-  if (visionProc) return { ok: true }
-  const eyes = pickVisionModel()
+async function startVisionServer(
+  onStatus: VisionStatusCallback,
+  preferredModelPath?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const eyes = pickVisionModel(preferredModelPath)
+  // Zaten AYNI modelle koşan bir sunucu varsa tekrar başlatma. Kullanıcı BAŞKA
+  // bir görsel modeli seçtiyse mevcut sunucuyu durdurup yenisiyle başlat.
+  if (visionProc) {
+    if (visionModelInUse === eyes.model) return { ok: true }
+    stopVisionServer()
+  }
+  visionModelInUse = eyes.model
   onStatus(`Görsel modeli belleğe yükleniyor (${eyes.label})…`)
   return new Promise((resolvePromise) => {
     const child = spawn(
@@ -231,6 +317,7 @@ async function startVisionServer(onStatus: VisionStatusCallback): Promise<{ ok: 
     child.stderr?.on('data', scan)
     child.on('exit', (code) => {
       visionProc = null
+      visionModelInUse = null
       if (!settled) {
         settled = true
         clearTimeout(timer)
@@ -255,6 +342,7 @@ export function stopVisionServer(): void {
     /* ignore */
   }
   visionProc = null
+  visionModelInUse = null
 }
 
 export interface VisionAnalyzeResult {
@@ -267,11 +355,12 @@ export interface VisionAnalyzeResult {
 export async function analyzeImage(
   imagePath: string,
   prompt: string,
-  onStatus: VisionStatusCallback
+  onStatus: VisionStatusCallback,
+  preferredModelPath?: string
 ): Promise<VisionAnalyzeResult> {
   const ready = await ensureVisionReady(onStatus)
   if (!ready.ok) return { ok: false, error: ready.error }
-  const started = await startVisionServer(onStatus)
+  const started = await startVisionServer(onStatus, preferredModelPath)
   if (!started.ok) return { ok: false, error: started.error }
 
   try {

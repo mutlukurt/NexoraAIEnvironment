@@ -128,6 +128,7 @@ export interface NexoraApi {
     pickImage: () => Promise<{ path: string } | null>
     analyze: (input: VisionAnalyzeInput) => Promise<VisionAnalyzeResult>
     prepare: () => Promise<{ ok: boolean; error?: string }>
+    listModels: () => Promise<import('../shared/ipc').VisionModelInfo[]>
     onStatus: (cb: (event: { msg: string }) => void) => () => void
   }
   images: {
@@ -347,6 +348,7 @@ const api: NexoraApi = {
     pickImage: () => ipcRenderer.invoke(IPC.VISION_PICK_IMAGE),
     analyze: (input: VisionAnalyzeInput) => ipcRenderer.invoke(IPC.VISION_ANALYZE, input),
     prepare: () => ipcRenderer.invoke(IPC.VISION_PREPARE),
+    listModels: () => ipcRenderer.invoke(IPC.VISION_LIST_MODELS),
     onStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)
       ipcRenderer.on(IPC.VISION_STATUS, handler as never)

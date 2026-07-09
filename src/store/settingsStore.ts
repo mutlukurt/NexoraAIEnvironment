@@ -15,6 +15,9 @@ export interface Settings {
   enableGpu: boolean
   /** GPU'ya offload edilecek katman sayısı; 0 = otomatik (VRAM'e sığan kadar). */
   gpuLayers: number
+  /** Yerel görsel (VL) analizi için seçilen model yolu; null = oto (RAM'e sığan en büyük).
+   *  Qwen'e SABİT değil — kullanıcı indirdiği herhangi bir VL GGUF'u seçebilir. */
+  visionModelPath: string | null
   customCommands: CustomCommand[]
   /** Hibrit API (4.1): OpenAI-uyumlu uzak uç ayarları. */
   apiBaseUrl: string
@@ -95,6 +98,7 @@ const DEFAULT_SETTINGS: Settings = {
   customSystemPrompt: '',
   enableGpu: false,
   gpuLayers: 0,
+  visionModelPath: null,
   customCommands: [],
   apiBaseUrl: '',
   apiKey: '',
@@ -124,6 +128,7 @@ function loadSettings(): Settings {
       customSystemPrompt: parsed.customSystemPrompt ?? '',
       enableGpu: parsed.enableGpu ?? false,
       gpuLayers: typeof parsed.gpuLayers === 'number' ? parsed.gpuLayers : 0,
+      visionModelPath: typeof parsed.visionModelPath === 'string' ? parsed.visionModelPath : null,
       customCommands: Array.isArray(parsed.customCommands)
         ? parsed.customCommands.filter(
             (c: CustomCommand) => c && typeof c.label === 'string' && typeof c.prompt === 'string'
@@ -159,6 +164,7 @@ interface SettingsState extends Settings {
   setCustomSystemPrompt: (v: string) => void
   setEnableGpu: (v: boolean) => void
   setGpuLayers: (v: number) => void
+  setVisionModelPath: (v: string | null) => void
   addCommand: () => void
   updateCommand: (id: string, patch: Partial<Pick<CustomCommand, 'label' | 'prompt'>>) => void
   removeCommand: (id: string) => void
@@ -184,6 +190,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setCustomSystemPrompt: (v) => set({ customSystemPrompt: v }),
   setEnableGpu: (v) => set({ enableGpu: v }),
   setGpuLayers: (v) => set({ gpuLayers: Math.max(0, Math.round(v)) }),
+  setVisionModelPath: (v) => {
+    set({ visionModelPath: v })
+    get().save()
+  },
   addCommand: () =>
     set((s) => ({ customCommands: [...s.customCommands, { id: nanoid(), label: '', prompt: '' }] })),
   updateCommand: (id, patch) =>
@@ -242,6 +252,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           customSystemPrompt: get().customSystemPrompt,
           enableGpu: get().enableGpu,
           gpuLayers: get().gpuLayers,
+          visionModelPath: get().visionModelPath,
           // Boş satırlar (etiket ve prompt ikisi de boş) kaydedilmez.
           apiBaseUrl: get().apiBaseUrl,
           apiKey: get().apiKey,

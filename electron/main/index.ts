@@ -46,7 +46,7 @@ import { runBenchmark, readBenchmarks } from './benchService'
 import { inspectRuntimeException } from './debugInspect'
 import { runBehaviorTest } from './behaviorTest'
 import { reproCheck } from './reproCheck'
-import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
+import { analyzeImage, stopVisionServer, ensureVisionReady, scanInstalledVisionModels } from './visionService'
 import { detectHardware, getAdvisorPlan } from './advisorService'
 import { setApiConfig, promptApi, hasApiOverride, generateImage, type ApiConfig } from './apiEngine'
 import { writeFile, mkdir } from 'fs/promises'
@@ -434,7 +434,7 @@ function registerIpc(): void {
     return { path: res.filePaths[0] }
   })
 
-  ipcMain.handle(IPC.VISION_ANALYZE, async (_e, input: { imagePath: string; prompt: string }) => {
+  ipcMain.handle(IPC.VISION_ANALYZE, async (_e, input: { imagePath: string; prompt: string; modelPath?: string }) => {
     // İKİ AŞAMALI GÖRSEL AKIŞI — 1. AŞAMA (analiz).
     // API modeli aktifse görsel analizini API'nin KENDİSİ yapar (yerel VL ASLA
     // çalışmaz). Görsel + detaylı analiz prompt'u API'ye multimodal gider,
@@ -457,9 +457,23 @@ function registerIpc(): void {
         return { ok: false, error: (err as Error).message }
       }
     }
-    return analyzeImage(input.imagePath, input.prompt, (msg) => {
-      mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
-    })
+    return analyzeImage(
+      input.imagePath,
+      input.prompt,
+      (msg) => {
+        mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
+      },
+      input.modelPath
+    )
+  })
+
+  // Yereldeki görsel (VL) GGUF çiftlerini listele (Ayarlar'daki seçici için).
+  ipcMain.handle(IPC.VISION_LIST_MODELS, async () => {
+    try {
+      return scanInstalledVisionModels()
+    } catch {
+      return []
+    }
   })
 
   ipcMain.handle(IPC.VISION_PREPARE, async () => {

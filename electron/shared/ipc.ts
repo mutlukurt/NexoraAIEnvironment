@@ -194,6 +194,8 @@ export const IPC = {
   VISION_ANALYZE: 'vision:analyze',
   VISION_STATUS: 'vision:status',
   VISION_PREPARE: 'vision:prepare',
+  // Yereldeki görsel (VL) GGUF çiftlerini listele — kullanıcı hangisini kullanacağını seçsin.
+  VISION_LIST_MODELS: 'vision:list-models',
   // Görsel ÜRETME (text-to-image) — görsel-üretme API modeli aktifken.
   IMAGE_GENERATE: 'image:generate',
   IMAGE_STATUS: 'image:status',
@@ -634,6 +636,16 @@ export interface AgentBuildErrorEvent {
 export interface VisionAnalyzeInput {
   imagePath: string
   prompt: string
+  /** Kullanıcının seçtiği yerel görsel modeli yolu (yoksa oto — RAM'e sığan en büyük). */
+  modelPath?: string
+}
+
+/** Yerel diskteki bir görsel (VL) GGUF çifti (model + mmproj). */
+export interface VisionModelInfo {
+  label: string
+  model: string
+  mmproj: string
+  sizeGb: number
 }
 
 export interface VisionAnalyzeResult {

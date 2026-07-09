@@ -3247,6 +3247,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }))
       const res = await window.nexora.vision.analyze({
         imagePath: cap.path,
+        modelPath: useSettingsStore.getState().visionModelPath ?? undefined,
         prompt:
           'This is a screenshot of a website that was just generated. Report ONLY concrete VISUAL defects you can actually see: large blank/empty areas, overlapping or cut-off text, broken layout, missing images (broken icon placeholders), unreadable text contrast. RULE: a page that is entirely or mostly empty IS a critical defect — never answer OK for it. Ignore subjective style opinions. If the page shows real content and looks reasonable, reply with exactly: OK. Otherwise list at most 5 defects, one short line each' +
           (isTr ? ', in Turkish.' : ', in English.')
@@ -3943,7 +3944,11 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
 
 Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (üstten alta) eksiksiz bitir.`
           : trimmed
-        const vres = await window.nexora.vision.analyze({ imagePath: image.path, prompt: visionPrompt })
+        const vres = await window.nexora.vision.analyze({
+          imagePath: image.path,
+          prompt: visionPrompt,
+          modelPath: useSettingsStore.getState().visionModelPath ?? undefined
+        })
         visionUnsub()
         if (!vres.ok || !vres.text) {
           set((s) => ({
