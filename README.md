@@ -339,9 +339,9 @@ Same application, three model classes (3B · 7B · 14B) — the prompt strategy 
 
 ## Screenshots
 
-Every screen ships in both themes — a soft, VS Code-grade dark and a clean light — switchable from the **Tema & Dil** menu in one click. *(v0.14 minimal UI, captured live on real hardware.)*
+Every screen ships in both themes — a soft, VS Code-grade dark and a clean light — switchable from the **Theme & Language** menu in one click. *(v0.17 UI, captured live on Ubuntu.)*
 
-**Chat & composer** — the model picker, ⚙ turn options and quick-start templates all live in the composer; the left rail stays minimal (New chat · Sohbet / Dosyalar & Kod · Projects · history · Tema & Dil)
+**Chat & composer** — the model picker, ⚙ turn options and quick-start templates all live in the composer; the left rail stays minimal — **New Chat · Chat / Files & Code / Open Project · Projects · Chats · Theme & Language** (the new **Open Project** entry opens an existing project straight into development)
 
 | Dark | Light |
 |---|---|
@@ -353,19 +353,19 @@ Every screen ships in both themes — a soft, VS Code-grade dark and a clean lig
 |---|---|
 | ![Workspace dark](docs/screenshots/ui-workspace-dark.png) | ![Workspace light](docs/screenshots/ui-workspace-light.png) |
 
-**Model picker in the composer** — one click lists your downloaded GGUF models; switch instantly, or load from file / the HuggingFace model browser
+**Model picker in the composer** — one click lists your downloaded GGUF models *and* your enabled API models (grouped by provider); switch local ↔ API instantly, mid-session, in the same chat — or load from file / the HuggingFace model browser
 
 | Dark | Light |
 |---|---|
 | ![Model picker dark](docs/screenshots/ui-model-picker-dark.png) | ![Model picker light](docs/screenshots/ui-model-picker-light.png) |
 
-**Hardware Advisor** — your device measured; models graded for *your* machine
+**Hardware Advisor** — your device measured; models graded for *your* machine, sized by **VRAM** on a discrete GPU (🟢 fits VRAM / 🔵 spills to RAM)
 
 | Dark | Light |
 |---|---|
 | ![Advisor dark](docs/screenshots/ui-advisor-dark.png) | ![Advisor light](docs/screenshots/ui-advisor-light.png) |
 
-**Settings** — hybrid API, trust tiers & permissions, and the live engine scorecard
+**Settings** — the accessibility **Interface Size** control (Normal → Giant, `Ctrl +/−/0`), the **157-provider BYO-key hub** (keys in the OS keychain), trust tiers & permissions, and the live engine scorecard
 
 | Dark | Light |
 |---|---|
