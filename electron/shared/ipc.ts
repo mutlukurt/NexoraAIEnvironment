@@ -198,6 +198,8 @@ export const IPC = {
   SERVE_STATUS: 'serve:status',
   SYSTEM_NOTIFY: 'system:notify',
   SYSTEM_KEEP_AWAKE: 'system:keep-awake',
+  /** Arayüz ölçeği (erişilebilirlik): tüm pencereyi büyüt/küçült (setZoomFactor). */
+  UI_SET_ZOOM: 'ui:set-zoom',
   SEARCH_GLOBAL: 'search:global',
   COMMANDS_LIST: 'commands:list',
   PROVIDERS_SET_KEY: 'providers:set-key',

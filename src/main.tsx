@@ -5,10 +5,40 @@ import './index.css'
 import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, setStreamLivenessMs, setBehaviorTiming } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
-import { useSettingsStore } from '@/store/settingsStore'
+import { useSettingsStore, applyUiScale, uiScaleInitial, clampUiScale } from '@/store/settingsStore'
 
 // Tema, React başlamadan uygulanır (açılışta yanlış tema parlaması olmasın).
 applyTheme(themeInitial())
+
+// Erişilebilirlik: kalıcı arayüz ölçeğini açılışta HEMEN uygula (fontlar/kısımlar
+// büyük gelsin). preload/main biraz gecikmeli hazır olabilir → kısa yeniden dene.
+{
+  const scale = uiScaleInitial()
+  applyUiScale(scale)
+  let tries = 0
+  const retry = setInterval(() => {
+    tries++
+    applyUiScale(scale)
+    if (tries >= 5) clearInterval(retry)
+  }, 400)
+}
+
+// Tarayıcı gibi Ctrl/Cmd +/-/0 ile arayüzü büyüt/küçült (gözü bozuk kullanıcı için
+// hızlı erişim). Adım 0.1; 0 sıfırlar (1.3 varsayılan).
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return
+  const st = useSettingsStore.getState()
+  if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+    e.preventDefault()
+    st.setUiScale(clampUiScale(st.uiScale + 0.1))
+  } else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
+    e.preventDefault()
+    st.setUiScale(clampUiScale(st.uiScale - 0.1))
+  } else if (e.key === '0') {
+    e.preventDefault()
+    st.setUiScale(1.3)
+  }
+})
 
 // CDP/harici test sürücüleri için store kancası — üretim akışını değiştirmez
 ;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, settings: useSettingsStore, lastPrompt: getLastOutgoingPrompt, setStreamLivenessMs, setBehaviorTiming }

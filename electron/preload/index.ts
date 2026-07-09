@@ -204,6 +204,10 @@ export interface NexoraApi {
     /** 10.5: koşarken uyku engelleyici (true) / serbest bırak (false). */
     keepAwake: (on: boolean) => Promise<{ ok: boolean }>
   }
+  ui: {
+    /** Arayüz ölçeği (erişilebilirlik): tüm pencereyi büyüt/küçült. */
+    setZoom: (factor: number) => Promise<{ ok: boolean; factor: number }>
+  }
   search: {
     /** 10.6: oturum/proje/bilgi/kod genelinde arama. */
     global: (input: { query: string; activeProject?: string }) => Promise<import('../shared/ipc').GlobalSearchResults>
@@ -397,6 +401,9 @@ const api: NexoraApi = {
   serve: {
     set: (input: { enabled: boolean; port?: number }) => ipcRenderer.invoke(IPC.SERVE_SET, input),
     status: () => ipcRenderer.invoke(IPC.SERVE_STATUS)
+  },
+  ui: {
+    setZoom: (factor: number) => ipcRenderer.invoke(IPC.UI_SET_ZOOM, factor)
   },
   system: {
     notify: (input: { title: string; body: string }) => ipcRenderer.invoke(IPC.SYSTEM_NOTIFY, input),

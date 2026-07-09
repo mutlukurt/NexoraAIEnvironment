@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useSettingsStore } from '@/store/settingsStore'
+import { useSettingsStore, UI_SCALE_PRESETS, UI_SCALE_MIN, UI_SCALE_MAX, clampUiScale } from '@/store/settingsStore'
 import { useAppStore } from '@/store/appStore'
-import { X, Plus, Trash2, TerminalSquare } from 'lucide-react'
+import { X, Plus, Trash2, TerminalSquare, Minus, ZoomIn } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 import McpPanel from './McpPanel'
@@ -40,6 +40,8 @@ export default function SettingsModal() {
   const notifyOnDone = useSettingsStore((s) => s.notifyOnDone)
   const keepAwakeOnRun = useSettingsStore((s) => s.keepAwakeOnRun)
   const setSystem = useSettingsStore((s) => s.setSystem)
+  const uiScale = useSettingsStore((s) => s.uiScale)
+  const setUiScale = useSettingsStore((s) => s.setUiScale)
 
   const language = useAppStore((s) => s.language)
   const t = translations[language]
@@ -106,6 +108,57 @@ export default function SettingsModal() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 bg-ink-card flex flex-col gap-5">
+          {/* Arayüz Boyutu (erişilebilirlik) — EN ÜSTTE: fontlar/kısımlar küçük
+              geliyordu, tek tıkla büyüt. setZoomFactor tüm pencereyi ölçekler. */}
+          <div className="rounded-xl border border-brand-500/40 bg-brand-500/5 p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <ZoomIn className="h-4 w-4 text-brand-500" />
+              <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+                {language === 'tr' ? 'Arayüz Boyutu' : 'Interface Size'}
+              </span>
+              <span className="ml-auto rounded-md bg-brand-500/15 px-2 py-0.5 text-[12px] font-bold text-brand-600 dark:text-brand-300 tabular-nums">
+                %{Math.round(uiScale * 100)}
+              </span>
+            </div>
+            <span className="mt-1 block text-[12px] font-medium leading-normal text-ink-dim">
+              {language === 'tr'
+                ? 'Yazılar ve tüm arayüz (sidebar, sohbet, sekmeler) küçük geliyorsa büyüt. Kısayol: Ctrl ile + / − / 0.'
+                : 'Enlarge if text and the whole UI (sidebar, chat, tabs) feel too small. Shortcut: Ctrl with + / − / 0.'}
+            </span>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setUiScale(clampUiScale(uiScale - 0.1))}
+                disabled={uiScale <= UI_SCALE_MIN + 0.001}
+                title={language === 'tr' ? 'Küçült (Ctrl −)' : 'Smaller (Ctrl −)'}
+                className="grid h-9 w-9 place-items-center rounded-lg border border-ink-line bg-ink-card text-ink-mut hover:bg-ink-hi disabled:opacity-40 transition"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              {UI_SCALE_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => setUiScale(p.value)}
+                  className={
+                    'rounded-lg border px-3 py-2 text-[13px] font-semibold transition ' +
+                    (Math.abs(uiScale - p.value) < 0.001
+                      ? 'border-brand-500 bg-brand-500/15 text-brand-700 dark:text-brand-200'
+                      : 'border-ink-line bg-ink-card text-ink-mut hover:bg-ink-hi')
+                  }
+                >
+                  {language === 'tr' ? p.tr : p.en}
+                </button>
+              ))}
+              <button
+                onClick={() => setUiScale(clampUiScale(uiScale + 0.1))}
+                disabled={uiScale >= UI_SCALE_MAX - 0.001}
+                title={language === 'tr' ? 'Büyüt (Ctrl +)' : 'Larger (Ctrl +)'}
+                className="grid h-9 w-9 place-items-center rounded-lg border border-ink-line bg-ink-card text-ink-mut hover:bg-ink-hi disabled:opacity-40 transition"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
           {/* 10.9: Sağlayıcı Hub'ı — TÜM katalog (eski tek-uç Hibrit API bölümünün yerine;
               Bolt-tarzı güçlü-model düzeltmesi artık 60+ sağlayıcıdan seçilir, anahtar keychain'de) */}
           <ProviderHub language={language} />

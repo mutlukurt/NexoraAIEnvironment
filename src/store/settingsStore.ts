@@ -49,6 +49,46 @@ export interface Settings {
   enabledModels: Record<string, string[]>
   /** 10.10 — şu an AÇIKÇA seçili API modeli (null = yerel model kullanılıyor). */
   activeApiModel: { provider: string; model: string; label: string } | null
+  /**
+   * Arayüz ölçeği (erişilebilirlik): tüm pencerenin zoom faktörü. Varsayılan 1.3
+   * — arayüz varsayılan olarak daha büyük/okunur gelsin (kullanıcı isteği: fontlar
+   * çok küçüktü). 0.7–2.5 arası. setZoomFactor ile uygulanır.
+   */
+  uiScale: number
+}
+
+/** Arayüz boyutu ön ayarları (Ayarlar'daki butonlar). */
+export const UI_SCALE_PRESETS: Array<{ value: number; tr: string; en: string }> = [
+  { value: 1.0, tr: 'Normal', en: 'Normal' },
+  { value: 1.15, tr: 'Büyük', en: 'Large' },
+  { value: 1.3, tr: 'Daha Büyük', en: 'Larger' },
+  { value: 1.5, tr: 'En Büyük', en: 'Huge' },
+  { value: 1.75, tr: 'Devasa', en: 'Giant' }
+]
+export const UI_SCALE_MIN = 0.7
+export const UI_SCALE_MAX = 2.5
+export function clampUiScale(v: number): number {
+  if (!Number.isFinite(v)) return 1.3
+  return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, Math.round(v * 100) / 100))
+}
+/** Ölçeği tüm pencereye uygula (main süreç setZoomFactor). Web-mock kipinde no-op. */
+export function applyUiScale(scale: number): void {
+  try {
+    void window.nexora?.ui?.setZoom(clampUiScale(scale))
+  } catch {
+    /* main/preload hazır değil — açılışta yeniden denenir */
+  }
+}
+/** Açılışta React'ten ÖNCE persist edilmiş ölçeği oku (yanlış-boyut parlaması olmasın). */
+export function uiScaleInitial(): number {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return 1.3
+    const v = JSON.parse(raw).uiScale
+    return typeof v === 'number' ? clampUiScale(v) : 1.3
+  } catch {
+    return 1.3
+  }
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -71,7 +111,8 @@ const DEFAULT_SETTINGS: Settings = {
   provider: '',
   providerModel: '',
   enabledModels: {},
-  activeApiModel: null
+  activeApiModel: null,
+  uiScale: 1.3
 }
 
 function loadSettings(): Settings {
@@ -106,7 +147,8 @@ function loadSettings(): Settings {
       activeApiModel:
         parsed.activeApiModel && typeof parsed.activeApiModel === 'object' && parsed.activeApiModel.provider && parsed.activeApiModel.model
           ? parsed.activeApiModel
-          : null
+          : null,
+      uiScale: typeof parsed.uiScale === 'number' ? clampUiScale(parsed.uiScale) : 1.3
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -132,6 +174,8 @@ interface SettingsState extends Settings {
   toggleModel: (providerId: string, model: string) => void
   /** 10.10 — açık seçili API modelini kaydet (null = yerel). Yalnız durum; yan etki appStore'da. */
   setActiveApiModelState: (v: { provider: string; model: string; label: string } | null) => void
+  /** Arayüz ölçeğini ayarla: pencereye uygula + kalıcılaştır. */
+  setUiScale: (v: number) => void
   save: () => void
 }
 
@@ -168,6 +212,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setActiveApiModelState: (v) => {
     set({ activeApiModel: v })
+    get().save()
+  },
+  setUiScale: (v) => {
+    const scale = clampUiScale(v)
+    set({ uiScale: scale })
+    applyUiScale(scale)
     get().save()
   },
   setProvider: (patch) => {
@@ -209,6 +259,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           providerModel: get().providerModel,
           enabledModels: get().enabledModels,
           activeApiModel: get().activeApiModel,
+          uiScale: get().uiScale,
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )

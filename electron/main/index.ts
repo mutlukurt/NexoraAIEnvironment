@@ -401,6 +401,15 @@ function registerIpc(): void {
     return { ok: true }
   })
 
+  // Arayüz ölçeği (erişilebilirlik): tüm pencereyi büyüt/küçült. setZoomFactor
+  // gerçek tarayıcı zoom'u gibi düzeni yeniden akıtır (CSS zoom'un h-screen
+  // taşması olmaz). 0.6–3.0 arası kısılır.
+  ipcMain.handle(IPC.UI_SET_ZOOM, (_e, factor: number) => {
+    const f = Math.max(0.6, Math.min(3, Number(factor) || 1))
+    mainWindow?.webContents.setZoomFactor(f)
+    return { ok: true, factor: f }
+  })
+
   ipcMain.handle(IPC.VISION_PICK_IMAGE, async () => {
     const res = await dialog.showOpenDialog({
       title: 'Referans görsel seç',
