@@ -7,6 +7,7 @@ import SettingsModal from '@/components/SettingsModal'
 import WelcomeSetup from '@/components/WelcomeSetup'
 import DiffModal from '@/components/DiffModal'
 import PermissionModal from '@/components/PermissionModal'
+import CommandPalette from '@/components/CommandPalette'
 import { useHfStore } from '@/store/hfStore'
 import { useAppStore } from '@/store/appStore'
 
@@ -27,6 +28,7 @@ export default function App() {
       <WelcomeSetup />
       <DiffModal />
       <PermissionModal />
+      <CommandPalette />
     </div>
   )
 }

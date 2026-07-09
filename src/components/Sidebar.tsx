@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useAppStore, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
-import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, Sun, Moon, Palette, ChevronUp, ChevronDown } from 'lucide-react'
+import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, Sun, Moon, Palette, ChevronUp, ChevronDown, Command } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import logoImg from '@/assets/logo.png'
 
@@ -235,8 +235,16 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Alt bölüm: Ayarlar + profil (tema/dil menüsü) */}
+      {/* Alt bölüm: Komut paleti + Ayarlar + profil (tema/dil menüsü) */}
       <div className="flex flex-col gap-1 border-t border-ink-line p-3">
+        <button
+          onClick={() => window.dispatchEvent(new Event('nexora:openPalette'))}
+          className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-bold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
+        >
+          <Command className="h-4 w-4" />
+          <span className="flex-1 text-left">{language === 'tr' ? 'Komut paleti' : 'Command palette'}</span>
+          <kbd className="rounded border border-ink-line px-1.5 py-0.5 font-mono text-[10px] text-ink-dim">⌘K</kbd>
+        </button>
         <button
           onClick={() => window.dispatchEvent(new Event('nexora:openSettings'))}
           className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-bold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
