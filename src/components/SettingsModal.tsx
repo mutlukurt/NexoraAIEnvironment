@@ -5,6 +5,7 @@ import { X, Plus, Trash2, TerminalSquare } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 import McpPanel from './McpPanel'
+import ServePanel from './ServePanel'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -473,6 +474,9 @@ export default function SettingsModal() {
 
           {/* 10.1: yerel MCP araç sunucuları */}
           <McpPanel language={language} />
+
+          {/* 10.2: yerel modeli OpenAI-uyumlu uç olarak sun */}
+          <ServePanel language={language} />
 
           {/* Özel hızlı komutlar */}
           <div>

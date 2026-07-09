@@ -177,8 +177,18 @@ export const IPC = {
   MCP_CALL: 'mcp:call',
   MCP_RELOAD: 'mcp:reload',
   MCP_GET_CONFIG: 'mcp:get-config',
-  MCP_SET_CONFIG: 'mcp:set-config'
+  MCP_SET_CONFIG: 'mcp:set-config',
+  SERVE_SET: 'serve:set',
+  SERVE_STATUS: 'serve:status'
 } as const
+
+/** 10.2 — yerel OpenAI-uyumlu servis ucu durumu. */
+export interface ServeStatusIpc {
+  running: boolean
+  port: number
+  url: string
+  error?: string
+}
 
 /** 10.1 MCP: bir yerel stdio araç sunucusunun bağlantı durumu + keşfedilen araçları. */
 export interface McpServerInfo {

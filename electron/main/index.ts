@@ -11,7 +11,8 @@ import {
   setCustomSystemPrompt,
   disposeWorker,
   getActiveFamily,
-  debugHasFamilyNote
+  debugHasFamilyNote,
+  generateForServe
 } from './llamaService'
 import {
   searchModels,
@@ -68,6 +69,7 @@ import {
   configPath as mcpConfigPath,
   shutdown as mcpShutdown
 } from './mcpService'
+import { startServe, stopServe, serveStatus } from './serveEngine'
 import {
   IPC,
   type ChatSendInput,
@@ -576,6 +578,24 @@ function registerIpc(): void {
     await mcpWriteConfig(servers)
     return { servers: await mcpReload() }
   })
+
+  // ── 10.2 Serve engine: yerel OpenAI-uyumlu uç ────────────────────────────
+  ipcMain.handle(IPC.SERVE_SET, async (_e, input: { enabled: boolean; port?: number }) => {
+    if (!input.enabled) {
+      stopServe()
+      return serveStatus()
+    }
+    try {
+      return await startServe(input.port ?? 8787, {
+        generate: generateForServe,
+        isLoaded: isModelLoaded,
+        modelName: () => getLoadedInfo()?.name || 'nexora-local'
+      })
+    } catch (e) {
+      return { running: false, port: 0, url: '', error: (e as Error).message }
+    }
+  })
+  ipcMain.handle(IPC.SERVE_STATUS, () => serveStatus())
 }
 
 void app.whenReady().then(async () => {
@@ -668,4 +688,5 @@ app.on('before-quit', () => {
   void stopDev()
   stopVisionServer()
   mcpShutdown()
+  stopServe()
 })

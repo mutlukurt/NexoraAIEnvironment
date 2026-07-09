@@ -316,6 +316,20 @@ ${UPDATE_MODE_RULES}
   return engine!.prompt(prompt, options, onChunk)
 }
 
+/**
+ * 10.2 — Serve engine primitifi: yerel modeli OLDUĞU GİBİ üret (kod personası
+ * kurulumu korunur ama geçmiş yalıtılır → her istek bağımsız, OpenAI semantiği).
+ * Dışarıdan (Continue/Cline gibi) gelen istekler bunu kullanır.
+ */
+export async function generateForServe(
+  promptText: string,
+  options: { maxTokens?: number; temperature?: number; topP?: number } | undefined,
+  onToken: (t: string) => void
+): Promise<string> {
+  if (!engine) throw new Error('model yüklü değil')
+  return engine.prompt(promptText, { ...(options ?? {}), isolate: true }, onToken)
+}
+
 let apiAbort: AbortController | null = null
 
 export async function abortChat(): Promise<void> {

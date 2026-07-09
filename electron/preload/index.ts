@@ -193,6 +193,11 @@ export interface NexoraApi {
     /** mcp.json'ı yaz + yeniden bağlan. */
     setConfig: (servers: import('../shared/ipc').McpServerConfigInput[]) => Promise<{ servers: import('../shared/ipc').McpServerInfo[] }>
   }
+  serve: {
+    /** 10.2: yerel OpenAI-uyumlu ucu aç/kapat (aç: startServe, kapat: stopServe). */
+    set: (input: { enabled: boolean; port?: number }) => Promise<import('../shared/ipc').ServeStatusIpc>
+    status: () => Promise<import('../shared/ipc').ServeStatusIpc>
+  }
 }
 
 const api: NexoraApi = {
@@ -348,6 +353,10 @@ const api: NexoraApi = {
     reload: () => ipcRenderer.invoke(IPC.MCP_RELOAD),
     getConfig: () => ipcRenderer.invoke(IPC.MCP_GET_CONFIG),
     setConfig: (servers: import('../shared/ipc').McpServerConfigInput[]) => ipcRenderer.invoke(IPC.MCP_SET_CONFIG, servers)
+  },
+  serve: {
+    set: (input: { enabled: boolean; port?: number }) => ipcRenderer.invoke(IPC.SERVE_SET, input),
+    status: () => ipcRenderer.invoke(IPC.SERVE_STATUS)
   }
 }
 

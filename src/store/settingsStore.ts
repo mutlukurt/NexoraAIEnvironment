@@ -34,6 +34,9 @@ export interface Settings {
   trustAllowList: string[]
   /** Satır başına bir önek: bu komutlar hiçbir kipte çalışmaz. */
   trustDenyList: string[]
+  /** 10.2 — yerel modeli OpenAI-uyumlu HTTP ucu olarak sun (127.0.0.1). Varsayılan KAPALI. */
+  serveEnabled: boolean
+  servePort: number
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -48,7 +51,9 @@ const DEFAULT_SETTINGS: Settings = {
   apiAsk: false,
   trustTier: 'auto',
   trustAllowList: [],
-  trustDenyList: []
+  trustDenyList: [],
+  serveEnabled: false,
+  servePort: 8787
 }
 
 function loadSettings(): Settings {
@@ -72,7 +77,9 @@ function loadSettings(): Settings {
       apiAsk: parsed.apiAsk === true,
       trustTier: ['read', 'auto', 'full'].includes(parsed.trustTier) ? parsed.trustTier : 'auto',
       trustAllowList: Array.isArray(parsed.trustAllowList) ? parsed.trustAllowList.filter((x: unknown) => typeof x === 'string') : [],
-      trustDenyList: Array.isArray(parsed.trustDenyList) ? parsed.trustDenyList.filter((x: unknown) => typeof x === 'string') : []
+      trustDenyList: Array.isArray(parsed.trustDenyList) ? parsed.trustDenyList.filter((x: unknown) => typeof x === 'string') : [],
+      serveEnabled: parsed.serveEnabled === true,
+      servePort: typeof parsed.servePort === 'number' && parsed.servePort > 0 ? parsed.servePort : 8787
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -88,6 +95,8 @@ interface SettingsState extends Settings {
   removeCommand: (id: string) => void
   setApi: (patch: Partial<Pick<Settings, 'apiBaseUrl' | 'apiKey' | 'apiModel' | 'apiMode' | 'apiAsk'>>) => void
   setTrust: (patch: Partial<Pick<Settings, 'trustTier' | 'trustAllowList' | 'trustDenyList'>>) => void
+  /** 10.2 — servis ucunu aç/kapat; main sürecine bildirir + ayarı kalıcılaştırır. */
+  setServe: (patch: Partial<Pick<Settings, 'serveEnabled' | 'servePort'>>) => void
   save: () => void
 }
 
@@ -106,6 +115,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set((s) => ({ customCommands: s.customCommands.filter((c) => c.id !== id) })),
   setApi: (patch) => set(patch),
   setTrust: (patch) => set(patch),
+  setServe: (patch) => {
+    set(patch)
+    const st = get()
+    try {
+      void window.nexora.serve?.set({ enabled: st.serveEnabled, port: st.servePort })
+    } catch {
+      /* main hazır değilse açılışta gider */
+    }
+  },
   save: () => {
     try {
       localStorage.setItem(
@@ -123,6 +141,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           trustTier: get().trustTier,
           trustAllowList: get().trustAllowList.filter((x) => x.trim()),
           trustDenyList: get().trustDenyList.filter((x) => x.trim()),
+          serveEnabled: get().serveEnabled,
+          servePort: get().servePort,
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )
@@ -153,6 +173,10 @@ try {
       model: st.apiModel,
       mode: st.apiMode
     })
+  }
+  // 10.2: servis ucu kalıcı olarak açıksa başlat.
+  if (st.serveEnabled) {
+    void window.nexora.serve?.set({ enabled: true, port: st.servePort })
   }
 } catch {
   /* ignore */
