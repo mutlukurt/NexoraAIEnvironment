@@ -212,6 +212,17 @@ export interface NexoraApi {
     /** 10.8: ~/NexoraAI/commands/*.md slash-komutlarını listele. */
     list: () => Promise<Array<{ name: string; description: string; body: string }>>
   }
+  providers: {
+    /** 10.9: sağlayıcı API anahtarını OS keychain'e (safeStorage) yaz. */
+    setKey: (input: { providerId: string; key: string }) => Promise<{ ok: boolean; encrypted: boolean }>
+    deleteKey: (providerId: string) => Promise<{ ok: boolean }>
+    /** Anahtarı olan sağlayıcı id'leri (anahtarın kendisi DÖNMEZ). */
+    listConfigured: () => Promise<{ ids: string[]; encrypted: boolean }>
+    /** Seçilen sağlayıcı+model+kip ile hibrit motoru kur. */
+    activate: (input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) => Promise<{ ok: boolean; error?: string }>
+    /** Sağlayıcının /models ucundan canlı model listesi. */
+    fetchModels: (input: { providerId: string; customBaseUrl?: string }) => Promise<{ ok: boolean; models: string[]; error?: string }>
+  }
 }
 
 const api: NexoraApi = {
@@ -381,6 +392,14 @@ const api: NexoraApi = {
   },
   commands: {
     list: () => ipcRenderer.invoke(IPC.COMMANDS_LIST)
+  },
+  providers: {
+    setKey: (input: { providerId: string; key: string }) => ipcRenderer.invoke(IPC.PROVIDERS_SET_KEY, input),
+    deleteKey: (providerId: string) => ipcRenderer.invoke(IPC.PROVIDERS_DELETE_KEY, providerId),
+    listConfigured: () => ipcRenderer.invoke(IPC.PROVIDERS_LIST_CONFIGURED),
+    activate: (input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) =>
+      ipcRenderer.invoke(IPC.PROVIDERS_ACTIVATE, input),
+    fetchModels: (input: { providerId: string; customBaseUrl?: string }) => ipcRenderer.invoke(IPC.PROVIDERS_FETCH_MODELS, input)
   }
 }
 

@@ -7,6 +7,7 @@ import { getProjectName } from '@/lib/agentActions'
 import McpPanel from './McpPanel'
 import ServePanel from './ServePanel'
 import SchedulePanel from './SchedulePanel'
+import ProviderHub from './ProviderHub'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -26,9 +27,6 @@ export default function SettingsModal() {
   const setGpuLayers = useSettingsStore((s) => s.setGpuLayers)
   const save = useSettingsStore((s) => s.save)
   const customCommands = useSettingsStore((s) => s.customCommands)
-  const apiBaseUrl = useSettingsStore((s) => s.apiBaseUrl)
-  const apiKey = useSettingsStore((s) => s.apiKey)
-  const apiModel = useSettingsStore((s) => s.apiModel)
   const apiMode = useSettingsStore((s) => s.apiMode)
   const apiAsk = useSettingsStore((s) => s.apiAsk)
   const setApi = useSettingsStore((s) => s.setApi)
@@ -108,80 +106,17 @@ export default function SettingsModal() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 bg-ink-card flex flex-col gap-5">
-          {/* Hibrit API (4.1): OpenAI-uyumlu uzak uç — güçlü modelle düzeltme */}
-          <div className="rounded-xl border border-brand-500/40 bg-brand-500/5 p-4 shadow-sm">
-            <div className="flex flex-col pr-4">
-              <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-                {language === 'tr' ? 'Hibrit API (Güçlü Model)' : 'Hybrid API (Powerful Model)'}
+          {/* 10.9: Sağlayıcı Hub'ı — TÜM katalog (eski tek-uç Hibrit API bölümünün yerine;
+              Bolt-tarzı güçlü-model düzeltmesi artık 60+ sağlayıcıdan seçilir, anahtar keychain'de) */}
+          <ProviderHub language={language} />
+          {apiMode === 'fix' && (
+            <label className="flex cursor-pointer items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 px-4 py-2.5 shadow-sm">
+              <span className="text-[12px] font-semibold text-ink-mut">
+                {language === 'tr' ? 'API\'ye göndermeden önce sor ("düzelt api" ile onayla)' : 'Ask before sending to the API (confirm with "fix api")'}
               </span>
-              <span className="mt-1 text-[11px] font-medium leading-normal text-ink-dim">
-                {language === 'tr'
-                  ? 'OpenAI-uyumlu bir uç (OpenAI, OpenRouter, yerel sunucu…). Yerel küçük modelin çözemediği karmaşık hataları güçlü bir modele düzelttir — Bolt gibi.'
-                  : 'An OpenAI-compatible endpoint (OpenAI, OpenRouter, a local server…). Let a powerful model fix the hard errors the small local model cannot — like Bolt.'}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(['off', 'fix', 'all'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setApi({ apiMode: m })}
-                  className={
-                    'rounded-lg px-3 py-1.5 text-xs font-bold transition ' +
-                    (apiMode === m ? 'bg-brand-600 text-white' : 'bg-ink-hi text-ink-mut hover:text-ink-text')
-                  }
-                >
-                  {m === 'off'
-                    ? language === 'tr' ? 'Kapalı' : 'Off'
-                    : m === 'fix'
-                    ? language === 'tr' ? 'Sadece Düzeltme' : 'Fixes Only'
-                    : language === 'tr' ? 'Tüm Turlar' : 'All Turns'}
-                </button>
-              ))}
-            </div>
-            {apiMode !== 'off' && (
-              <div className="mt-3 flex flex-col gap-2">
-                <input
-                  value={apiBaseUrl}
-                  onChange={(e) => setApi({ apiBaseUrl: e.target.value })}
-                  placeholder={language === 'tr' ? 'Uç adresi (ör. https://api.openai.com/v1)' : 'Base URL (e.g. https://api.openai.com/v1)'}
-                  className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
-                />
-                <input
-                  value={apiModel}
-                  onChange={(e) => setApi({ apiModel: e.target.value })}
-                  placeholder={language === 'tr' ? 'Model adı (ör. gpt-4o-mini)' : 'Model name (e.g. gpt-4o-mini)'}
-                  className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
-                />
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApi({ apiKey: e.target.value })}
-                  placeholder={language === 'tr' ? 'API anahtarı (cihazında saklanır)' : 'API key (stored on your device)'}
-                  className="rounded-lg border border-ink-line/70 bg-ink-panel px-3 py-2 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
-                />
-                {apiMode === 'fix' && (
-                  <>
-                    <p className="text-[11px] font-medium leading-normal text-ink-dim">
-                      {language === 'tr'
-                        ? 'Sadece Düzeltme modunda API son çaredir: her hata önce modelsiz onarımı ve yerel modeli dener; API yalnızca yerel model çözemeyince devreye girer.'
-                        : 'In Fixes Only mode the API is the last resort: every error first tries the model-free repair and the local model; the API steps in only when local fails.'}
-                    </p>
-                    <label className="flex cursor-pointer items-center justify-between py-1">
-                      <span className="text-xs font-semibold text-ink-mut">
-                        {language === 'tr' ? 'API\'ye göndermeden önce sor ("düzelt api" ile onayla)' : 'Ask before sending to the API (confirm with "fix api")'}
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={apiAsk}
-                        onChange={(e) => setApi({ apiAsk: e.target.checked })}
-                        className="h-4 w-4 accent-brand-500"
-                      />
-                    </label>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+              <input type="checkbox" checked={apiAsk} onChange={(e) => setApi({ apiAsk: e.target.checked })} className="h-4 w-4 accent-brand-500" />
+            </label>
+          )}
 
           {/* 7.5 İki katmanlı güven: sandbox hükümleri + onay politikası */}
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm">

@@ -183,7 +183,12 @@ export const IPC = {
   SYSTEM_NOTIFY: 'system:notify',
   SYSTEM_KEEP_AWAKE: 'system:keep-awake',
   SEARCH_GLOBAL: 'search:global',
-  COMMANDS_LIST: 'commands:list'
+  COMMANDS_LIST: 'commands:list',
+  PROVIDERS_SET_KEY: 'providers:set-key',
+  PROVIDERS_DELETE_KEY: 'providers:delete-key',
+  PROVIDERS_LIST_CONFIGURED: 'providers:list-configured',
+  PROVIDERS_ACTIVATE: 'providers:activate',
+  PROVIDERS_FETCH_MODELS: 'providers:fetch-models'
 } as const
 
 /** 10.6 — genel arama sonuçları (oturum/proje/bilgi/kod). */

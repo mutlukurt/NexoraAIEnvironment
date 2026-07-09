@@ -41,6 +41,10 @@ export interface Settings {
   notifyOnDone: boolean
   /** 10.5 — koşarken makinenin uyumasını engelle. Varsayılan AÇIK. */
   keepAwakeOnRun: boolean
+  /** 10.9 — seçili sağlayıcı (katalog id'si; '' = yok). apiMode hibrit kipi belirler. */
+  provider: string
+  /** 10.9 — seçili model id'si. */
+  providerModel: string
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -59,7 +63,9 @@ const DEFAULT_SETTINGS: Settings = {
   serveEnabled: false,
   servePort: 8787,
   notifyOnDone: true,
-  keepAwakeOnRun: true
+  keepAwakeOnRun: true,
+  provider: '',
+  providerModel: ''
 }
 
 function loadSettings(): Settings {
@@ -87,7 +93,9 @@ function loadSettings(): Settings {
       serveEnabled: parsed.serveEnabled === true,
       servePort: typeof parsed.servePort === 'number' && parsed.servePort > 0 ? parsed.servePort : 8787,
       notifyOnDone: parsed.notifyOnDone !== false,
-      keepAwakeOnRun: parsed.keepAwakeOnRun !== false
+      keepAwakeOnRun: parsed.keepAwakeOnRun !== false,
+      provider: typeof parsed.provider === 'string' ? parsed.provider : '',
+      providerModel: typeof parsed.providerModel === 'string' ? parsed.providerModel : ''
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -107,6 +115,8 @@ interface SettingsState extends Settings {
   setServe: (patch: Partial<Pick<Settings, 'serveEnabled' | 'servePort'>>) => void
   /** 10.5 — bildirim / uyku-engelleyici tercihleri. */
   setSystem: (patch: Partial<Pick<Settings, 'notifyOnDone' | 'keepAwakeOnRun'>>) => void
+  /** 10.9 — sağlayıcı/model seç + hibrit motoru kur (keychain anahtarı main'de). */
+  setProvider: (patch: Partial<Pick<Settings, 'provider' | 'providerModel' | 'apiMode' | 'apiBaseUrl'>>) => void
   save: () => void
 }
 
@@ -135,6 +145,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
   setSystem: (patch) => set(patch),
+  setProvider: (patch) => {
+    set(patch)
+    const st = get()
+    try {
+      void window.nexora.providers?.activate({
+        providerId: st.provider,
+        model: st.providerModel,
+        mode: st.apiMode,
+        customBaseUrl: st.apiBaseUrl
+      })
+    } catch {
+      /* main hazır değilse açılışta gider */
+    }
+  },
   save: () => {
     try {
       localStorage.setItem(
@@ -156,6 +180,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           servePort: get().servePort,
           notifyOnDone: get().notifyOnDone,
           keepAwakeOnRun: get().keepAwakeOnRun,
+          provider: get().provider,
+          providerModel: get().providerModel,
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )
@@ -190,6 +216,15 @@ try {
   // 10.2: servis ucu kalıcı olarak açıksa başlat.
   if (st.serveEnabled) {
     void window.nexora.serve?.set({ enabled: true, port: st.servePort })
+  }
+  // 10.9: seçili sağlayıcı varsa hibrit motoru kur (anahtar keychain'de).
+  if (st.provider && st.apiMode !== 'off') {
+    void window.nexora.providers?.activate({
+      providerId: st.provider,
+      model: st.providerModel,
+      mode: st.apiMode,
+      customBaseUrl: st.apiBaseUrl
+    })
   }
 } catch {
   /* ignore */

@@ -73,6 +73,8 @@ import { startServe, stopServe, serveStatus } from './serveEngine'
 import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
 import { globalSearch } from './searchService'
 import { listCommands } from './commandsService'
+import { activateProvider, fetchProviderModels } from './providersService'
+import { setProviderKey, deleteProviderKey, listConfiguredProviders } from './providerKeysService'
 import {
   IPC,
   type ChatSendInput,
@@ -619,6 +621,19 @@ function registerIpc(): void {
 
   // ── 10.8 Slash-komut iş akışları (.md → /komut) ──────────────────────────
   ipcMain.handle(IPC.COMMANDS_LIST, () => listCommands())
+
+  // ── 10.9 Sağlayıcı hub'ı: keychain anahtarlar + aktivasyon + model çekme ──
+  ipcMain.handle(IPC.PROVIDERS_SET_KEY, (_e, input: { providerId: string; key: string }) =>
+    setProviderKey(input.providerId, input.key)
+  )
+  ipcMain.handle(IPC.PROVIDERS_DELETE_KEY, (_e, providerId: string) => deleteProviderKey(providerId))
+  ipcMain.handle(IPC.PROVIDERS_LIST_CONFIGURED, () => listConfiguredProviders())
+  ipcMain.handle(IPC.PROVIDERS_ACTIVATE, (_e, input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) =>
+    activateProvider(input)
+  )
+  ipcMain.handle(IPC.PROVIDERS_FETCH_MODELS, (_e, input: { providerId: string; customBaseUrl?: string }) =>
+    fetchProviderModels(input.providerId, input.customBaseUrl)
+  )
 }
 
 void app.whenReady().then(async () => {

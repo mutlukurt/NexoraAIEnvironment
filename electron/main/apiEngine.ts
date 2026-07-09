@@ -19,9 +19,11 @@ export interface ApiConfig {
   model: string
   /** 'off' = yalnız yerel; 'fix' = sadece düzeltme turları API; 'all' = tüm turlar API. */
   mode: 'off' | 'fix' | 'all'
+  /** 10.9: uç şeması — 'openai' (varsayılan, çoğu sağlayıcı) veya 'anthropic' (native /v1/messages). */
+  adapter?: 'openai' | 'anthropic'
 }
 
-let cfg: ApiConfig = { baseUrl: '', apiKey: '', model: '', mode: 'off' }
+let cfg: ApiConfig = { baseUrl: '', apiKey: '', model: '', mode: 'off', adapter: 'openai' }
 
 export function setApiConfig(next: Partial<ApiConfig>): void {
   cfg = { ...cfg, ...next }
@@ -46,13 +48,94 @@ export function shouldUseApi(isFixTurn: boolean, escalate = false, fidelityEscal
   return cfg.mode === 'fix' && ((isFixTurn && escalate) || fidelityEscalate)
 }
 
-/** OpenAI-uyumlu uzak uca durumsuz sohbet (SSE akışı). */
+/** İç yardımcı: SSE akışını canlılık bekçisiyle tüket, delta'ları çıkar. */
+async function pumpSse(
+  res: Response,
+  extractDelta: (json: Record<string, unknown>) => string | undefined,
+  onToken: (t: string) => void
+): Promise<string> {
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`API hatası (HTTP ${res.status}): ${errText.slice(0, 300)}`)
+  }
+  let text = ''
+  const reader = res.body!.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  const handleChunk = (value: Uint8Array): void => {
+    buf += dec.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6).trim()
+      if (!payload || payload === '[DONE]') continue
+      try {
+        const delta = extractDelta(JSON.parse(payload))
+        if (delta) {
+          text += delta
+          onToken(delta)
+        }
+      } catch {
+        /* bozuk SSE satırı — atla */
+      }
+    }
+  }
+  try {
+    await pumpWithLiveness(reader, handleChunk, { firstMs: SERVER_FIRST_TOKEN_MS, idleMs: SERVER_IDLE_MS })
+  } catch (err) {
+    const name = (err as Error).name
+    if (name === 'AbortError' || name === 'StreamDeadError') return text
+    throw err
+  }
+  return text
+}
+
+/** Anthropic native /v1/messages (SSE) — OpenAI şemasından farklı. */
+async function promptAnthropic(
+  systemPrompt: string,
+  userPrompt: string,
+  onToken: (t: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  const base = cfg.baseUrl.replace(/\/+$/, '')
+  const url = /\/v\d+$/.test(base) ? `${base}/messages` : `${base}/v1/messages`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': cfg.apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      stream: true,
+      max_tokens: 4096,
+      temperature: 0.1,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }]
+    }),
+    signal
+  })
+  return pumpSse(
+    res,
+    (j) => {
+      // content_block_delta → delta.text
+      const d = (j as { delta?: { text?: string } }).delta
+      return d?.text
+    },
+    onToken
+  )
+}
+
+/** OpenAI-uyumlu uzak uca durumsuz sohbet (SSE akışı). Sağlayıcıların çoğu bu şema. */
 export async function promptApi(
   systemPrompt: string,
   userPrompt: string,
   onToken: (t: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
+  if (cfg.adapter === 'anthropic') return promptAnthropic(systemPrompt, userPrompt, onToken, signal)
   const base = cfg.baseUrl.replace(/\/+$/, '')
   // Kullanıcı '/v1' verse de vermese de doğru uca vur.
   const url = /\/v\d+$/.test(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`
@@ -73,42 +156,5 @@ export async function promptApi(
     }),
     signal
   })
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '')
-    throw new Error(`API hatası (HTTP ${res.status}): ${errText.slice(0, 300)}`)
-  }
-  let text = ''
-  const reader = res.body!.getReader()
-  const dec = new TextDecoder()
-  let buf = ''
-  // 8.1: uzak uç de 0-bayt asılabilir — aynı canlılık bekçisi (reader.cancel +
-  // StreamDeadError). Kısmi metinle dön ki üst kat asılı kalmasın.
-  const handleChunk = (value: Uint8Array): void => {
-    buf += dec.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6).trim()
-      if (!payload || payload === '[DONE]') continue
-      try {
-        const j = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> }
-        const delta = j.choices?.[0]?.delta?.content
-        if (delta) {
-          text += delta
-          onToken(delta)
-        }
-      } catch {
-        /* bozuk SSE satırı — atla */
-      }
-    }
-  }
-  try {
-    await pumpWithLiveness(reader, handleChunk, { firstMs: SERVER_FIRST_TOKEN_MS, idleMs: SERVER_IDLE_MS })
-  } catch (err) {
-    const name = (err as Error).name
-    if (name === 'AbortError' || name === 'StreamDeadError') return text
-    throw err
-  }
-  return text
+  return pumpSse(res, (j) => (j as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]?.delta?.content, onToken)
 }
