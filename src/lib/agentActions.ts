@@ -11,6 +11,7 @@
  */
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useTermStore } from '@/store/termStore'
+import { looksFileMutating, SYNCABLE_EXT_RE } from '@shared/fileOps'
 
 export interface McpCallDirective {
   server: string
@@ -215,6 +216,45 @@ export interface ActionLogger {
   (line: string): void
 }
 
+/** Bir [RUN] diskte dosya değiştirdikten sonra çalışma alanını yeniden tarar ve
+ *  editör/assets store'unu eşitler: yeni/değişen dosyaları ekler, silinenleri düşer. */
+async function rescanAndSync(projectName: string, log: ActionLogger): Promise<void> {
+  try {
+    const res = await window.nexora.agent.rescan(projectName)
+    if (!res.ok || !res.files) return
+    const store = useArtifactsStore.getState()
+    const current = store.files
+    const scanned = new Set(res.files.map((f: { path: string; content: string }) => f.path))
+    let added = 0
+    let changed = 0
+    let removed = 0
+    for (const f of res.files) {
+      const ex = current[f.path]
+      if (!ex) {
+        store.upsertFile(f.path, f.content)
+        added++
+      } else if (ex.content !== f.content) {
+        store.upsertFile(f.path, f.content)
+        changed++
+      }
+    }
+    // Silinenleri düş — yalnız tarama eksiksizse (truncated değil) ve tür tanıdıksa.
+    if (!res.truncated) {
+      for (const path of Object.keys(current)) {
+        if (!scanned.has(path) && SYNCABLE_EXT_RE.test(path)) {
+          store.deleteFile(path)
+          removed++
+        }
+      }
+    }
+    if (added || changed || removed) {
+      log(`🔄 Çalışma alanı eşitlendi — +${added} yeni · ${changed} değişti · −${removed} silindi`)
+    }
+  } catch {
+    /* rescan opsiyonel — komut zaten çalıştı */
+  }
+}
+
 /** Direktifleri sırayla yürütür; her adımı log callback'ine yazar. */
 export async function executeDirectives(d: AgentDirectives, log: ActionLogger): Promise<void> {
   const projectName = getProjectName()
@@ -270,6 +310,9 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
     const tail = res.output ? res.output.slice(-500).trim() : ''
     if (res.ok) {
       log(`✓ Komut tamamlandı${tail ? '\n' + tail : ''}`)
+      // Dosya-değiştiren komut çalıştıysa çalışma alanını yeniden tara ve
+      // editör/assets'i eşitle (yeni .webp görünür, silinen dosya kaybolur).
+      if (looksFileMutating(cmd)) await rescanAndSync(projectName, log)
     } else {
       log(`✗ Komut başarısız (kod ${res.exitCode ?? '?'})${tail ? '\n' + tail : ''}`)
     }

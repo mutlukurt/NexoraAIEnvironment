@@ -63,13 +63,19 @@ AGENT ACTIONS: If (and ONLY if) the request requires it, you may perform real ac
 [FONT] Outfit
 [FETCH] https://example.com/logo.svg -> src/assets/logo.svg
 [RUN] npm run build
+[RUN] cwebp src/assets/photo.png -o src/assets/photo.webp
+[RUN] python3 -c "from PIL import Image; Image.open('src/assets/a.png').save('src/assets/a.avif')"
+[RUN] mv src/assets/old.png src/assets/new.png
+[RUN] rm src/assets/unused.jpg
 [DEV]
 [REMEMBER] the user prefers X
 Meaning: PKG=add npm dependency, FONT=download+wire a Google Font, FETCH=download a file into the project, RUN=run a shell command in the project folder (no sudo), DEV=install deps and start localhost dev server, REMEMBER=PROPOSE a durable preference/fact to remember (NOT auto-saved — the user approves it). Use REMEMBER only when the user asks you to remember something or states a lasting preference.
+
+FILE OPERATIONS: You have FULL access to the project's files on disk (the working directory IS the project folder). For ANY file operation the user asks — convert/optimize an image (webp, avif — use cwebp, ImageMagick \`convert\`, or Python Pillow), delete, rename, copy, move, resize, compress — emit a [RUN] with the right shell command using project-relative paths (e.g. src/assets/...). After the command the workspace is re-scanned automatically, so new/converted files appear in the editor + assets and deleted files disappear — you do NOT also need [DELETE] for files a [RUN] rm removed. Use [DELETE] only for files that live solely in the editor and were never written to disk.
 ---`
 
 const AGENT_INTENT_RE =
-  /\b(kur|yükle|yukle|install|paket|package|font|fontu|fonts?|indir|download|çalıştır|calistir|başlat|baslat|run\s|npm|pip\b|pillow|localhost|dev\s*server|sunucu|görsel\s*(ekle|indir)|resim\s*(ekle|indir)|image|remember|hatırla|hatirla|aklında|aklinda|unutma|not al)\b/i
+  /\b(kur|yükle|yukle|install|paket|package|font|fontu|fonts?|indir|download|çalıştır|calistir|başlat|baslat|run\s|npm|pip\b|pillow|localhost|dev\s*server|sunucu|görsel\s*(ekle|indir)|resim\s*(ekle|indir)|image|remember|hatırla|hatirla|aklında|aklinda|unutma|not al|webp|avif|dönüştür|donustur|convert|format|optimize|optimizasyon|sıkıştır|sikistir|compress|\bsil\b|\bsil(er|in)|\bdelete\b|kaldır|kaldir|adlandır|adlandir|rename|kopyala|\bcopy\b|taşı|tasi|\bmove\b|\bkes\b|\bcut\b|resize|boyutlandır|boyutlandir|magick|imagemagick|ffmpeg|cwebp)\b/i
 
 /** Kullanıcının isteği gerçek bir agent eylemi (paket/font/indirme/çalıştırma) istiyor mu? */
 export function detectAgentIntent(text: string): boolean {

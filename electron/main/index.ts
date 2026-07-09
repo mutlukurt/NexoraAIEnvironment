@@ -27,6 +27,7 @@ import {
   fetchToFile,
   addGoogleFont,
   syncWorkspace,
+  rescanWorkspace,
   startDev,
   stopDev,
   getDevUrl,
@@ -402,6 +403,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC.AGENT_DEV_STOP, async () => {
     await stopDev()
     return { ok: true }
+  })
+
+  // Bir [RUN] komutu diskte dosya değiştirdikten sonra editör/assets'i eşitle.
+  ipcMain.handle(IPC.AGENT_RESCAN, async (_e, projectName: string) => {
+    try {
+      const { files, truncated } = await rescanWorkspace(projectName)
+      return { ok: true, files, truncated }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   // Arayüz ölçeği (erişilebilirlik): tüm pencereyi büyüt/küçült. setZoomFactor

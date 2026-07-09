@@ -187,6 +187,9 @@ export const IPC = {
   AGENT_BUILD_ERROR: 'agent:build-error',
   AGENT_RUNTIME_ERROR: 'agent:runtime-error',
   AGENT_BUILD_CHECK: 'agent:build-check',
+  // Bir [RUN] komutu diskte dosya değiştirdikten sonra çalışma alanını yeniden
+  // tara → editör/assets'i eşitle (yeni .webp görünür, silinen kaybolur).
+  AGENT_RESCAN: 'agent:rescan',
   VISION_PICK_IMAGE: 'vision:pick-image',
   VISION_ANALYZE: 'vision:analyze',
   VISION_STATUS: 'vision:status',
@@ -544,6 +547,15 @@ export interface AgentRunInput {
   command: string
   /** 7.6: verilirse çıktı bu kimlikle TERM_OUTPUT olayları olarak canlı akar. */
   execId?: string
+}
+
+/** Çalışma alanını yeniden tarama sonucu (AGENT_RESCAN) — metin + görsel(data-URL). */
+export interface AgentRescanResult {
+  ok: boolean
+  files?: Array<{ path: string; content: string }>
+  /** Dosya sayısı tavana takıldıysa true → silme çıkarımı yapma (eksik tarama). */
+  truncated?: boolean
+  error?: string
 }
 
 /** 7.6 görünür terminal: bir komutun canlı çıktı olayı. */

@@ -99,6 +99,7 @@ export interface NexoraApi {
     devStart: (input: AgentDevInput) => Promise<AgentDevResult>
     devStop: () => Promise<{ ok: boolean }>
     buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string; skipped?: boolean }>
+    rescan: (projectName: string) => Promise<import('../shared/ipc').AgentRescanResult>
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
     /** 5.7 değer probu: koşan dev sunucusunun URL'i (yoksa null). */
     devUrl: () => Promise<{ url: string | null }>
@@ -310,6 +311,7 @@ const api: NexoraApi = {
     devStart: (input: AgentDevInput) => ipcRenderer.invoke(IPC.AGENT_DEV_START, input),
     devStop: () => ipcRenderer.invoke(IPC.AGENT_DEV_STOP),
     buildCheck: (input: AgentDevInput) => ipcRenderer.invoke(IPC.AGENT_BUILD_CHECK, input),
+    rescan: (projectName: string) => ipcRenderer.invoke(IPC.AGENT_RESCAN, projectName),
     devUrl: () => ipcRenderer.invoke(IPC.AGENT_DEV_STATUS),
     onDevStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)

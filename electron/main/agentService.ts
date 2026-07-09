@@ -729,6 +729,15 @@ export async function syncWorkspace(projectName: string, files: ProjectFileInput
   const scaffolded = linked ? files : scaffoldProject(files, projectName)
   for (const f of scaffolded) {
     const full = safeJoin(dir, f.path)
+    // Data-URL içerikli görsel asset ("Assets'e ekle" ile eklenen üretilmiş
+    // görsel) GERÇEK İKİLİ olarak yazılır — shell araçları (cwebp/convert/pillow)
+    // gerçek PNG bekler; utf8 yazılırsa "data:image/...;base64," metni olur, bozar.
+    const durl = /^data:[^;]+;base64,(.*)$/s.exec(f.content)
+    if (durl) {
+      await mkdir(dirname(full), { recursive: true })
+      await writeFile(full, Buffer.from(durl[1], 'base64'))
+      continue
+    }
     const content = /(^|\/)index\.html$/.test(f.path) ? injectRuntimeHook(f.content) : f.content
     // Bağlı klasörde yalnızca DEĞİŞEN dosya yazılır: kullanıcının gerçek
     // projesinde 400 dosyanın mtime'ını her turda kirletmek (watcher fırtınası,
@@ -802,6 +811,55 @@ export async function scanProjectDir(root: string): Promise<{ files: ProjectFile
   }
   await walk(root)
   return { files, skipped }
+}
+
+const RESCAN_IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'ico', 'bmp'])
+const RESCAN_IMG_MAX = 4 * 1024 * 1024 // 4MB tavan — data-URL oturumu şişirmesin
+
+/**
+ * Çalışma alanını yeniden tara: metin dosyaları (scanProjectDir) + görsel
+ * ikilileri data-URL olarak. Bir [RUN] komutu diskte dosya oluşturunca/silince/
+ * yeniden adlandırınca editörü + assets'i eşitlemek için (yeni .webp görünür,
+ * silinen dosya kaybolur). SVG metin olduğu için scanProjectDir'den gelir.
+ */
+export async function rescanWorkspace(
+  projectName: string
+): Promise<{ files: ProjectFileInput[]; truncated: boolean }> {
+  const dir = workspaceDir(projectName)
+  if (!existsSync(dir)) return { files: [], truncated: false }
+  const { files } = await scanProjectDir(dir)
+  const imgs: ProjectFileInput[] = []
+  const walk = async (d: string): Promise<void> => {
+    let entries
+    try {
+      entries = await readdir(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (imgs.length >= 200) break
+      const full = join(d, e.name)
+      if (e.isDirectory()) {
+        if (IMPORT_SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue
+        await walk(full)
+      } else if (e.isFile()) {
+        const ext = e.name.split('.').pop()?.toLowerCase() ?? ''
+        if (!RESCAN_IMG_EXTS.has(ext)) continue
+        try {
+          const stt = await stat(full)
+          if (stt.size > RESCAN_IMG_MAX) continue
+          const buf = await readFile(full)
+          const mime = ext === 'jpg' ? 'jpeg' : ext
+          const rel = full.slice(dir.length + 1).split(sep).join('/')
+          imgs.push({ path: rel, content: `data:image/${mime};base64,${buf.toString('base64')}` })
+        } catch {
+          /* atla */
+        }
+      }
+    }
+  }
+  await walk(dir)
+  return { files: [...files, ...imgs], truncated: files.length >= IMPORT_MAX_FILES }
 }
 
 /**
