@@ -4148,6 +4148,23 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       !buildReq &&
       (allFiles.length === 0 || looksLikeChatIntent(trimmed))
 
+    // 8.5 GENELLEME: HER yeni-proje build turunda (yalnız PLANLI değil) proje
+    // kimliğini kur. Zayıf yerel model (3B) sectioned build package.json ÜRETMEZ
+    // → getProjectName sessizce 'nexora-projesi' ORTAK ÇÖP dizinine düşer ve
+    // dosya-işlemleri (pillow webp, sil/taşı) o dev/karışık dizinde koşar (canlı
+    // bug: local skeleton→pillow webp yanlış dizine gitti). Idempotent — adı olan
+    // package.json'a asla dokunmaz; planlı build de kendi çağrısını yapar.
+    if (
+      buildReq &&
+      allFiles.length === 0 &&
+      !isChatTurn &&
+      !isEnhanceTurn &&
+      !opts?.expectFile &&
+      !opts?.hideUser
+    ) {
+      ensureProjectIdentity(trimmed)
+    }
+
     // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
     // kalanlar modele yalnızca yol listesi olarak bildirilir. Plan turunda
     // içerik gitmez — plan için dosya LİSTESİ yeter, bağlam ucuz kalır.
