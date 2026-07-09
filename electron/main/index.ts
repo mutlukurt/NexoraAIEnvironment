@@ -72,6 +72,7 @@ import {
 import { startServe, stopServe, serveStatus } from './serveEngine'
 import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
 import { globalSearch } from './searchService'
+import { listCommands } from './commandsService'
 import {
   IPC,
   type ChatSendInput,
@@ -615,6 +616,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SEARCH_GLOBAL, (_e, input: { query: string; activeProject?: string }) =>
     globalSearch(input.query, input.activeProject)
   )
+
+  // ── 10.8 Slash-komut iş akışları (.md → /komut) ──────────────────────────
+  ipcMain.handle(IPC.COMMANDS_LIST, () => listCommands())
 }
 
 void app.whenReady().then(async () => {

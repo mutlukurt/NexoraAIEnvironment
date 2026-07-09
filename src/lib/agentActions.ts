@@ -35,9 +35,25 @@ const PKG_RE = /^\s*\[PKG\]\s+(.+?)\s*$/gm
 const DEV_RE = /^\s*\[DEV\]\s*$/m
 // [MCP] sunucu araç {"json":"args"}   → JSON opsiyonel (argümansız araçlar için)
 const MCP_RE = /^\s*\[MCP\]\s+(\S+)\s+(\S+)[ \t]*(\{.*\})?[ \t]*$/gm
+// 10.8 [REMEMBER] ...   → model bir şey öğrenmeyi ÖNERİR (onaylı-hafıza; oto-yazMAZ)
+const REMEMBER_RE = /^\s*\[REMEMBER\]\s+(.+?)\s*$/gim
 
 /** Chat balonunda gizlenecek direktif satırları. */
-export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP)\]/
+export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP|REMEMBER)\]/i
+
+/**
+ * 10.8 — Onaylı-hafıza: modelin "[REMEMBER] ..." önerilerini çıkarır. Oto-yazMAZ;
+ * kullanıcı onaylayınca proje bilgi tabanına user-preference olarak işlenir.
+ */
+export function parseMemories(text: string): string[] {
+  if (!text) return []
+  const out: string[] = []
+  for (const m of text.matchAll(REMEMBER_RE)) {
+    const v = m[1].trim()
+    if (v && !isPlaceholderValue(v) && v.length <= 300) out.push(v)
+  }
+  return [...new Set(out)]
+}
 
 /**
  * İçeriği yalnızca direktif/şablon satırlarından oluşan "dosya" — küçük model

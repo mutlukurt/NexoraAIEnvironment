@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage } from '@shared/ipc'
 import { useAppStore } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
@@ -8,6 +8,7 @@ import { useHfStore } from '@/store/hfStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
 import RewindMenu from '@/components/RewindMenu'
+import { expandSlashCommand, matchSlash, type SlashCommand } from '@/lib/slashCommands'
 import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import ModelSelect from './ModelSelect'
@@ -327,6 +328,9 @@ export default function ChatPanel() {
   const openSession = useAppStore((s) => s.openSession)
   const pendingComments = useAppStore((s) => s.pendingComments)
   const applySteerComments = useAppStore((s) => s.applySteerComments)
+  const pendingMemories = useAppStore((s) => s.pendingMemories)
+  const approveMemory = useAppStore((s) => s.approveMemory)
+  const dismissMemory = useAppStore((s) => s.dismissMemory)
   const clearSteerComments = useAppStore((s) => s.clearSteerComments)
   const queuedTasks = useAppStore((s) => s.queuedTasks)
   const queueWaitReason = useAppStore((s) => s.queueWaitReason)
@@ -347,6 +351,29 @@ export default function ChatPanel() {
   const customCommands = useSettingsStore((s) => s.customCommands)
   const usableCommands = customCommands.filter((c) => c.label.trim() && c.prompt.trim())
 
+  // 10.8: slash-komutlar — .md dosyaları (main) + ayarlardaki hızlı komutlar.
+  const [fileCommands, setFileCommands] = useState<SlashCommand[]>([])
+  useEffect(() => {
+    window.nexora.commands
+      ?.list()
+      .then((cs: Array<{ name: string; description: string; body: string }>) =>
+        setFileCommands(cs.map((c) => ({ ...c, source: 'file' as const })))
+      )
+      .catch(() => setFileCommands([]))
+  }, [])
+  const slashCommands: SlashCommand[] = useMemo(
+    () => [
+      ...fileCommands,
+      ...usableCommands.map((c) => ({
+        name: c.label.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, ''),
+        description: c.label,
+        body: c.prompt,
+        source: 'custom' as const
+      }))
+    ],
+    [fileCommands, usableCommands]
+  )
+
   const [text, setText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -361,8 +388,10 @@ export default function ChatPanel() {
   }, [messages])
 
   const submit = (inputText: string) => {
-    const val = inputText.trim()
-    if (!val) return
+    const raw = inputText.trim()
+    if (!raw) return
+    // 10.8: "/komut argümanlar" → .md/özel komut gövdesine genişler (değilse aynen).
+    const val = expandSlashCommand(raw, slashCommands)
     // 7.7 tab-to-queue paritesi: tur koşarken Enter turu KESMEZ — istek
     // görev olarak kuyruğa girer, tur bitince sırayla işlenir.
     if (sending) {
@@ -430,6 +459,29 @@ export default function ChatPanel() {
             className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 font-mono text-[11px] font-bold text-brand-700 dark:text-brand-300 transition hover:bg-brand-500/20"
           >
             @{p}
+          </button>
+        ))}
+      </div>
+    ) : null
+
+  // 10.8: "/" yazınca eşleşen slash-komutları — tıklayınca "/ad " dolar.
+  const slashMatches = matchSlash(text, slashCommands)
+  const pickSlash = (name: string, which: 'hero' | 'bottom') => {
+    setText('/' + name + ' ')
+    ;(which === 'hero' ? centerTaRef : taRef).current?.focus()
+  }
+  const SlashMenu = ({ which }: { which: 'hero' | 'bottom' }) =>
+    slashMatches.length > 0 ? (
+      <div className="mb-2 flex flex-col gap-1 rounded-xl border border-ink-line bg-ink-card/80 p-1.5">
+        {slashMatches.map((c) => (
+          <button
+            key={c.source + ':' + c.name}
+            onClick={() => pickSlash(c.name, which)}
+            className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-brand-500/10"
+          >
+            <span className="shrink-0 font-mono text-[12px] font-bold text-brand-600 dark:text-brand-300">/{c.name}</span>
+            {c.description && <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">{c.description}</span>}
+            <span className="shrink-0 text-[9px] font-bold uppercase text-ink-dim">{c.source === 'file' ? 'md' : 'özel'}</span>
           </button>
         ))}
       </div>
@@ -584,6 +636,7 @@ export default function ChatPanel() {
             {/* Large centered input box — cam yüzey (mock) */}
             <div className="mt-8 w-full">
               <div className="glass-surface flex flex-col gap-2 rounded-[1.75rem] border border-ink-line p-5 shadow-xl focus-within:border-brand-500/50 focus-within:ring-4 focus-within:ring-brand-500/10 transition text-left">
+                <SlashMenu which="hero" />
                 <MentionChips which="hero" />
                 <textarea
                   ref={centerTaRef}
@@ -852,6 +905,26 @@ export default function ChatPanel() {
         </div>
       )}
 
+      {/* 10.8 onaylı-hafıza: modelin [REMEMBER] önerileri — kullanıcı onaylar */}
+      {pendingMemories.length > 0 && (
+        <div className="z-10 mx-4 mb-2 flex flex-col gap-1.5">
+          {pendingMemories.map((mem, i) => (
+            <div key={i} className="mx-auto flex w-full max-w-3xl items-center gap-2 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-2">
+              <span className="shrink-0 text-sm">🧠</span>
+              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink-text" title={mem}>
+                {language === 'tr' ? 'Bunu hatırla? ' : 'Remember this? '}<span className="font-normal text-ink-mut">{mem}</span>
+              </span>
+              <button onClick={() => void approveMemory(mem)} className="shrink-0 rounded-lg bg-violet-600 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-violet-500">
+                {language === 'tr' ? 'Onayla' : 'Approve'}
+              </button>
+              <button onClick={() => dismissMemory(mem)} className="shrink-0 rounded-lg border border-ink-line px-2 py-1 text-[11px] font-bold text-ink-mut transition hover:bg-ink-hi">
+                {language === 'tr' ? 'Yoksay' : 'Dismiss'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Bottom input area: only visible when there are messages */}
       {messages.length > 0 && (
         <div className="z-10 border-t border-ink-line bg-ink-bg p-4">
@@ -921,6 +994,7 @@ export default function ChatPanel() {
             </div>
           )}
           <div className="mx-auto w-full max-w-3xl">
+            <SlashMenu which="bottom" />
             <MentionChips which="bottom" />
           </div>
           <div className="mx-auto w-full max-w-3xl rounded-2xl border border-ink-line bg-ink-card px-4 py-3 transition focus-within:border-brand-500/50 focus-within:ring-4 focus-within:ring-brand-500/10">

@@ -25,7 +25,7 @@ import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBu
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
-import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning } from '@/lib/agentActions'
+import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories } from '@/lib/agentActions'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
@@ -193,6 +193,11 @@ interface AppState {
   clearSteerComments: () => void
   /** Kuyruktaki yorumları hemen bir tura dönüştür ("Şimdi uygula"). */
   applySteerComments: () => Promise<void>
+
+  /** 10.8 onaylı-hafıza: modelin [REMEMBER] önerileri (oto-yazMAZ; kullanıcı onaylar). */
+  pendingMemories: string[]
+  approveMemory: (text: string) => Promise<void>
+  dismissMemory: (text: string) => void
 }
 
 let streamUnsub: (() => void) | null = null
@@ -2385,6 +2390,11 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           .filter((f) => isDirectiveOnlyContent(f.code))
           .map((f) => f.code)
           .join('\n')
+        // 10.8 onaylı-hafıza: modelin [REMEMBER] önerileri oto-yazMAZ; onay kuyruğuna girer.
+        const memories = parseMemories(parsed.text + '\n' + fencedDirectives)
+        if (memories.length > 0) {
+          set((s) => ({ pendingMemories: [...new Set([...s.pendingMemories, ...memories])].slice(-6) }))
+        }
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
         if (hasDirectives(directives)) {
           void (async () => {
@@ -3514,6 +3524,30 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
   // uygun ilk görünür turda (gizli düzeltme/planlı dosya turu değil) modele
   // dosya:satır çapalı blok olarak iliştirilir.
   pendingComments: [],
+  // 10.8 onaylı-hafıza: modelin önerdiği [REMEMBER] maddeleri, onay bekliyor.
+  pendingMemories: [],
+  approveMemory: async (memText) => {
+    const t = memText.trim()
+    if (!t) return
+    try {
+      await window.nexora.knowledge?.learn({
+        projectName: getProjectName(),
+        kind: 'user-preference',
+        title: t.slice(0, 60),
+        body: t
+      })
+      set((s) => ({
+        pendingMemories: s.pendingMemories.filter((m) => m !== memText),
+        messages: [
+          ...s.messages,
+          { id: nanoid(), role: 'assistant', content: `🧠 ${get().language === 'tr' ? 'Akılda tutuldu' : 'Remembered'}: "${t.slice(0, 80)}"` }
+        ]
+      }))
+    } catch {
+      set((s) => ({ pendingMemories: s.pendingMemories.filter((m) => m !== memText) }))
+    }
+  },
+  dismissMemory: (memText) => set((s) => ({ pendingMemories: s.pendingMemories.filter((m) => m !== memText) })),
   addSteerComment: (c) => {
     set((s) => ({
       pendingComments: [...s.pendingComments, { ...c, id: nanoid(), createdAt: Date.now() }]

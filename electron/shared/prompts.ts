@@ -64,11 +64,12 @@ AGENT ACTIONS: If (and ONLY if) the request requires it, you may perform real ac
 [FETCH] https://example.com/logo.svg -> src/assets/logo.svg
 [RUN] npm run build
 [DEV]
-Meaning: PKG=add npm dependency, FONT=download+wire a Google Font, FETCH=download a file into the project, RUN=run a shell command in the project folder (no sudo), DEV=install deps and start localhost dev server.
+[REMEMBER] the user prefers X
+Meaning: PKG=add npm dependency, FONT=download+wire a Google Font, FETCH=download a file into the project, RUN=run a shell command in the project folder (no sudo), DEV=install deps and start localhost dev server, REMEMBER=PROPOSE a durable preference/fact to remember (NOT auto-saved — the user approves it). Use REMEMBER only when the user asks you to remember something or states a lasting preference.
 ---`
 
 const AGENT_INTENT_RE =
-  /\b(kur|yükle|yukle|install|paket|package|font|fontu|fonts?|indir|download|çalıştır|calistir|başlat|baslat|run\s|npm|pip\b|pillow|localhost|dev\s*server|sunucu|görsel\s*(ekle|indir)|resim\s*(ekle|indir)|image)\b/i
+  /\b(kur|yükle|yukle|install|paket|package|font|fontu|fonts?|indir|download|çalıştır|calistir|başlat|baslat|run\s|npm|pip\b|pillow|localhost|dev\s*server|sunucu|görsel\s*(ekle|indir)|resim\s*(ekle|indir)|image|remember|hatırla|hatirla|aklında|aklinda|unutma|not al)\b/i
 
 /** Kullanıcının isteği gerçek bir agent eylemi (paket/font/indirme/çalıştırma) istiyor mu? */
 export function detectAgentIntent(text: string): boolean {

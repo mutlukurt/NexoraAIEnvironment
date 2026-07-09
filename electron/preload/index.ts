@@ -208,6 +208,10 @@ export interface NexoraApi {
     /** 10.6: oturum/proje/bilgi/kod genelinde arama. */
     global: (input: { query: string; activeProject?: string }) => Promise<import('../shared/ipc').GlobalSearchResults>
   }
+  commands: {
+    /** 10.8: ~/NexoraAI/commands/*.md slash-komutlarını listele. */
+    list: () => Promise<Array<{ name: string; description: string; body: string }>>
+  }
 }
 
 const api: NexoraApi = {
@@ -374,6 +378,9 @@ const api: NexoraApi = {
   },
   search: {
     global: (input: { query: string; activeProject?: string }) => ipcRenderer.invoke(IPC.SEARCH_GLOBAL, input)
+  },
+  commands: {
+    list: () => ipcRenderer.invoke(IPC.COMMANDS_LIST)
   }
 }
 

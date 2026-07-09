@@ -182,7 +182,8 @@ export const IPC = {
   SERVE_STATUS: 'serve:status',
   SYSTEM_NOTIFY: 'system:notify',
   SYSTEM_KEEP_AWAKE: 'system:keep-awake',
-  SEARCH_GLOBAL: 'search:global'
+  SEARCH_GLOBAL: 'search:global',
+  COMMANDS_LIST: 'commands:list'
 } as const
 
 /** 10.6 — genel arama sonuçları (oturum/proje/bilgi/kod). */
