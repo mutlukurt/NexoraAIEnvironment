@@ -4168,9 +4168,16 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       // canlı test: 16k'da 10-dosyalık projede 4 dosya dışlanıp model körlemesine
       // App.tsx edit'i yapıp ıskaladı/asıldı).
       const maxFiles = Math.max(CONTEXT_MAX_FILES, Math.floor(ctxSize / 1200))
-      const selection = selectContextFiles(trimmed, allFiles, { charBudget, maxFiles })
+      // İKİLİ/GÖRSEL asset'leri (data-URL içerik — üretilmiş görsel, "Assets'e
+      // ekle") bağlama İÇERİK olarak SOKMA: base64 bir görsel ~1MB+; prompt onun
+      // yolunu anınca context seçici onu dahil edip bütçeyi patlatıyor → model boş
+      // cevap veriyordu (canlı bug: "webp'e çevir" turu boş döndü). Model yolu
+      // zaten biliyor; içeriğe (baytlara) ihtiyacı yok — yalnız YOL olarak listele.
+      const textFiles = allFiles.filter((f) => !f.content.startsWith('data:'))
+      const binaryPaths = allFiles.filter((f) => f.content.startsWith('data:')).map((f) => f.path)
+      const selection = selectContextFiles(trimmed, textFiles, { charBudget, maxFiles })
       currentFiles = selection.included.map((f) => ({ path: f.path, content: f.content }))
-      excludedPaths = selection.excludedPaths
+      excludedPaths = [...selection.excludedPaths, ...binaryPaths]
       if (selection.trimmed) {
         // Bilgi satırı, akan yanıt balonunun ÜSTÜNDE dursun.
         const info: ChatMessage = {
