@@ -346,6 +346,20 @@ export interface SessionData extends SessionMeta {
   comments?: SteerComment[]
   /** 7.7: görev kuyruğu + gelen kutusu — oturumla yaşar. */
   queuedTasks?: QueuedTask[]
+  /** 10.4: prompt-başı checkpoint'ler — kod+sohbet durumunu geri sarma. */
+  checkpoints?: CheckpointEntry[]
+}
+
+/** 10.4 — bir kullanıcı prompt'undan HEMEN ÖNCEki durum (kod + sohbet konumu). */
+export interface CheckpointEntry {
+  /** Öncesinde durduğu kullanıcı mesajının id'si (inline geri-sarma çapası). */
+  id: string
+  ts: number
+  label: string
+  /** O an messages.length — sohbet geri-sarması buraya kadar kırpar. */
+  messageIndex: number
+  files: Record<string, { path: string; content: string; language: string }>
+  selectedPath: string | null
 }
 
 /** 7.8: proje bilgi tabanı maddesi — deterministik öğrenilen kalıcı bilgi. */

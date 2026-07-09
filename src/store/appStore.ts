@@ -26,6 +26,7 @@ import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks }
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning } from '@/lib/agentActions'
+import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
 import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
@@ -105,6 +106,11 @@ interface AppState {
   messages: ChatMessage[]
   sending: boolean
   error: string | null
+
+  /** 10.4: prompt-başı checkpoint'ler — her görünür kullanıcı turundan önce alınır. */
+  checkpoints: import('@shared/ipc').CheckpointEntry[]
+  /** 10.4: bir checkpoint'e geri sar — kod / sohbet / ikisi. */
+  rewindTo: (id: string, mode: 'code' | 'chat' | 'both') => Promise<void>
 
   autoApply: boolean
   generating: boolean
@@ -2579,6 +2585,53 @@ export const useAppStore = create<AppState>((set, get) => ({
   generatedCount: 0,
   profileId: DEFAULT_PROFILE_ID,
   profileLabel: getProfile(DEFAULT_PROFILE_ID).label,
+  checkpoints: [],
+  rewindTo: async (id, mode) => {
+    const cp = get().checkpoints.find((c) => c.id === id)
+    if (!cp) return
+    if (get().sending || get().generating) return
+    let restoredCode = 0
+    if (mode === 'code' || mode === 'both') {
+      const files = Object.fromEntries(
+        Object.entries(cp.files).map(([p, f]) => [
+          p,
+          { path: f.path, content: f.content, language: (f.language as FileLanguage) || detectLanguage(p), updatedAt: Date.now() }
+        ])
+      )
+      useArtifactsStore.getState().replaceAll(files, cp.selectedPath)
+      restoredCode = Object.keys(files).length
+      // Diske de yaz: çalışma alanı + önizleme checkpoint'le eşleşsin.
+      try {
+        const { getProjectName } = await import('@/lib/agentActions')
+        const all = Object.values(files).map((f) => ({ path: f.path, content: f.content }))
+        await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: all, onlyIfInstalled: true })
+      } catch {
+        /* disk yazımı başarısızsa UI yine doğru — sonraki tur senkronlar */
+      }
+    }
+    if (mode === 'chat' || mode === 'both') {
+      set((s) => ({ messages: truncateMessages(s.messages, cp.messageIndex) }))
+    }
+    // Bu checkpoint'ten SONRAKİLER artık geçersiz (o geleceğe geri döndük).
+    set((s) => ({ checkpoints: dropAfter(s.checkpoints, cp.ts) }))
+    const lang = get().language
+    const what =
+      mode === 'both'
+        ? lang === 'tr' ? `kod (${restoredCode} dosya) + sohbet` : `code (${restoredCode} files) + chat`
+        : mode === 'code'
+          ? lang === 'tr' ? `kod (${restoredCode} dosya)` : `code (${restoredCode} files)`
+          : lang === 'tr' ? 'sohbet' : 'chat'
+    if (mode !== 'chat') {
+      // sohbet kırpılmadıysa geri-sarma notunu ekle (kırpıldıysa mesaj zaten gitti)
+      set((s) => ({
+        messages: [
+          ...s.messages,
+          { id: nanoid(), role: 'assistant', content: `↩️ ${lang === 'tr' ? 'Geri sarıldı' : 'Rewound'} — "${cp.label}" ${lang === 'tr' ? 'öncesine' : 'checkpoint'} (${what}).` }
+        ]
+      }))
+    }
+    scheduleSessionSave()
+  },
   activeTab: 'chat',
   setActiveTab: (activeTab) => set({ activeTab }),
   language: (localStorage.getItem('nexora:lang') as 'tr' | 'en') || 'tr',
@@ -2671,7 +2724,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
     queuePaused = false
-    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null })
+    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null, checkpoints: [] })
     set({
       messages: [],
       currentSessionId: null,
@@ -3120,7 +3173,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 7.4: yorum kuyruğu oturumla yaşar — uygulama kapansa da uçmaz.
       comments: s.pendingComments,
       // 7.7: görev kuyruğu + gelen kutusu da oturumla yaşar.
-      queuedTasks: s.queuedTasks
+      queuedTasks: s.queuedTasks,
+      // 10.4: prompt-başı checkpoint'ler oturumla yaşar.
+      checkpoints: s.checkpoints
     }
     try {
       await window.nexora.sessions.save(data)
@@ -3162,7 +3217,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       pendingComments: data.comments ?? [],
       queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
-      queueWaitReason: null
+      queueWaitReason: null,
+      checkpoints: data.checkpoints ?? []
     })
     queuePaused = false // yeni oturum: Durdur duraklaması taşınmaz
     stopQueueHeartbeat() // önceki oturumun kalp atışını sıfırla
@@ -3597,6 +3653,22 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
     const asstMsg: ChatMessage = { id: asstId, role: 'assistant', content: '', streaming: true }
+    // 10.4: GÖRÜNÜR bir kullanıcı turu → bu prompt'tan HEMEN ÖNCEki durumu
+    // checkpoint'le (kod dosyaları + sohbet konumu). Gizli/makine turları
+    // (expectFile, hideUser, retry) checkpoint AÇMAZ — kullanıcı niyeti değil.
+    if (userMsg) {
+      const snapFiles = useArtifactsStore.getState().files
+      const cp: import('@shared/ipc').CheckpointEntry = {
+        id: userMsg.id,
+        ts: Date.now(),
+        label: trimmed.split('\n')[0].slice(0, 80),
+        messageIndex: get().messages.length,
+        files: snapshotFiles(snapFiles),
+        selectedPath: useArtifactsStore.getState().selectedPath
+      }
+      // En yeni checkpoint'ler tutulur (oturum dosyası şişmesin).
+      set((s) => ({ checkpoints: pushCheckpoint(s.checkpoints, cp) }))
+    }
     set((s) => ({
       messages: [...s.messages, ...(userMsg ? [userMsg] : []), asstMsg],
       sending: true,

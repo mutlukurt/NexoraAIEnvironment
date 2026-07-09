@@ -7,6 +7,7 @@ import { DIRECTIVE_LINE_RE, isDirectiveOnlyContent } from '@/lib/agentActions'
 import { useHfStore } from '@/store/hfStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
+import RewindMenu from '@/components/RewindMenu'
 import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import ModelSelect from './ModelSelect'
@@ -810,16 +811,19 @@ export default function ChatPanel() {
                 key={m.id}
                 className={
                   m.role === 'user'
-                    ? 'flex justify-end'
+                    ? 'group flex items-start justify-end gap-1'
                     : // 7.1: aktif görev kartı kaydırmada üste yapışır — kullanıcı
                       // sohbet akarken bile motorun hangi adımda olduğunu görür.
                       'flex justify-start' + (m.tasks?.active ? ' sticky top-0 z-20' : '')
                 }
               >
                 {m.role === 'user' ? (
-                  <div className="max-w-[80%] rounded-2xl rounded-tr-none border border-brand-500/25 bg-brand-500/15 px-5 py-3 text-[14.5px] text-ink-text">
-                    <span className="whitespace-pre-wrap break-words leading-relaxed font-semibold">{m.content}</span>
-                  </div>
+                  <>
+                    <RewindMenu messageId={m.id} language={language} />
+                    <div className="max-w-[80%] rounded-2xl rounded-tr-none border border-brand-500/25 bg-brand-500/15 px-5 py-3 text-[14.5px] text-ink-text">
+                      <span className="whitespace-pre-wrap break-words leading-relaxed font-semibold">{m.content}</span>
+                    </div>
+                  </>
                 ) : m.tasks ? (
                   <div className="w-full max-w-[92%]">
                     <TaskListCard tasks={m.tasks} />
