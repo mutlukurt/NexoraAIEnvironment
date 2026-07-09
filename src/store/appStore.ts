@@ -2858,6 +2858,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().openProject(dir, name)
     currentSessionKind = 'project'
     currentSessionProject = name
+    // BUG DÜZELTMESİ: "Yeni oturum" projede DEVAM etmek içindir — kullanıcı hemen
+    // prompt yazabilsin diye SOHBET sekmesine bırak. openProject 'code'a atıyordu
+    // (dosyaları görüntülemek için mantıklı ama "yeni oturum"da kullanıcıyı koda
+    // atıp prompt veremez hale getiriyordu → "çalışmıyor" algısı).
+    set({ activeTab: 'chat' })
   },
 
   openProject: async (dir: string, name: string) => {
