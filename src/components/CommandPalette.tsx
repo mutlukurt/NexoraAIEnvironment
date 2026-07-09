@@ -103,6 +103,7 @@ export default function CommandPalette() {
         section: secAction,
         run: () => s.setPlanFirst(!planFirst)
       },
+      { id: 'search', label: tr ? 'Genel arama' : 'Global search', hint: '⌘⇧F', icon: Search, section: secAction, run: () => window.dispatchEvent(new Event('nexora:openSearch')) },
       { id: 'settings', label: tr ? 'Ayarları aç' : 'Open Settings', icon: SettingsIcon, section: secAction, run: () => window.dispatchEvent(new Event('nexora:openSettings')) },
       { id: 'setup', label: tr ? 'Model seç / Kurulum' : 'Choose model / Setup', icon: Cpu, section: secAction, run: () => window.dispatchEvent(new Event('nexora:openSetup')) },
       {

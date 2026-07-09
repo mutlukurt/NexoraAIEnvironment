@@ -204,6 +204,10 @@ export interface NexoraApi {
     /** 10.5: koşarken uyku engelleyici (true) / serbest bırak (false). */
     keepAwake: (on: boolean) => Promise<{ ok: boolean }>
   }
+  search: {
+    /** 10.6: oturum/proje/bilgi/kod genelinde arama. */
+    global: (input: { query: string; activeProject?: string }) => Promise<import('../shared/ipc').GlobalSearchResults>
+  }
 }
 
 const api: NexoraApi = {
@@ -367,6 +371,9 @@ const api: NexoraApi = {
   system: {
     notify: (input: { title: string; body: string }) => ipcRenderer.invoke(IPC.SYSTEM_NOTIFY, input),
     keepAwake: (on: boolean) => ipcRenderer.invoke(IPC.SYSTEM_KEEP_AWAKE, on)
+  },
+  search: {
+    global: (input: { query: string; activeProject?: string }) => ipcRenderer.invoke(IPC.SEARCH_GLOBAL, input)
   }
 }
 

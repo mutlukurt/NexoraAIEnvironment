@@ -181,8 +181,17 @@ export const IPC = {
   SERVE_SET: 'serve:set',
   SERVE_STATUS: 'serve:status',
   SYSTEM_NOTIFY: 'system:notify',
-  SYSTEM_KEEP_AWAKE: 'system:keep-awake'
+  SYSTEM_KEEP_AWAKE: 'system:keep-awake',
+  SEARCH_GLOBAL: 'search:global'
 } as const
+
+/** 10.6 — genel arama sonuçları (oturum/proje/bilgi/kod). */
+export interface GlobalSearchResults {
+  sessions: Array<{ id: string; title: string; snippet: string }>
+  projects: Array<{ name: string; dir: string }>
+  knowledge: Array<{ projectName: string; file: string; title: string; kind: string }>
+  files: Array<{ projectName: string; path: string; line: number; snippet: string }>
+}
 
 /** 10.2 — yerel OpenAI-uyumlu servis ucu durumu. */
 export interface ServeStatusIpc {

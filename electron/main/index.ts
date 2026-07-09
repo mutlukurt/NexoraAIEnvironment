@@ -71,6 +71,7 @@ import {
 } from './mcpService'
 import { startServe, stopServe, serveStatus } from './serveEngine'
 import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
+import { globalSearch } from './searchService'
 import {
   IPC,
   type ChatSendInput,
@@ -609,6 +610,11 @@ function registerIpc(): void {
     setKeepAwake(on)
     return { ok: true }
   })
+
+  // ── 10.6 Genel arama: oturum/proje/bilgi/kod ─────────────────────────────
+  ipcMain.handle(IPC.SEARCH_GLOBAL, (_e, input: { query: string; activeProject?: string }) =>
+    globalSearch(input.query, input.activeProject)
+  )
 }
 
 void app.whenReady().then(async () => {

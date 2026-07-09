@@ -8,6 +8,7 @@ import WelcomeSetup from '@/components/WelcomeSetup'
 import DiffModal from '@/components/DiffModal'
 import PermissionModal from '@/components/PermissionModal'
 import CommandPalette from '@/components/CommandPalette'
+import GlobalSearch from '@/components/GlobalSearch'
 import { useHfStore } from '@/store/hfStore'
 import { useAppStore } from '@/store/appStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -56,6 +57,7 @@ export default function App() {
       <DiffModal />
       <PermissionModal />
       <CommandPalette />
+      <GlobalSearch />
     </div>
   )
 }
