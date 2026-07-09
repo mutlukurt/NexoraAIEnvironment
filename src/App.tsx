@@ -12,6 +12,7 @@ import GlobalSearch from '@/components/GlobalSearch'
 import { useHfStore } from '@/store/hfStore'
 import { useAppStore } from '@/store/appStore'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useScheduleStore } from '@/store/scheduleStore'
 import { shouldNotifyDone } from '@/lib/notifyDecision'
 
 export default function App() {
@@ -46,6 +47,17 @@ export default function App() {
     }
     prevGen.current = generating
   }, [generating, language])
+
+  // 10.7 — zamanlanmış görev tick'i: her 30sn'de vadesi gelenleri kuyruğa koy.
+  // Yalnız uygulama açıkken (yerel-önce; gizli daemon yok).
+  useEffect(() => {
+    const tick = () => {
+      const enqueue = useAppStore.getState().enqueueTask
+      useScheduleStore.getState().runDue(Date.now(), enqueue)
+    }
+    const h = setInterval(tick, 30_000)
+    return () => clearInterval(h)
+  }, [])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-ink-bg text-ink-text antialiased">

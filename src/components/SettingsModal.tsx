@@ -6,6 +6,7 @@ import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 import McpPanel from './McpPanel'
 import ServePanel from './ServePanel'
+import SchedulePanel from './SchedulePanel'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -480,6 +481,9 @@ export default function SettingsModal() {
 
           {/* 10.2: yerel modeli OpenAI-uyumlu uç olarak sun */}
           <ServePanel language={language} />
+
+          {/* 10.7: zamanlanmış/tekrarlayan yerel görevler */}
+          <SchedulePanel language={language} />
 
           {/* 10.5: sistem tümleşiği — bildirim + uyku engelleyici */}
           <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
