@@ -162,6 +162,12 @@ export default function Sidebar() {
           <FileCode className="h-4 w-4" />
           <span>{t.filesAndCode}</span>
         </button>
+        {/* Var olan bir projeyi diskten aç → doğrudan geliştirmeye devam.
+            (Eski PROJELER başlığındaki küçük '+' yerine belirgin giriş.) */}
+        <button onClick={() => void importFolder()} className={navBtn(false)}>
+          <FolderOpen className="h-4 w-4" />
+          <span>{language === 'tr' ? 'Proje Aç' : 'Open Project'}</span>
+        </button>
       </nav>
 
       {/* Projeler + Sohbetler: katlanabilir + aralarındaki çizgiden boyutlanır */}
@@ -171,7 +177,8 @@ export default function Sidebar() {
           className={'flex min-h-0 flex-col px-4 ' + (projClosed ? '' : chatClosed ? 'flex-1' : '')}
           style={!projClosed && !chatClosed ? { height: projH } : undefined}
         >
-          <div className="flex items-center justify-between px-1 pb-1">
+          {/* '+' kaldırıldı — proje açma artık New Chat altındaki "Proje Aç" girişinde. */}
+          <div className="flex items-center px-1 pb-1">
             <button
               onClick={() => setProjClosed((v) => !v)}
               className="flex min-w-0 items-center gap-1 text-ink-dim transition hover:text-ink-mut"
@@ -180,13 +187,6 @@ export default function Sidebar() {
               <span className="truncate text-[10px] font-extrabold uppercase tracking-wider">
                 {language === 'tr' ? 'Projeler' : 'Projects'}
               </span>
-            </button>
-            <button
-              onClick={() => void importFolder()}
-              title={t.openFolder}
-              className="grid h-5 w-5 shrink-0 place-items-center rounded-lg text-ink-dim transition hover:bg-ink-hi hover:text-ink-text"
-            >
-              <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
           {!projClosed && (
