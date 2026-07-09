@@ -14,6 +14,8 @@ import { createPortal } from 'react-dom'
 import { translations } from '@/lib/translations'
 import ModelSelect from './ModelSelect'
 import ComposerOptions from './ComposerOptions'
+import ImageOptions from './ImageOptions'
+import { isImageGenModel } from '@shared/imageModels'
 import ContextMeter from './ContextMeter'
 
 function FileIcon({ path }: { path: string }) {
@@ -34,67 +36,119 @@ function FileIcon({ path }: { path: string }) {
   )
 }
 
-/** Üretilen görsel mesajı: inline önizleme + tam ekran + indirme + assets'e ekle. */
-function ImageMessage({ image, language }: { image: NonNullable<ChatMessage['image']>; language: 'tr' | 'en' }) {
-  const [full, setFull] = useState(false)
+/** Tek üretilmiş görsel kartı: her zaman görünür araç çubuğu (tam ekran/indir/assets). */
+function ImageCard({ img, onFull, language }: { img: { dataUrl: string; name: string }; onFull: () => void; language: 'tr' | 'en' }) {
   const [added, setAdded] = useState(false)
   const [saved, setSaved] = useState(false)
   const tr = language === 'tr'
-
   const download = async () => {
-    const res = await window.nexora.images.saveAs({ dataUrl: image.dataUrl, name: image.name })
+    const res = await window.nexora.images.saveAs({ dataUrl: img.dataUrl, name: img.name })
     if (res.ok) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2200)
     }
   }
   const addToAssets = () => {
-    // Assets'e ekle: artifacts store'a src/assets/<ad> olarak yaz (data-URL içerik).
-    // Files & Code'da görünür, export'ta diske iner, Preview import'u çözer.
-    const safe = image.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
-    useArtifactsStore.getState().upsertFile(`src/assets/${safe}`, image.dataUrl)
+    // Assets'e ekle: artifacts store'a src/assets/<ad> (data-URL içerik). Files &
+    // Code'da görünür, export'ta diske iner, Preview import'u çözer.
+    const safe = img.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
+    useArtifactsStore.getState().upsertFile(`src/assets/${safe}`, img.dataUrl)
     setAdded(true)
     setTimeout(() => setAdded(false), 2200)
   }
-
-  const btn =
-    'inline-flex items-center gap-1.5 rounded-lg border border-ink-line bg-ink-panel/50 px-3 py-1.5 text-[12.5px] font-semibold text-ink-mut transition hover:border-brand-500/40 hover:text-brand-600 dark:hover:text-brand-300'
-
+  const icon =
+    'grid h-8 w-8 place-items-center rounded-lg text-white backdrop-blur transition '
   return (
-    <div>
-      {image.prompt && <p className="mb-2 text-[13px] text-ink-dim">🎨 {image.prompt}</p>}
+    <div className="group relative overflow-hidden rounded-xl border border-ink-line shadow-sm">
       <img
-        src={image.dataUrl}
-        onClick={() => setFull(true)}
-        alt={image.prompt || 'üretilen görsel'}
-        className="max-h-[26rem] max-w-full cursor-zoom-in rounded-xl border border-ink-line shadow-sm"
+        src={img.dataUrl}
+        onClick={onFull}
+        alt="üretilen görsel"
+        className="block max-h-[26rem] w-full cursor-zoom-in object-cover"
       />
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button onClick={() => setFull(true)} className={btn} title={tr ? 'Tam ekran' : 'Fullscreen'}>
-          <Maximize2 className="h-3.5 w-3.5" /> {tr ? 'Tam ekran' : 'Fullscreen'}
+      <div className="absolute right-2 top-2 flex gap-1.5 opacity-80 transition group-hover:opacity-100">
+        <button onClick={onFull} title={tr ? 'Tam ekran' : 'Fullscreen'} className={icon + 'bg-black/45 hover:bg-black/70'}>
+          <Maximize2 className="h-4 w-4" />
         </button>
-        <button onClick={() => void download()} className={btn} title={tr ? 'İndir' : 'Download'}>
-          <Download className="h-3.5 w-3.5" /> {saved ? (tr ? '✓ Kaydedildi' : '✓ Saved') : tr ? 'İndir' : 'Download'}
+        <button
+          onClick={() => void download()}
+          title={saved ? (tr ? 'Kaydedildi' : 'Saved') : tr ? 'İndir' : 'Download'}
+          className={icon + (saved ? 'bg-emerald-500/90' : 'bg-black/45 hover:bg-black/70')}
+        >
+          <Download className="h-4 w-4" />
         </button>
-        <button onClick={addToAssets} className={btn} title={tr ? "Projenin assets'ine ekle" : 'Add to project assets'}>
-          <FolderPlus className="h-3.5 w-3.5" />{' '}
-          {added ? (tr ? "✓ Assets'e eklendi" : '✓ Added') : tr ? "Assets'e ekle" : 'Add to assets'}
+        <button
+          onClick={addToAssets}
+          title={added ? (tr ? "Assets'e eklendi" : 'Added to assets') : tr ? "Assets'e ekle" : 'Add to assets'}
+          className={icon + (added ? 'bg-emerald-500/90' : 'bg-black/45 hover:bg-black/70')}
+        >
+          <FolderPlus className="h-4 w-4" />
         </button>
       </div>
-      {full &&
+    </div>
+  )
+}
+
+/** Üretilen görsel mesajı: 1+ görsel (varyasyon grid'i) + tam ekran lightbox. */
+function ImageMessage({
+  images,
+  prompt,
+  language
+}: {
+  images: Array<{ dataUrl: string; name: string }>
+  prompt?: string
+  language: 'tr' | 'en'
+}) {
+  const [fullIdx, setFullIdx] = useState<number | null>(null)
+  const tr = language === 'tr'
+  const multi = images.length > 1
+  return (
+    <div>
+      {prompt && <p className="mb-2 text-[13px] text-ink-dim">🎨 {prompt}</p>}
+      <div className={multi ? 'grid grid-cols-2 gap-2' : ''}>
+        {images.map((img, i) => (
+          <ImageCard key={i} img={img} onFull={() => setFullIdx(i)} language={language} />
+        ))}
+      </div>
+      {fullIdx != null &&
+        images[fullIdx] &&
         createPortal(
           <div
-            onClick={() => setFull(false)}
+            onClick={() => setFullIdx(null)}
             className="fixed inset-0 z-[9999] flex cursor-zoom-out items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
           >
-            <img src={image.dataUrl} alt={image.prompt || ''} className="max-h-full max-w-full rounded-lg shadow-2xl" />
+            <img src={images[fullIdx].dataUrl} alt="" className="max-h-full max-w-full rounded-lg shadow-2xl" />
             <button
-              onClick={() => setFull(false)}
+              onClick={() => setFullIdx(null)}
               className="absolute right-5 top-5 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
               aria-label={tr ? 'Kapat' : 'Close'}
             >
               <X className="h-5 w-5" />
             </button>
+            {multi && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setFullIdx((v) => (v == null ? 0 : (v - 1 + images.length) % images.length))
+                  }}
+                  className="absolute left-5 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-2xl text-white transition hover:bg-white/20"
+                  aria-label="prev"
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setFullIdx((v) => (v == null ? 0 : (v + 1) % images.length))
+                  }}
+                  className="absolute right-5 bottom-1/2 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-2xl text-white transition hover:bg-white/20"
+                  aria-label="next"
+                >
+                  ›
+                </button>
+              </>
+            )}
           </div>,
           document.body
         )}
@@ -403,6 +457,8 @@ export default function ChatPanel() {
   // 10.13: API modeli aktifken YEREL GGUF şart değil — composer/gönder açık olmalı.
   const activeApiModel = useSettingsStore((s) => s.activeApiModel)
   const hasModel = !!modelInfo || !!activeApiModel
+  // Görsel-üretme modeli aktif mi? (composer ipucu + görsel ayarları için)
+  const isImageModel = isImageGenModel(activeApiModel?.model)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const abort = useAppStore((s) => s.abort)
   const clearError = useAppStore((s) => s.clearError)
@@ -410,6 +466,7 @@ export default function ChatPanel() {
 
   const profileLabel = useAppStore((s) => s.profileLabel)
   const language = useAppStore((s) => s.language)
+  const imgPlaceholder = language === 'tr' ? 'Bir görsel tarif et…' : 'Describe an image…'
   const pendingImage = useAppStore((s) => s.pendingImage)
   const attachImage = useAppStore((s) => s.attachImage)
   const clearImage = useAppStore((s) => s.clearImage)
@@ -737,7 +794,7 @@ export default function ChatPanel() {
                     detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length, 'hero')
                   }}
                   onKeyDown={(e) => onKeyDown(e, text)}
-                  placeholder={hasModel ? t.inputPlaceholderEmpty : t.inputPlaceholderNoModel}
+                  placeholder={isImageModel ? imgPlaceholder : hasModel ? t.inputPlaceholderEmpty : t.inputPlaceholderNoModel}
                   disabled={!hasModel}
                   className="max-h-40 w-full resize-none bg-transparent text-[15px] text-ink-text placeholder-ink-dim focus:outline-none disabled:opacity-50"
                 />
@@ -755,7 +812,7 @@ export default function ChatPanel() {
                       <ImagePlus className="h-4.5 w-4.5" />
                     </button>
                     <ModelSelect />
-                    <ComposerOptions />
+                    {isImageModel ? <ImageOptions /> : <ComposerOptions />}
                     {pendingImage && (
                       <span className="flex min-w-0 items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-300">
                         <span className="truncate max-w-[140px]">{pendingImage.name}</span>
@@ -970,9 +1027,13 @@ export default function ChatPanel() {
                   <div className="w-full max-w-[92%]">
                     <TaskListCard tasks={m.tasks} />
                   </div>
-                ) : m.image ? (
+                ) : (m.images && m.images.length > 0) || m.image ? (
                   <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
-                    <ImageMessage image={m.image} language={language} />
+                    <ImageMessage
+                      images={m.images ?? (m.image ? [m.image] : [])}
+                      prompt={m.imagePrompt ?? m.image?.prompt}
+                      language={language}
+                    />
                   </div>
                 ) : (
                   <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
@@ -1109,7 +1170,9 @@ export default function ChatPanel() {
                   ? language === 'tr'
                     ? 'tur koşuyor — Enter yazdığını GÖREV olarak kuyruğa ekler'
                     : 'turn running — Enter queues your text as a TASK'
-                  : t.inputPlaceholder
+                  : isImageModel
+                    ? imgPlaceholder
+                    : t.inputPlaceholder
               }
               className="max-h-40 w-full resize-none bg-transparent text-sm text-ink-text placeholder-ink-dim focus:outline-none"
             />
@@ -1125,7 +1188,7 @@ export default function ChatPanel() {
                 <ImagePlus className="h-4.5 w-4.5" />
               </button>
               <ModelSelect />
-              <ComposerOptions />
+              {isImageModel ? <ImageOptions /> : <ComposerOptions />}
               <div className="ml-auto shrink-0">
                 {sending ? (
                   <button

@@ -11,6 +11,7 @@ import type {
   SessionFileEntry,
   TaskStep
 } from '@shared/ipc'
+import type { ImageAspect } from '@shared/imageModels'
 import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
 import { composeWalkthrough, composeTaskDoc, composePlanDoc, type WalkthroughInput } from '@/lib/walkthrough'
 import { composeCommentBlock, type SteerComment } from '@/lib/steerComments'
@@ -121,6 +122,16 @@ interface AppState {
   rewindTo: (id: string, mode: 'code' | 'chat' | 'both') => Promise<void>
 
   autoApply: boolean
+  // Görsel üretme seçenekleri — görsel-üretme modeli aktifken composer'da.
+  imageAspect: ImageAspect
+  imageCount: number
+  imageNegative: string
+  /** true → prompt'a birebir sadık kal (detaylı promptu model yeniden yazmaz). */
+  imagePromptExact: boolean
+  setImageAspect: (v: ImageAspect) => void
+  setImageCount: (v: number) => void
+  setImageNegative: (v: string) => void
+  setImagePromptExact: (v: boolean) => void
   generating: boolean
   generatedCount: number
   /** Active architecture profile (mirrors main-process sticky selection). */
@@ -2650,6 +2661,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastUsage: null,
 
   autoApply: autoApplyInitial(),
+  imageAspect: '1:1',
+  imageCount: 1,
+  imageNegative: '',
+  imagePromptExact: false,
+  setImageAspect: (v) => set({ imageAspect: v }),
+  setImageCount: (v) => set({ imageCount: Math.max(1, Math.min(4, v)) }),
+  setImageNegative: (v) => set({ imageNegative: v }),
+  setImagePromptExact: (v) => set({ imagePromptExact: v }),
   sessions: [],
   currentSessionId: null,
   permissionRequest: null,
@@ -3754,13 +3773,18 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       if (activeApiImg && !opts?.hideUser && !opts?.expectFile) {
         const { isImageGenModel } = await import('@shared/imageModels')
         if (isImageGenModel(activeApiImg.model)) {
+          // Composer seçenekleri + referans görsel (görsel→görsel).
+          const st = get()
+          const ref = st.pendingImage
+          if (ref) set({ pendingImage: null })
+          const userLabel = ref ? `🖼 ${ref.name} → ${trimmed}` : trimmed
           const statusId = nanoid()
           set((s) => ({
             sending: true,
             error: null,
             messages: [
               ...s.messages,
-              { id: nanoid(), role: 'user', content: trimmed },
+              { id: nanoid(), role: 'user', content: userLabel },
               { id: statusId, role: 'assistant', content: '🎨 Görsel üretiliyor…' }
             ]
           }))
@@ -3770,9 +3794,17 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
             }))
           })
           try {
-            const res = await window.nexora.images.generate({ prompt: trimmed })
+            const res = await window.nexora.images.generate({
+              prompt: trimmed,
+              aspect: st.imageAspect,
+              count: st.imageCount,
+              negativePrompt: st.imageNegative.trim() || undefined,
+              // "Birebir sadık" açıksa prompt_extend KAPALI (detaylı promptu koru).
+              promptExtend: st.imagePromptExact ? false : undefined,
+              referenceImagePath: ref?.path
+            })
             unsub()
-            if (!res.ok || !res.dataUrl) {
+            if (!res.ok || !res.images || res.images.length === 0) {
               set((s) => ({
                 sending: false,
                 messages: s.messages.map((m) =>
@@ -3784,9 +3816,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
             set((s) => ({
               sending: false,
               messages: s.messages.map((m) =>
-                m.id === statusId
-                  ? { ...m, content: '', image: { dataUrl: res.dataUrl!, name: res.name || 'gorsel.png', prompt: trimmed } }
-                  : m
+                m.id === statusId ? { ...m, content: '', images: res.images, imagePrompt: trimmed } : m
               )
             }))
             void get().saveSessionNow()

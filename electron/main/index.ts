@@ -460,28 +460,63 @@ function registerIpc(): void {
   // Görsel ÜRETME — aktif API modeli görsel-üretme modeliyse (qwen-image, dall-e,
   // flux…). Sonuç kendine-yeterli data-URL (base64) döner: sohbette inline
   // önizleme + tam ekran + indirme + assets'e ekleme hepsi bundan çalışır.
-  ipcMain.handle(IPC.IMAGE_GENERATE, async (_e, input: { prompt: string }) => {
-    try {
-      const { b64, mime } = await generateImage(input.prompt, {
-        onStatus: (msg) => mainWindow?.webContents.send(IPC.IMAGE_STATUS, { msg })
-      })
-      const ext = /jpe?g/i.test(mime) ? 'jpg' : /webp/i.test(mime) ? 'webp' : 'png'
-      const slug =
-        input.prompt.toLowerCase().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gorsel'
-      const name = `${slug}-${Date.now()}.${ext}`
-      // Ham dosyayı cache'e de yaz (indirme/assets ham bayta ihtiyaç duyabilir).
-      try {
-        const dir = join(homedir(), 'NexoraAI', 'cache', 'generated')
-        await mkdir(dir, { recursive: true })
-        await writeFile(join(dir, name), Buffer.from(b64, 'base64'))
-      } catch {
-        /* cache opsiyonel — data-URL yeterli */
+  ipcMain.handle(
+    IPC.IMAGE_GENERATE,
+    async (
+      _e,
+      input: {
+        prompt: string
+        aspect?: import('../shared/imageModels').ImageAspect
+        count?: number
+        negativePrompt?: string
+        promptExtend?: boolean
+        referenceImagePath?: string
       }
-      return { ok: true, dataUrl: `data:${mime};base64,${b64}`, name }
-    } catch (err) {
-      return { ok: false, error: (err as Error).message }
+    ) => {
+      try {
+        // Görsel→görsel: referans dosyayı data-URL'e çevir (görsel modele gider).
+        let referenceImageDataUrl: string | undefined
+        if (input.referenceImagePath) {
+          try {
+            referenceImageDataUrl = await imageToDataUrl(input.referenceImagePath)
+          } catch {
+            /* referans okunamazsa referanssız üret */
+          }
+        }
+        const results = await generateImage(input.prompt, {
+          onStatus: (msg) => mainWindow?.webContents.send(IPC.IMAGE_STATUS, { msg }),
+          aspect: input.aspect,
+          n: input.count,
+          negativePrompt: input.negativePrompt,
+          promptExtend: input.promptExtend,
+          referenceImageDataUrl
+        })
+        const slug =
+          input.prompt.toLowerCase().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gorsel'
+        const dir = join(homedir(), 'NexoraAI', 'cache', 'generated')
+        try {
+          await mkdir(dir, { recursive: true })
+        } catch {
+          /* cache opsiyonel */
+        }
+        const images: Array<{ dataUrl: string; name: string }> = []
+        for (let i = 0; i < results.length; i++) {
+          const { b64, mime } = results[i]
+          const ext = /jpe?g/i.test(mime) ? 'jpg' : /webp/i.test(mime) ? 'webp' : 'png'
+          const name = `${slug}${results.length > 1 ? `-${i + 1}` : ''}-${Date.now()}.${ext}`
+          try {
+            await writeFile(join(dir, name), Buffer.from(b64, 'base64'))
+          } catch {
+            /* cache opsiyonel — data-URL yeterli */
+          }
+          images.push({ dataUrl: `data:${mime};base64,${b64}`, name })
+        }
+        return { ok: true, images }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
     }
-  })
+  )
 
   // Üretilen görseli kullanıcının seçtiği yere kaydet (indirme).
   ipcMain.handle(IPC.IMAGE_SAVE_AS, async (_e, input: { dataUrl: string; name: string }) => {

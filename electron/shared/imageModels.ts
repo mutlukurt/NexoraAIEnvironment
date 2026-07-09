@@ -61,6 +61,45 @@ const IMAGE_TOKEN_RE =
 // Görsel-METİN (analiz/altyazı/gömme) — GİRDİ alır, üretmez; dışla.
 const IMAGE_INPUT_RE = /image[-_]?to[-_]?text|image[-_](caption|understanding|embed|classif|retriev)/i
 
+export type ImageAspect = '1:1' | '16:9' | '9:16' | '4:3' | '3:4'
+export const IMAGE_ASPECTS: ImageAspect[] = ['1:1', '16:9', '9:16', '4:3', '3:4']
+
+/** Görsel üretme seçenekleri (composer'dan gelir, IMAGE_GENERATE ile geçer). */
+export interface ImageGenOptions {
+  aspect?: ImageAspect
+  /** 1-4 varyasyon. */
+  n?: number
+  negativePrompt?: string
+  /**
+   * false → prompt'a BİREBİR sadık kal (model prompt'u yeniden yazmaz). Detaylı/
+   * uzun promptlar için şart. true → kısa promptu zenginleştir. Varsayılan: uzunsa
+   * false, kısaysa true (aşağıda hesaplanır).
+   */
+  promptExtend?: boolean
+  /** Görsel→görsel (referans görselle düzenleme) — data-URL. */
+  referenceImageDataUrl?: string
+}
+
+/** En-boy → sağlayıcıya uygun boyut string'i. DashScope "W*H", OpenAI "WxH". */
+export function aspectToSize(aspect: ImageAspect | undefined, provider: 'dashscope' | 'openai'): string {
+  const a = aspect ?? '1:1'
+  const dash: Record<ImageAspect, string> = {
+    '1:1': '1328*1328',
+    '16:9': '1664*928',
+    '9:16': '928*1664',
+    '4:3': '1472*1140',
+    '3:4': '1140*1472'
+  }
+  const oai: Record<ImageAspect, string> = {
+    '1:1': '1024x1024',
+    '16:9': '1536x1024',
+    '9:16': '1024x1536',
+    '4:3': '1536x1024',
+    '3:4': '1024x1536'
+  }
+  return provider === 'dashscope' ? dash[a] : oai[a]
+}
+
 /** true → text-to-image ÜRETEN model (görsel-üretme yoluna gider). */
 export function isImageGenModel(model: string | null | undefined): boolean {
   const m = (model || '').toLowerCase()

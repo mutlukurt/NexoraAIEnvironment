@@ -130,7 +130,14 @@ export interface NexoraApi {
     onStatus: (cb: (event: { msg: string }) => void) => () => void
   }
   images: {
-    generate: (input: { prompt: string }) => Promise<{ ok: boolean; dataUrl?: string; name?: string; error?: string }>
+    generate: (input: {
+      prompt: string
+      aspect?: import('../shared/imageModels').ImageAspect
+      count?: number
+      negativePrompt?: string
+      promptExtend?: boolean
+      referenceImagePath?: string
+    }) => Promise<{ ok: boolean; images?: Array<{ dataUrl: string; name: string }>; error?: string }>
     saveAs: (input: { dataUrl: string; name: string }) => Promise<{ ok: boolean; savedPath?: string; error?: string }>
     onStatus: (cb: (event: { msg: string }) => void) => () => void
   }

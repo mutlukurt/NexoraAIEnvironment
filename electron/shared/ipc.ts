@@ -20,23 +20,32 @@ export interface ChatMessage {
   /** 10.11.1: bu turda dokunulan dosyaların +eklenen/−silinen satır dökümü. */
   diffStats?: Array<{ path: string; added: number; removed: number; isNew: boolean }>
   /**
-   * Görsel-üretme turu sonucu: sohbette inline gösterilen üretilmiş görsel.
-   * dataUrl kendine-yeterlidir (base64) — oturum kaydında kalıcı, önizleme +
-   * tam ekran + indirme + assets'e ekleme hepsi bundan çalışır.
+   * Görsel-üretme turu sonucu. dataUrl kendine-yeterlidir (base64) — oturum
+   * kaydında kalıcı; önizleme + tam ekran + indirme + assets'e ekleme bundan
+   * çalışır. `image` eski tek-görsel (geri uyumluluk); `images` çoklu varyasyon.
    */
   image?: { dataUrl: string; name: string; prompt?: string }
+  images?: Array<{ dataUrl: string; name: string }>
+  /** Görsel(ler)in prompt'u (başlık olarak gösterilir). */
+  imagePrompt?: string
 }
 
 /** Görsel üretme isteği/sonucu (IMAGE_GENERATE). */
 export interface ImageGenInput {
   prompt: string
+  aspect?: import('./imageModels').ImageAspect
+  /** 1-4 varyasyon. */
+  count?: number
+  negativePrompt?: string
+  /** false → prompt'a birebir sadık (detaylı promptta şart). undefined → oto. */
+  promptExtend?: boolean
+  /** Görsel→görsel: referans görsel DOSYA YOLU (main data-URL'e çevirir). */
+  referenceImagePath?: string
 }
 export interface ImageGenResult {
   ok: boolean
-  /** data:image/...;base64,... — kendine-yeterli görsel. */
-  dataUrl?: string
-  /** önerilen dosya adı (ör. "bir-kus-1720000.png"). */
-  name?: string
+  /** Üretilen görsel(ler) — data-URL + önerilen dosya adı. */
+  images?: Array<{ dataUrl: string; name: string }>
   error?: string
 }
 /** Üretilen görseli kullanıcının seçtiği yere kaydet (IMAGE_SAVE_AS). */
