@@ -55,6 +55,11 @@ export default function SettingsModal() {
   const [isOpen, setIsOpen] = useState(false)
   const [rules, setRules] = useState('')
   const [globalRules, setGlobalRules] = useState('')
+  // Sol menülü Ayarlar: her kategori solda; kişi tıklayarak gezinir (tek uzun
+  // scroll yerine). Aktif kategori dışındaki bölümler gizlenir.
+  const [section, setSection] = useState<
+    'general' | 'providers' | 'models' | 'permissions' | 'prompt' | 'knowledge' | 'tools' | 'commands' | 'engine'
+  >('general')
   const [projectName, setProjectName] = useState('nexora-projesi')
   // 7.8: proje bilgi tabanı — motorun bu projede öğrendikleri
   const [knowledge, setKnowledge] = useState<Array<{ file: string; kind: string; title: string; updatedAt: number; hits: number }>>([])
@@ -72,6 +77,8 @@ export default function SettingsModal() {
   useEffect(() => {
     const handler = () => {
       setIsOpen(true)
+      setSection('general') // her açılışta Genel'den başla
+
       // Aktif projenin kurallarını diskten getir (KURALLAR.md)
       const name = getProjectName()
       setProjectName(name)
@@ -109,7 +116,7 @@ export default function SettingsModal() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={close}>
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-ink-line bg-ink-card shadow-2xl animate-in fade-in-50 zoom-in-95 duration-150"
+        className="flex max-h-[86vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-ink-line bg-ink-card shadow-2xl animate-in fade-in-50 zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-ink-line px-5 py-3.5 bg-ink-card/50">
@@ -119,10 +126,41 @@ export default function SettingsModal() {
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 bg-ink-card flex flex-col gap-5">
+        {/* İki panel: solda kategori menüsü, sağda seçilen kategorinin içeriği. */}
+        <div className="flex flex-1 overflow-hidden">
+          <nav className="w-48 shrink-0 space-y-0.5 overflow-y-auto border-r border-ink-line bg-ink-card/40 p-2.5">
+            {(
+              [
+                ['general', language === 'tr' ? 'Genel' : 'General'],
+                ['providers', language === 'tr' ? 'Sağlayıcılar' : 'Providers'],
+                ['models', language === 'tr' ? 'Modeller' : 'Models'],
+                ['permissions', language === 'tr' ? 'Güven & İzinler' : 'Trust & Permissions'],
+                ['prompt', language === 'tr' ? 'Prompt & Kurallar' : 'Prompt & Rules'],
+                ['knowledge', language === 'tr' ? 'Bilgi Tabanı' : 'Knowledge'],
+                ['tools', language === 'tr' ? 'Araçlar' : 'Tools'],
+                ['commands', language === 'tr' ? 'Komutlar' : 'Commands'],
+                ['engine', language === 'tr' ? 'Motor Karnesi' : 'Engine']
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setSection(id)}
+                className={
+                  'w-full rounded-lg px-3 py-2 text-left text-[13px] font-semibold transition ' +
+                  (section === id
+                    ? 'bg-brand-500/15 text-brand-700 dark:text-brand-200'
+                    : 'text-ink-mut hover:bg-ink-hi hover:text-ink-text')
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex flex-1 flex-col gap-5 overflow-y-auto bg-ink-card px-5 py-5">
           {/* Arayüz Boyutu (erişilebilirlik) — EN ÜSTTE: fontlar/kısımlar küçük
               geliyordu, tek tıkla büyüt. setZoomFactor tüm pencereyi ölçekler. */}
-          <div className="rounded-xl border border-brand-500/40 bg-brand-500/5 p-4 shadow-sm">
+          <div className={(section === 'general' ? '' : 'hidden ') + 'rounded-xl border border-brand-500/40 bg-brand-500/5 p-4 shadow-sm'}>
             <div className="flex items-center gap-2">
               <ZoomIn className="h-4 w-4 text-brand-500" />
               <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
@@ -173,8 +211,8 @@ export default function SettingsModal() {
 
           {/* 10.9: Sağlayıcı Hub'ı — TÜM katalog (eski tek-uç Hibrit API bölümünün yerine;
               Bolt-tarzı güçlü-model düzeltmesi artık 60+ sağlayıcıdan seçilir, anahtar keychain'de) */}
-          <ProviderHub language={language} />
-          {apiMode === 'fix' && (
+          {section === 'providers' && <ProviderHub language={language} />}
+          {section === 'providers' && apiMode === 'fix' && (
             <label className="flex cursor-pointer items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 px-4 py-2.5 shadow-sm">
               <span className="text-[12px] font-semibold text-ink-mut">
                 {language === 'tr' ? 'API\'ye göndermeden önce sor ("düzelt api" ile onayla)' : 'Ask before sending to the API (confirm with "fix api")'}
@@ -184,7 +222,7 @@ export default function SettingsModal() {
           )}
 
           {/* 7.5 İki katmanlı güven: sandbox hükümleri + onay politikası */}
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm">
+          <div className={(section === 'permissions' ? '' : 'hidden ') + 'rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
               {language === 'tr' ? 'Güven ve İzinler' : 'Trust & Permissions'}
             </span>
@@ -256,7 +294,7 @@ export default function SettingsModal() {
           </div>
 
           {/* Motor Karnesi (6.7): GERÇEK kullanımdan bul/onar/doğrula oranları */}
-          <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+          <div className={(section === 'engine' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
               {language === 'tr' ? 'Motor Karnesi' : 'Engine Scorecard'}
             </span>
@@ -305,7 +343,7 @@ export default function SettingsModal() {
           </div>
 
           {/* GPU Acceleration Switch */}
-          <div className="flex items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+          <div className={(section === 'models' ? '' : 'hidden ') + 'flex items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <div className="flex flex-col pr-4">
               <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
                 {language === 'tr' ? 'GPU Hızlandırması (Deneysel)' : 'GPU Acceleration (Experimental)'}
@@ -336,7 +374,7 @@ export default function SettingsModal() {
           </div>
 
           {/* GPU katman kaydırıcısı — yalnızca GPU açıkken. 0 = otomatik (VRAM'e sığan kadar). */}
-          {enableGpu && (
+          {section === 'models' && enableGpu && (
             <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm -mt-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
@@ -375,7 +413,7 @@ export default function SettingsModal() {
           {/* Yerel görsel (VL) modeli — Qwen'e SABİT DEĞİL. Kullanıcı indirdiği
               herhangi bir görsel GGUF'u (Qwen3-VL, LLaVA, MiniCPM-V, InternVL…)
               görsel analizi için seçebilir; oto = RAM'e sığan en büyük yüklü VL. */}
-          <div>
+          <div className={section === 'models' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
               {language === 'tr' ? 'Yerel Görsel Modeli (analiz)' : 'Local Vision Model (analysis)'}
             </label>
@@ -407,7 +445,7 @@ export default function SettingsModal() {
             )}
           </div>
 
-          <div>
+          <div className={section === 'prompt' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
               {t.customPromptTitle}
             </label>
@@ -427,7 +465,7 @@ export default function SettingsModal() {
           </div>
 
           {/* Proje kuralları — KURALLAR.md */}
-          <div>
+          <div className={section === 'prompt' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
               {t.rulesTitle} <span className="normal-case font-mono text-[10px] text-ink-dim">({projectName}/KURALLAR.md)</span>
             </label>
@@ -442,7 +480,7 @@ export default function SettingsModal() {
           </div>
 
           {/* 7.8: global kurallar — hiyerarşinin üst katmanı (AGENTS.md keşif kuralı) */}
-          <div>
+          <div className={section === 'prompt' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
               {language === 'tr' ? 'Global Kurallar' : 'Global Rules'}{' '}
               <span className="normal-case font-mono text-[10px] text-ink-dim">(~/NexoraAI/KURALLAR.md)</span>
@@ -462,7 +500,7 @@ export default function SettingsModal() {
           </div>
 
           {/* 7.8: proje bilgi tabanı — motorun KANITLA öğrendikleri */}
-          <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+          <div className={(section === 'knowledge' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
               {language === 'tr' ? 'Proje Bilgi Tabanı' : 'Project Knowledge Base'}{' '}
               <span className="normal-case font-mono text-[10px] text-ink-dim">({projectName}/knowledge/)</span>
@@ -512,16 +550,16 @@ export default function SettingsModal() {
           </div>
 
           {/* 10.1: yerel MCP araç sunucuları */}
-          <McpPanel language={language} />
+          {section === 'tools' && <McpPanel language={language} />}
 
           {/* 10.2: yerel modeli OpenAI-uyumlu uç olarak sun */}
-          <ServePanel language={language} />
+          {section === 'tools' && <ServePanel language={language} />}
 
           {/* 10.7: zamanlanmış/tekrarlayan yerel görevler */}
-          <SchedulePanel language={language} />
+          {section === 'tools' && <SchedulePanel language={language} />}
 
-          {/* 10.5: sistem tümleşiği — bildirim + uyku engelleyici */}
-          <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+          {/* 10.5: sistem tümleşiği — bildirim + uyku engelleyici (Genel altında) */}
+          <div className={(section === 'general' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
               {language === 'tr' ? 'Sistem' : 'System'}
             </span>
@@ -540,7 +578,7 @@ export default function SettingsModal() {
           </div>
 
           {/* Özel hızlı komutlar */}
-          <div>
+          <div className={section === 'commands' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
               {t.cmdTitle}
             </label>
@@ -580,6 +618,7 @@ export default function SettingsModal() {
                 <Plus className="h-4 w-4" /> {t.cmdAdd}
               </button>
             </div>
+          </div>
           </div>
         </div>
 
