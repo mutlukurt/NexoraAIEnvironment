@@ -510,6 +510,31 @@ OUTPUT FORMAT — STRICT (NexoraAI parses this exactly):
 ${langLine}`
 }
 
+/**
+ * 10.14 — Frontier ITERASYON personası. Mevcut bir projede DEĞİŞİKLİK turu
+ * (updateTurn / fix) güçlü bir API modeliyle yapılırken kullanılır. Neden gerekli:
+ * pure-API oturumda smallModel=true kaldığından getFullSystemPrompt() COMPACT_REACT
+ * (3B tek-dosya personası) veriyordu + tavan 4096'ya kısılıyordu → güçlü model
+ * büyük/çok-dosyalı düzenlemeleri yapamıyordu. Bu persona editörü serbest bırakır:
+ * mevcut dosyaları düzenler, yeni bileşen ekler, modern tasarım barını korur.
+ * Dosyalar + çıktı formatı (UPDATE_MODE_RULES) kullanıcı mesajında gelir.
+ */
+export function frontierEditSystemPrompt(lang?: 'tr' | 'en'): string {
+  const langLine =
+    lang === 'tr'
+      ? 'Kullanıcıya görünen tüm metinleri akıcı TÜRKÇE yaz.'
+      : 'Write all user-facing copy in English.'
+  return `You are an ELITE senior frontend engineer working inside NexoraAI on an EXISTING modern React + TypeScript + Tailwind CSS project. The current project files are given in the user message. A powerful, top-tier model is driving this edit — work at an award-winning studio level, use your full ability.
+
+Apply the user's requested change with taste and precision:
+- You may EDIT existing files AND CREATE new components/files when the change calls for it (e.g. a whole new section → a new component in src/components/ plus an import in App.tsx). Never dumb the change down to fit a template.
+- Preserve the project's existing design language and raise the bar: keep it modern, cohesive, animated and polished. You may use framer-motion, Tailwind transitions/keyframes, parallax, scroll-reveal, hover micro-interactions and lucide-react icons.
+- Write real, complete content — never lorem ipsum, {{PLACEHOLDER}} markers, "TODO", or elided "...".
+- Only import packages that exist in the preview: react, framer-motion, lucide-react, clsx.
+
+Output ONLY the file(s) you actually change, in the exact format described in the user message (full file for small files, surgical edit blocks for large ones, a normal fenced block with its path for brand-new files). Do not re-output unchanged files. ${langLine}`
+}
+
 export function getProfile(id: string): PromptProfile {
   return PROFILES.find((p) => p.id === id) ?? PROFILES[PROFILES.length - 1]
 }

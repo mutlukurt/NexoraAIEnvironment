@@ -4059,6 +4059,22 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // preTurnPaths TÜM proje dosyalarını kapsar — bağlama girmeyen bir
     // dosyanın körlemesine baştan yazılması da yasaktır.
     updateTurn = !isPlanTurn && !opts?.expectFile && !isChatTurn && allFiles.length > 0
+    // 10.14 "API UNLEASHED" — İTERASYON: mevcut projede API modeliyle bir değişiklik
+    // (updateTurn) ya da düzeltme (fixFlow) turu da 3B kösteklerinden kurtulur.
+    // pure-API'de smallModel=true → getFullSystemPrompt COMPACT 3B veriyordu +
+    // tavan 4096'ya kısılıyordu; frontier edit personası + 16384 tavan ile editör
+    // serbest kalır (büyük/çok-dosyalı düzenleme, yeni bileşen ekleme). Gizli/iç
+    // turlar (hideUser) HARİÇ — onlar deterministik onarım akışıdır.
+    const frontierEdit =
+      apiActive &&
+      allFiles.length > 0 &&
+      !isChatTurn &&
+      !isPlanTurn &&
+      !isEnhanceTurn &&
+      !opts?.expectFile &&
+      !opts?.hideUser &&
+      (updateTurn || fixFlow)
+    const frontierTurn = frontierNewBuild || frontierEdit
     preTurnPaths = new Set(allFiles.map((f) => f.path))
     // 6.4: transaction anlık görüntüsü — yalnızca iterasyon turlarında
     // (yeni-dosya/plan turlarında null: kesinti dosya kaybettirmez, korur).
@@ -4312,6 +4328,10 @@ ${outgoing}`
         // yaratıcı sıcaklık (0.6) + tüm projeyi tek akışta dökebilmesi için ÇOK
         // geniş tavan (16384). 3B'nin 2048/4096 tavanları burada geçersiz.
         { temperature: 0.6, maxTokens: 16384 }
+      : frontierEdit
+      ? // 10.14 — İterasyon/düzeltme: büyük ve çok-dosyalı düzenlemeler 4096'ya
+        // sığmıyordu. Cerrahi ama serbest: hafif düşük sıcaklık, geniş tavan.
+        { temperature: 0.35, maxTokens: 16384 }
       : isChatTurn
       ? // Sohbet: doğal-dil örneklemesi (Qwen3 kartı: 0.6/0.95). Kod sıcaklığı
         // (0.2) + tekrar cezaları Türkçe cevapları bozuyordu. maxTokens tavanı
@@ -4371,7 +4391,7 @@ ${outgoing}`
         history: apiHistory.length > 0 ? apiHistory : undefined,
         // 10.14 — frontier build: main 3B kod personası yerine elit çok-dosya
         // frontier personasını kullanır (güçlü model tam gücünü kullanır).
-        frontier: frontierNewBuild || undefined,
+        frontier: frontierTurn || undefined,
         fidelity: fidelityActive || undefined,
         // Brief yeniden gönderimi makine metnidir: içindeki "mobil" gibi
         // kelimeler proje profilini değiştirmesin (RN'e uçan site vakası).

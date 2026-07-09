@@ -23,7 +23,8 @@ import {
   UPDATE_MODE_RULES,
   FIDELITY_RULES,
   chatSystemPrompt,
-  frontierBuildSystemPrompt
+  frontierBuildSystemPrompt,
+  frontierEditSystemPrompt
 } from '../shared/prompts'
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
@@ -315,8 +316,13 @@ ${UPDATE_MODE_RULES}
       // tek-dosya) YERİNE elit çok-dosya frontier personası → güçlü model tam
       // gücünü kullanır (üst düzey modern, çok bileşenli proje).
       // 10.13: sohbet/soru turunda konuşma sistem prompt'u (kod personası değil).
+      // 10.14: frontier turunda mevcut dosya varsa DÜZENLEME personası (editörü
+      // serbest bırakır), yoksa YENİ build personası. pure-API'de smallModel=true
+      // olduğundan getFullSystemPrompt COMPACT 3B veriyordu — burada devre dışı.
       const apiSys = input.frontier
-        ? frontierBuildSystemPrompt(input.options?.answerLang)
+        ? (input.currentFiles && input.currentFiles.length > 0
+            ? frontierEditSystemPrompt(input.options?.answerLang)
+            : frontierBuildSystemPrompt(input.options?.answerLang))
         : input.options?.purpose
         ? chatSystemPrompt(input.options.answerLang, input.options.purpose)
         : getFullSystemPrompt()
