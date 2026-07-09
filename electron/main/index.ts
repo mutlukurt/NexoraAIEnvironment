@@ -13,7 +13,8 @@ import {
   getActiveFamily,
   debugHasFamilyNote,
   generateForServe,
-  getLastTurnUsage
+  getLastTurnUsage,
+  imageToDataUrl
 } from './llamaService'
 import {
   searchModels,
@@ -46,7 +47,7 @@ import { runBehaviorTest } from './behaviorTest'
 import { reproCheck } from './reproCheck'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware, getAdvisorPlan } from './advisorService'
-import { setApiConfig, type ApiConfig } from './apiEngine'
+import { setApiConfig, promptApi, hasApiOverride, type ApiConfig } from './apiEngine'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
 import {
@@ -421,6 +422,28 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.VISION_ANALYZE, async (_e, input: { imagePath: string; prompt: string }) => {
+    // İKİ AŞAMALI GÖRSEL AKIŞI — 1. AŞAMA (analiz).
+    // API modeli aktifse görsel analizini API'nin KENDİSİ yapar (yerel VL ASLA
+    // çalışmaz). Görsel + detaylı analiz prompt'u API'ye multimodal gider,
+    // ölçülebilir tasarım spec'i döner; bu spec 2. aşamada (frontier build)
+    // tam projeyi kurmak için kullanılır. "Localde hiçbir şey API'yi etkilemez."
+    if (hasApiOverride()) {
+      try {
+        mainWindow?.webContents.send(IPC.VISION_STATUS, { msg: 'API görseli inceliyor…' })
+        const dataUrl = await imageToDataUrl(input.imagePath)
+        const sys =
+          'You are a meticulous senior UI/UX design analyst. You are shown ONE screenshot of a website/app design. Produce a precise, MEASURABLE reconstruction spec that another developer will build from — never write code, only the spec. Report exact hex colors per region, typography, every section top-to-bottom with its layout and real text content, components and their styles. Read colors and text ONLY from the image; never invent template colors. Be exhaustive: if the page has 6 sections, describe all 6.'
+        let text = ''
+        const out = await promptApi(sys, input.prompt, (t) => {
+          text += t
+        }, undefined, { imageDataUrl: dataUrl, temperature: 0.2, maxTokens: 4096 })
+        const full = (out && out.trim()) || text.trim()
+        if (!full) return { ok: false, error: 'API görsel analizinden boş yanıt döndü' }
+        return { ok: true, text: full }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
     return analyzeImage(input.imagePath, input.prompt, (msg) => {
       mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
     })

@@ -3783,94 +3783,105 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     const image = get().pendingImage
     let visionAnalysis: string | null = null
     let apiImagePath: string | null = null
+    // İKİ AŞAMALI GÖRSEL-BUILD işareti: spec API vision modelinden geldiyse
+    // true. visionAnalysis normalde frontier build'i KAPATIR (eski yerel-VL yolu
+    // bölümlü pipeline'a düşerdi); apiVisionSpec bu turda frontier'ı AÇIK tutar —
+    // güçlü API modeli spec'ten tek akışta tam projeyi kurar (bölümleme köstek).
+    let apiVisionSpec = false
     if (image) {
       set({ pendingImage: null })
-      // GÖRSEL BUG DÜZELTMESİ: API modeli aktifse (ör. DeepSeek v4 Pro) görsel
-      // DOĞRUDAN API'ye multimodal girdi olarak gider — yerel VL modeli HİÇ
-      // çalıştırılmaz (indirmez, sunucu başlatmaz). Yerel VL yalnız yerel modelde.
-      // API bağımsızdır; local'deki hiçbir şey onu etkilemez.
+      // GÖRSEL AKIŞI — İKİ AŞAMA. Model tek seferde "hem görseli anla hem tüm kodu
+      // yaz" YAPAMAZ → eksik/alakasız (bazen 1 dosyada kesilen) build çıkar. Bu
+      // yüzden: 1) AŞAMA — görseli ANALİZ ET (bölüm/renk/metin spec'i çıkar),
+      // 2) AŞAMA — o spec'ten tam projeyi KUR. Analizi yapan taraf aktif modele
+      // göre seçilir (API aktifse API'nin KENDİSİ, yoksa yerel VL — main tarafı
+      // VISION_ANALYZE'de karar verir). "Local'deki hiçbir şey API'yi etkilemez."
       const apiModelActive = !!useSettingsStore.getState().activeApiModel
-      if (apiModelActive) {
-        apiImagePath = image.path
-        // Görsel API'ye multimodal olarak gider — AMA model görsel-yetenekli
-        // değilse (ör. deepseek-v4-pro metin modeli) görseli göremez ve
-        // geçmişten uydurur. Sessiz yanlış-build yerine kullanıcıyı uyar.
-        const activeModel = useSettingsStore.getState().activeApiModel?.model ?? ''
-        const { isVisionCapableModel } = await import('@/lib/visionIntent')
-        const newMsgs: ChatMessage[] = [
-          { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` }
-        ]
-        if (!isVisionCapableModel(activeModel)) {
-          newMsgs.push({
-            id: nanoid(),
-            role: 'assistant',
-            content:
-              `⚠️ **${activeModel}** bir görsel (vision) modeli değil gibi görünüyor — bu model iliştirdiğin görseli **göremez**, bu yüzden tahmine dayalı (yanlış) sonuç üretebilir.\n\n` +
-              `Görselden tasarım/analiz için **görsel-yetenekli bir modele** geç (üstteki model seçiciden):\n` +
-              `• **Qwen-VL** — \`qwen-vl-max\`, \`qwen-vl-plus\`\n` +
-              `• **OpenAI** — \`gpt-4o\`\n` +
-              `• **Anthropic** — \`claude-sonnet\` / \`claude-opus\`\n` +
-              `• **Google** — \`gemini-2.5-flash\` / \`gemini-2.5-pro\`\n\n` +
-              `_(Görsel yine de API'ye gönderildi; model destekliyorsa kullanır.)_`
-          })
-        }
-        set((s) => ({ messages: [...s.messages, ...newMsgs] }))
-      } else {
-      const { isBuildIntent } = await import('@/lib/visionIntent')
+      const activeModel = useSettingsStore.getState().activeApiModel?.model ?? ''
+      const { isBuildIntent, isVisionCapableModel } = await import('@/lib/visionIntent')
       const isBuild = isBuildIntent(trimmed)
-      const statusId = nanoid()
-      set((s) => ({
-        messages: [
-          ...s.messages,
-          { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` },
-          { id: statusId, role: 'assistant', content: '🖼 Görsel işleniyor…' }
-        ]
-      }))
-      const visionUnsub = window.nexora.vision.onStatus((e: { msg: string }) => {
+
+      // Metin-modeli görseli GÖREMEZ → analiz de yapamaz. Uyar + ham gönder.
+      if (apiModelActive && !isVisionCapableModel(activeModel)) {
+        apiImagePath = image.path
         set((s) => ({
-          messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🖼 ${e.msg}` } : m))
+          messages: [
+            ...s.messages,
+            { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` },
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content:
+                `⚠️ **${activeModel}** bir görsel (vision) modeli değil gibi görünüyor — bu model iliştirdiğin görseli **göremez**, bu yüzden tahmine dayalı (yanlış) sonuç üretebilir.\n\n` +
+                `Görselden tasarım/analiz için **görsel-yetenekli bir modele** geç (üstteki model seçiciden):\n` +
+                `• **Qwen-VL** — \`qwen-vl-max\`, \`qwen-vl-plus\`\n` +
+                `• **OpenAI** — \`gpt-4o\`\n` +
+                `• **Anthropic** — \`claude-sonnet\` / \`claude-opus\`\n` +
+                `• **Google** — \`gemini-2.5-flash\` / \`gemini-2.5-pro\`\n\n` +
+                `_(Görsel yine de API'ye gönderildi; model destekliyorsa kullanır.)_`
+            }
+          ]
         }))
-      })
-      const visionPrompt = isBuild
-        ? `Bu bir web sitesi tasarım referansı. Bir geliştiricinin SENİN TARİFİNLE bu sayfayı yeniden inşa edeceğini unutma — belirsiz sıfatlar değil, ölçülebilir detaylar ver:
+      } else {
+        const statusId = nanoid()
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` },
+            { id: statusId, role: 'assistant', content: '🖼 Görsel inceleniyor…' }
+          ]
+        }))
+        const visionUnsub = window.nexora.vision.onStatus((e: { msg: string }) => {
+          set((s) => ({
+            messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🖼 ${e.msg}` } : m))
+          }))
+        })
+        const visionPrompt = isBuild
+          ? `Bu bir web sitesi tasarım referansı. Bir geliştiricinin SENİN TARİFİNLE bu sayfayı yeniden inşa edeceğini unutma — belirsiz sıfatlar değil, ölçülebilir detaylar ver:
 
 1) SAYFA ÇERÇEVESİ: sayfanın genel zemini ne renk (hex)? İçerik bir çerçeve/kutu içinde mi (kenar boşluğu, köşe yuvarlaklığı)? Maksimum içerik genişliği dar mı geniş mi?
 2) RENKLER (hex tahminleri): zemin, ikincil zemin(ler), birincil vurgu, metin, açık/koyu bölge geçişleri. HANGİ BÖLGE HANGİ RENK — "her yer X" deme, bölge bölge yaz.
 3) TİPOGRAFİ: başlık fontu serif mi sans mı, ağırlıklar, hero başlığının yaklaşık büyüklüğü, satır aralığı hissi.
-4) BÖLÜMLER (yukarıdan aşağıya TEK TEK): her bölüm için — kaç sütun, hangi tarafta ne var (metin sol / görsel sağ gibi), kart sayısı, arka plan rengi, dikkat çeken öğeler (rozet, istatistik kutusu, logo şeridi).
+4) BÖLÜMLER (yukarıdan aşağıya TEK TEK): her bölüm için — kaç sütun, hangi tarafta ne var (metin sol / görsel sağ gibi), kart sayısı, arka plan rengi, dikkat çeken öğeler (rozet, istatistik kutusu, logo şeridi). Her bölümün GERÇEK METİN İÇERİĞİNİ (başlıklar, alt başlıklar, buton yazıları, istatistik rakamları) birebir yaz.
 5) BİLEŞENLER: buton stilleri (dolgu/çerçeve, köşe, renk), kart stilleri (gölge, kenarlık, köşe), ikon kullanımı.
 6) GENEL HİS: minimal/kurumsal/lüks vb. + boşluk yoğunluğu.
 
 ÖNEMLİ RENK KURALI: Renkleri YALNIZCA bu görselden oku. Görselde OLMAYAN bir rengi asla yazma; web şablonlarından ezber renk (#007BFF, #FF5733 gibi) yazmak YASAK. Bir bölgenin renginden emin olamıyorsan o renge "belirsiz" yaz.
 
-Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da bitir.`
-        : trimmed
-      const vres = await window.nexora.vision.analyze({ imagePath: image.path, prompt: visionPrompt })
-      visionUnsub()
-      if (!vres.ok || !vres.text) {
+Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (üstten alta) eksiksiz bitir.`
+          : trimmed
+        const vres = await window.nexora.vision.analyze({ imagePath: image.path, prompt: visionPrompt })
+        visionUnsub()
+        if (!vres.ok || !vres.text) {
+          set((s) => ({
+            messages: s.messages.map((m) =>
+              m.id === statusId ? { ...m, content: `⚠️ Görsel analizi başarısız: ${vres.error ?? 'bilinmeyen hata'}` } : m
+            )
+          }))
+          return
+        }
+        if (!isBuild) {
+          // Soru-cevap modu: modelin cevabı doğrudan gösterilir, build'e gidilmez.
+          set((s) => ({
+            messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: vres.text! } : m))
+          }))
+          return
+        }
+        // 2. AŞAMA girişi: analiz build'e aktarılır. API vision modelinde bu tur
+        // FRONTIER build olur (apiVisionSpec) + görsel de referans olarak gider.
+        visionAnalysis = vres.text
+        if (apiModelActive) {
+          apiVisionSpec = true
+          apiImagePath = image.path
+        }
         set((s) => ({
           messages: s.messages.map((m) =>
-            m.id === statusId ? { ...m, content: `⚠️ Görsel analizi başarısız: ${vres.error ?? 'bilinmeyen hata'}` } : m
+            m.id === statusId
+              ? { ...m, content: '🖼 Tasarım analizi çıkarıldı — şimdi bu spec\'ten tam proje kuruluyor:\n\n' + vres.text!.slice(0, 1500) + (vres.text!.length > 1500 ? '…\n\n(önizleme kısaltıldı — analizin TAMAMI modele iletildi)' : '') }
+              : m
           )
         }))
-        return
       }
-      if (!isBuild) {
-        // Soru-cevap modu: VL'in cevabı doğrudan gösterilir, kodlayıcıya gidilmez.
-        set((s) => ({
-          messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: vres.text! } : m))
-        }))
-        return
-      }
-      visionAnalysis = vres.text
-      set((s) => ({
-        messages: s.messages.map((m) =>
-          m.id === statusId
-            ? { ...m, content: '🖼 Tasarım analizi çıkarıldı — kodlayıcı modele aktarılıyor:\n\n' + vres.text!.slice(0, 1500) + (vres.text!.length > 1500 ? '…\n\n(önizleme kısaltıldı — analizin TAMAMI modele iletildi)' : '') }
-            : m
-        )
-      }))
-      } // else (yerel VL) sonu
     }
 
     // Snapshot for the accept/reject cycle (iteration support).
@@ -3973,7 +3984,11 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       !opts?.expectFile &&
       !opts?.hideUser &&
       !fixFlow &&
-      !visionAnalysis
+      // visionAnalysis normalde frontier'ı kapatır (eski yerel-VL yolu bölümlü
+      // pipeline'a düşer). AMA spec API vision modelinden geldiyse (apiVisionSpec)
+      // 2. aşama FRONTIER build olur: güçlü model spec'ten tek akışta tam projeyi
+      // kurar. Yerel VL yolu (apiVisionSpec=false) eskisi gibi bölümlü kalır.
+      (!visionAnalysis || apiVisionSpec)
     // Frontier build fidelity slotlamasını KULLANMAZ — güçlü model spec'e zaten
     // sadık; slot/enforcement 3B köstekleridir.
     const fidelityBuild =

@@ -79,7 +79,7 @@ export function isModelLoaded(): boolean {
  * data-URL'e çevir. Uzun kenar 1024px'e küçültülür (token + bant tasarrufu;
  * visionService ile aynı yaklaşım); nativeImage başarısızsa ham baytlara düşer.
  */
-async function imageToDataUrl(imagePath: string): Promise<string> {
+export async function imageToDataUrl(imagePath: string): Promise<string> {
   let buf: Buffer
   let mime = 'image/png'
   try {
