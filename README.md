@@ -70,6 +70,8 @@ Phase 10 set out to close the one gap the engine/security/repair/fidelity work h
 
 > **v0.17.3 (patch) — image → project is now a two-stage flow, entirely on the API.** Even a real vision model (`qwen-vl-max`) produced a shallow, off-target result — often **one file, cut off** — because it was asked to *understand the screenshot and write the whole app in a single response*. Now it's split: **stage 1 — the API analyzes the image** into a measurable spec (frame, per-region hex colors, typography, every section top-to-bottom with its real text); **stage 2 — the API builds the complete project from that spec** as a frontier multi-file generation. The local VL never runs on the API path — the API does *both* stages. Live-verified against a real reference screenshot: stage 1 nailed the palette (`#FFFFFF` frame, `#000000` navbar, `#FFD700` "Get a Quote" button, `#1A1A1A` "Strategy first." card), then stage 2 shipped **10 files / 6 components** (Navbar, Hero, Features, Stats, Logos, Footer) with framer-motion + the right Google font — faithful colors and text, behavior test passing. `test:frontier` 24/24.
 
+> **v0.17.4 (patch) — "New session" on a project now lands you in Chat.** Clicking **New session** under a project loaded its files but dropped you on the **Files & Code** view — so there was no chat box in sight and it felt like nothing happened. It now opens the project into a fresh session and lands on **Chat**, showing "📂 Loaded … (N files)" with the composer ready — type a prompt and keep building. ("Open Project" still opens on the code view, since that's for inspecting.)
+
 ### Ecosystem & discoverability — all local-first, opt-in (10.1 – 10.9)
 
 | Added | What it does |
