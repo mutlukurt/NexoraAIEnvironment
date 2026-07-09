@@ -21,10 +21,7 @@ const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
 const MODELS_DIR = join(homedir(), 'NexoraAI', 'models')
 const VISION_PORT = 8091
 
-const VL_MODEL_URL =
-  'https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf'
-const VL_MMPROJ_URL =
-  'https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf'
+// 3B taban yolları — pickVisionModel'in son-çare düşüşü için (URL'ler VL_CANDIDATES'te).
 const VL_MODEL = join(MODELS_DIR, 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf')
 const VL_MMPROJ = join(MODELS_DIR, 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf')
 
@@ -33,26 +30,62 @@ const VL_MMPROJ = join(MODELS_DIR, 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf')
  * VL çifti indirirse (model + mmproj) ve o anki boş RAM yetiyorsa uygulama
  * OTOMATİK olarak onu kullanır. needGb: model + mmproj + bağlam payı.
  */
-const VL_CANDIDATES: Array<{ label: string; model: string; mmproj: string; needGb: number }> = [
+const vlUrl = (n: string, file: string): string =>
+  `https://huggingface.co/ggml-org/Qwen2.5-VL-${n}B-Instruct-GGUF/resolve/main/${file}`
+
+interface VlCandidate {
+  label: string
+  model: string
+  mmproj: string
+  modelUrl: string
+  mmprojUrl: string
+  /** Model+mmproj+bağlam için gereken boş RAM. */
+  needGb: number
+  /** Model+mmproj yaklaşık indirme boyutu (GB) — kullanıcıya gösterilir. */
+  dlGb: number
+}
+const VL_CANDIDATES: VlCandidate[] = [
   {
     label: 'Qwen2.5-VL-32B',
     model: 'Qwen2.5-VL-32B-Instruct-Q4_K_M.gguf',
     mmproj: 'mmproj-Qwen2.5-VL-32B-Instruct-Q8_0.gguf',
-    needGb: 24
+    modelUrl: vlUrl('32', 'Qwen2.5-VL-32B-Instruct-Q4_K_M.gguf'),
+    mmprojUrl: vlUrl('32', 'mmproj-Qwen2.5-VL-32B-Instruct-Q8_0.gguf'),
+    needGb: 24,
+    dlGb: 20
   },
   {
     label: 'Qwen2.5-VL-7B',
     model: 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf',
     mmproj: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
-    needGb: 7
+    modelUrl: vlUrl('7', 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf'),
+    mmprojUrl: vlUrl('7', 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf'),
+    needGb: 7,
+    dlGb: 5
   },
   {
     label: 'Qwen2.5-VL-3B',
     model: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf',
     mmproj: 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf',
-    needGb: 4
+    modelUrl: vlUrl('3', 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf'),
+    mmprojUrl: vlUrl('3', 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf'),
+    needGb: 4,
+    dlGb: 2
   }
 ]
+
+/**
+ * Görsel bug düzeltmesi: indirilecek VL SABİT değil — CİHAZA göre seçilir. Boş
+ * RAM'e sığan EN İYİ (en büyük) VL adayı indirilir (advisor'ın önerisiyle uyumlu:
+ * 48GB+ → 32B, orta → 7B, düşük → 3B). Daha iyi makinesi olan daha iyi göz alır.
+ */
+function pickDownloadTarget(): VlCandidate {
+  const freeGb = freemem() / 1e9
+  for (const c of VL_CANDIDATES) {
+    if (freeGb >= c.needGb) return c
+  }
+  return VL_CANDIDATES[VL_CANDIDATES.length - 1] // 3B tabanı
+}
 
 /** RAM'e sığan en iyi mevcut gözü seç (yoksa 3B varsayılanına düşülür). */
 function pickVisionModel(): { label: string; model: string; mmproj: string } {
@@ -135,13 +168,23 @@ export async function ensureVisionReady(onStatus: VisionStatusCallback): Promise
       await rm(archivePath, { force: true })
       if (!existsSync(serverBinaryPath())) return { ok: false, error: 'llama-server çıkarılamadı.' }
     }
-    if (!existsSync(VL_MODEL)) {
-      onStatus('Görsel modeli (Qwen2.5-VL-3B, ~1.9 GB) indiriliyor…')
-      await downloadFile(VL_MODEL_URL, VL_MODEL, onStatus, 'Görsel modeli')
-    }
-    if (!existsSync(VL_MMPROJ)) {
-      onStatus('Görsel projektörü (~0.8 GB) indiriliyor…')
-      await downloadFile(VL_MMPROJ_URL, VL_MMPROJ, onStatus, 'Görsel projektörü')
+    // Görsel bug düzeltmesi: SABİT 3B yerine CİHAZA uygun VL indirilir. Zaten
+    // herhangi bir VL çifti (3B/7B/32B) diskteyse yeniden indirme yapılmaz.
+    const anyVl = VL_CANDIDATES.some(
+      (c) => existsSync(join(MODELS_DIR, c.model)) && existsSync(join(MODELS_DIR, c.mmproj))
+    )
+    if (!anyVl) {
+      const tgt = pickDownloadTarget()
+      const modelPath = join(MODELS_DIR, tgt.model)
+      const mmprojPath = join(MODELS_DIR, tgt.mmproj)
+      if (!existsSync(modelPath)) {
+        onStatus(`Görsel modeli (${tgt.label}, ~${tgt.dlGb} GB — cihazınıza göre seçildi) indiriliyor…`)
+        await downloadFile(tgt.modelUrl, modelPath, onStatus, 'Görsel modeli')
+      }
+      if (!existsSync(mmprojPath)) {
+        onStatus('Görsel projektörü indiriliyor…')
+        await downloadFile(tgt.mmprojUrl, mmprojPath, onStatus, 'Görsel projektörü')
+      }
     }
     return { ok: true }
   } catch (err) {

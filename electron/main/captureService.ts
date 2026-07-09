@@ -14,12 +14,12 @@ import { homedir } from 'os'
 
 const CAPTURE_PATH = join(homedir(), 'NexoraAI', 'cache', 'visual-review.png')
 
-/** Vizyon modeli diskte hazır mı? (Run tetiklenince sürpriz GB'lık indirme olmasın.) */
+/** Vizyon modeli diskte hazır mı? (Run tetiklenince sürpriz GB'lık indirme olmasın.)
+ * Görsel bug düzeltmesi: VL artık cihaza göre (3B/7B/32B) — hangi boyut inmişse say. */
 export function visionModelPresent(): boolean {
   const models = join(homedir(), 'NexoraAI', 'models')
-  return (
-    existsSync(join(models, 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf')) ||
-    existsSync(join(models, 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf'))
+  return ['3', '7', '32'].some((n) =>
+    existsSync(join(models, `Qwen2.5-VL-${n}B-Instruct-Q4_K_M.gguf`))
   )
 }
 
