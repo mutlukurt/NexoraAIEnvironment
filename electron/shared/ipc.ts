@@ -19,6 +19,30 @@ export interface ChatMessage {
   tasks?: { title: string; steps: TaskStep[]; active: boolean; note?: string }
   /** 10.11.1: bu turda dokunulan dosyaların +eklenen/−silinen satır dökümü. */
   diffStats?: Array<{ path: string; added: number; removed: number; isNew: boolean }>
+  /**
+   * Görsel-üretme turu sonucu: sohbette inline gösterilen üretilmiş görsel.
+   * dataUrl kendine-yeterlidir (base64) — oturum kaydında kalıcı, önizleme +
+   * tam ekran + indirme + assets'e ekleme hepsi bundan çalışır.
+   */
+  image?: { dataUrl: string; name: string; prompt?: string }
+}
+
+/** Görsel üretme isteği/sonucu (IMAGE_GENERATE). */
+export interface ImageGenInput {
+  prompt: string
+}
+export interface ImageGenResult {
+  ok: boolean
+  /** data:image/...;base64,... — kendine-yeterli görsel. */
+  dataUrl?: string
+  /** önerilen dosya adı (ör. "bir-kus-1720000.png"). */
+  name?: string
+  error?: string
+}
+/** Üretilen görseli kullanıcının seçtiği yere kaydet (IMAGE_SAVE_AS). */
+export interface ImageSaveInput {
+  dataUrl: string
+  name: string
 }
 
 export interface ModelInfo {
@@ -158,6 +182,10 @@ export const IPC = {
   VISION_ANALYZE: 'vision:analyze',
   VISION_STATUS: 'vision:status',
   VISION_PREPARE: 'vision:prepare',
+  // Görsel ÜRETME (text-to-image) — görsel-üretme API modeli aktifken.
+  IMAGE_GENERATE: 'image:generate',
+  IMAGE_STATUS: 'image:status',
+  IMAGE_SAVE_AS: 'image:save-as',
   ADVISOR_DETECT: 'advisor:detect',
   ADVISOR_PLAN: 'advisor:plan',
   SESSIONS_LIST: 'sessions:list',

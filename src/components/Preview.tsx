@@ -376,7 +376,15 @@ function stubImport(clause: string, from: string): string {
   return parts.length ? `var ${parts.join(', ')};\n` : ''
 }
 
-function transformModule(file: ArtifactFile, allPaths: string[], exportMap?: Record<string, string>): string {
+/** Görsel asset uzantıları — bu import'lar data-URL string'e çözülür (require değil). */
+const ASSET_IMG_EXT = /\.(png|jpe?g|gif|svg|webp|avif|ico|bmp)$/i
+
+function transformModule(
+  file: ArtifactFile,
+  allPaths: string[],
+  exportMap?: Record<string, string>,
+  assetUrls?: Record<string, string>
+): string {
   let code = file.content
   const exportedNames: string[] = []
   const exportPairs: Array<{ exported: string; local: string }> = []
@@ -485,7 +493,19 @@ function transformModule(file: ArtifactFile, allPaths: string[], exportMap?: Rec
       imp.from.startsWith('.') || imp.from.startsWith('@/') || imp.from.startsWith('~/') || allPaths.includes(imp.from)
     if (isLocal) {
       const resolved = allPaths.includes(imp.from) ? imp.from : resolveImport(fromDir, imp.from, allPaths)
-      if (resolved && !resolved.endsWith('.css')) {
+      if (resolved && ASSET_IMG_EXT.test(resolved)) {
+        // Görsel asset import'u (ör. `import bird from './assets/bird.png'`):
+        // default = dosyanın data-URL içeriği. Yoksa boş string → sayfadaki
+        // onerror yakalayıcısı yer tutucuya çevirir. require ÇALIŞTIRILMAZ.
+        const url = assetUrls?.[resolved] ?? ''
+        const info = extractImportNames(imp.clause)
+        const val = JSON.stringify(url)
+        const parts: string[] = []
+        if (info.default) parts.push(`${info.default} = ${val}`)
+        if (info.ns) parts.push(`${info.ns} = { default: ${val} }`)
+        for (const n of info.named) parts.push(`${n.local} = ${val}`)
+        importCode += parts.length ? `var ${parts.join(', ')};\n` : ''
+      } else if (resolved && !resolved.endsWith('.css')) {
         const info = extractImportNames(imp.clause)
         const mod = `require(${JSON.stringify(resolved)})`
         const parts: string[] = []
@@ -616,10 +636,19 @@ export function buildReactPreview(
     }
   }
 
+  // Görsel asset'leri (data-URL içerikli .png/.jpg… — "Assets'e ekle" ile gelen
+  // üretilmiş görseller) yol→data-URL haritası: import'lar buradan çözülür.
+  const assetUrls: Record<string, string> = {}
+  for (const f of allFiles) {
+    if (ASSET_IMG_EXT.test(f.path) && typeof f.content === 'string' && f.content.startsWith('data:')) {
+      assetUrls[f.path] = f.content
+    }
+  }
+
   // Her modül KENDİ <script> etiketinde: birinde sözdizimi hatası olsa bile
   // diğer modüller ve render bootstrap'ı çalışmaya devam eder.
   const moduleScripts = jsxFiles
-    .map((f) => `<script>\ntry {\n${escapeScript(transformModule(f, allPaths, exportMap))}\n} catch (e) { window.__nexErr('Modül tanım hatası [${f.path}]: ' + (e.message || e)); }\n</script>`)
+    .map((f) => `<script>\ntry {\n${escapeScript(transformModule(f, allPaths, exportMap, assetUrls))}\n} catch (e) { window.__nexErr('Modül tanım hatası [${f.path}]: ' + (e.message || e)); }\n</script>`)
     .join('\n')
 
   const extraCss = allFiles

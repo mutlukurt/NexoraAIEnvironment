@@ -3745,6 +3745,64 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       set({ error: 'Önce bir model seç (yerel GGUF ya da API modeli).' })
       return
     }
+    // GÖRSEL ÜRETME yolu: aktif API modeli text-to-image modeliyse (qwen-image,
+    // dall-e, flux…) tur /chat/completions'a DEĞİL görsel uç noktasına gider.
+    // Prompt = görsel açıklaması; sonuç sohbette inline görsel (önizleme + tam
+    // ekran + indirme + assets'e ekleme). Yerel model/kod pipeline'ına HİÇ girmez.
+    {
+      const activeApiImg = useSettingsStore.getState().activeApiModel
+      if (activeApiImg && !opts?.hideUser && !opts?.expectFile) {
+        const { isImageGenModel } = await import('@shared/imageModels')
+        if (isImageGenModel(activeApiImg.model)) {
+          const statusId = nanoid()
+          set((s) => ({
+            sending: true,
+            error: null,
+            messages: [
+              ...s.messages,
+              { id: nanoid(), role: 'user', content: trimmed },
+              { id: statusId, role: 'assistant', content: '🎨 Görsel üretiliyor…' }
+            ]
+          }))
+          const unsub = window.nexora.images.onStatus((e: { msg: string }) => {
+            set((s) => ({
+              messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🎨 ${e.msg}` } : m))
+            }))
+          })
+          try {
+            const res = await window.nexora.images.generate({ prompt: trimmed })
+            unsub()
+            if (!res.ok || !res.dataUrl) {
+              set((s) => ({
+                sending: false,
+                messages: s.messages.map((m) =>
+                  m.id === statusId ? { ...m, content: `⚠️ Görsel üretilemedi: ${res.error ?? 'bilinmeyen hata'}` } : m
+                )
+              }))
+              return
+            }
+            set((s) => ({
+              sending: false,
+              messages: s.messages.map((m) =>
+                m.id === statusId
+                  ? { ...m, content: '', image: { dataUrl: res.dataUrl!, name: res.name || 'gorsel.png', prompt: trimmed } }
+                  : m
+              )
+            }))
+            void get().saveSessionNow()
+          } catch (err) {
+            unsub()
+            set((s) => ({
+              sending: false,
+              messages: s.messages.map((m) =>
+                m.id === statusId ? { ...m, content: `⚠️ Görsel üretilemedi: ${(err as Error).message}` } : m
+              )
+            }))
+          }
+          return
+        }
+      }
+    }
     // expectFile turları da makine turudur (planlı dosya/yeniden-üretim):
     // commit mesajına teknik tanı metni sızmasın.
     if (!opts?.hideUser && !opts?.expectFile) lastVisibleUserPrompt = trimmed

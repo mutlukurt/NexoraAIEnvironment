@@ -129,6 +129,11 @@ export interface NexoraApi {
     prepare: () => Promise<{ ok: boolean; error?: string }>
     onStatus: (cb: (event: { msg: string }) => void) => () => void
   }
+  images: {
+    generate: (input: { prompt: string }) => Promise<{ ok: boolean; dataUrl?: string; name?: string; error?: string }>
+    saveAs: (input: { dataUrl: string; name: string }) => Promise<{ ok: boolean; savedPath?: string; error?: string }>
+    onStatus: (cb: (event: { msg: string }) => void) => () => void
+  }
   advisor: {
     detect: () => Promise<import('../shared/advisor').HardwareInfo>
     plan: () => Promise<import('../shared/advisor').AdvisorPlan>
@@ -337,6 +342,15 @@ const api: NexoraApi = {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)
       ipcRenderer.on(IPC.VISION_STATUS, handler as never)
       return () => ipcRenderer.off(IPC.VISION_STATUS, handler as never)
+    }
+  },
+  images: {
+    generate: (input: { prompt: string }) => ipcRenderer.invoke(IPC.IMAGE_GENERATE, input),
+    saveAs: (input: { dataUrl: string; name: string }) => ipcRenderer.invoke(IPC.IMAGE_SAVE_AS, input),
+    onStatus: (cb) => {
+      const handler = (_e: unknown, data: { msg: string }) => cb(data)
+      ipcRenderer.on(IPC.IMAGE_STATUS, handler as never)
+      return () => ipcRenderer.off(IPC.IMAGE_STATUS, handler as never)
     }
   },
   advisor: {

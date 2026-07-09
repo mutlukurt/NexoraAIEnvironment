@@ -274,3 +274,162 @@ export async function promptApi(
   })
   return pumpSse(res, (j) => (j as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]?.delta?.content, onToken)
 }
+
+// ============ GÖRSEL ÜRETME (text-to-image) ============
+// Kullanıcı görsel-üretme API modeli (qwen-image-2.0, dall-e, flux…) seçtiğinde
+// tur /chat/completions yerine görsel uç noktasına gider. İki adaptör:
+//  • DashScope (Alibaba/Qwen-image): NATIVE API — OpenAI-uyumlu DEĞİL.
+//  • Diğerleri (OpenAI/Together/Fireworks/DeepInfra/xAI…): /images/generations.
+// Dönen kendine-yeterli { b64, mime } — indirilir, base64'e çevrilir.
+
+async function fetchImageToB64(url: string, signal?: AbortSignal): Promise<{ b64: string; mime: string }> {
+  const res = await fetch(url, { signal })
+  if (!res.ok) throw new Error(`Görsel indirilemedi (${res.status})`)
+  const buf = Buffer.from(await res.arrayBuffer())
+  return { b64: buf.toString('base64'), mime: res.headers.get('content-type') || 'image/png' }
+}
+
+async function generateImageOpenAI(
+  c: { baseUrl: string; apiKey: string; model: string },
+  base: string,
+  prompt: string,
+  opts?: { signal?: AbortSignal; onStatus?: (s: string) => void }
+): Promise<{ b64: string; mime: string }> {
+  const url = /\/v\d+$/.test(base) ? `${base}/images/generations` : `${base}/v1/images/generations`
+  // gpt-image-* response_format'ı REDDEDER (her zaman b64 döner); dall-e destekler.
+  const isGptImage = /gpt-image|chatgpt-image/i.test(c.model)
+  const body: Record<string, unknown> = { model: c.model, prompt, n: 1, size: '1024x1024' }
+  if (!isGptImage) body.response_format = 'b64_json'
+  opts?.onStatus?.('Görsel üretiliyor…')
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
+    body: JSON.stringify(body),
+    signal: opts?.signal
+  })
+  if (!res.ok) throw new Error(`Görsel API hatası ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  const j = (await res.json()) as { data?: Array<{ b64_json?: string; url?: string }> }
+  const item = j?.data?.[0]
+  if (item?.b64_json) return { b64: item.b64_json, mime: 'image/png' }
+  if (item?.url) return fetchImageToB64(item.url, opts?.signal)
+  throw new Error('Görsel API yanıtında görsel bulunamadı.')
+}
+
+async function dashscopeSyncImage(
+  host: string,
+  c: { apiKey: string; model: string },
+  prompt: string,
+  opts?: { signal?: AbortSignal; onStatus?: (s: string) => void }
+): Promise<{ b64: string; mime: string }> {
+  // PATTERN B — senkron multimodal-generation (qwen-image-max / -2.0 / -2512)
+  opts?.onStatus?.('Görsel üretiliyor…')
+  const res = await fetch(`${host}/api/v1/services/aigc/multimodal-generation/generation`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) },
+    body: JSON.stringify({
+      model: c.model,
+      input: { messages: [{ role: 'user', content: [{ text: prompt }] }] },
+      parameters: { size: '1328*1328', n: 1, prompt_extend: true, watermark: false }
+    }),
+    signal: opts?.signal
+  })
+  if (!res.ok) throw new Error(`DashScope görsel hatası ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  const j = (await res.json()) as {
+    output?: { choices?: Array<{ message?: { content?: Array<{ image?: string }> } }> }
+  }
+  const content = j?.output?.choices?.[0]?.message?.content
+  const imgUrl = Array.isArray(content) ? content.find((x) => x?.image)?.image : undefined
+  if (!imgUrl) throw new Error('DashScope yanıtında görsel yok.')
+  return fetchImageToB64(imgUrl, opts?.signal)
+}
+
+async function dashscopeAsyncImage(
+  host: string,
+  c: { apiKey: string; model: string },
+  prompt: string,
+  opts?: { signal?: AbortSignal; onStatus?: (s: string) => void }
+): Promise<{ b64: string; mime: string }> {
+  // PATTERN A — asenkron submit + poll (qwen-image / qwen-image-plus / wanx)
+  const headers = { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) }
+  opts?.onStatus?.('Görsel kuyruğa alındı…')
+  const sub = await fetch(`${host}/api/v1/services/aigc/text2image/image-synthesis`, {
+    method: 'POST',
+    headers: { ...headers, 'X-DashScope-Async': 'enable' },
+    body: JSON.stringify({
+      model: c.model,
+      input: { prompt },
+      parameters: { size: '1328*1328', n: 1, prompt_extend: true, watermark: false }
+    }),
+    signal: opts?.signal
+  })
+  if (!sub.ok) throw new Error(`DashScope submit hatası ${sub.status}: ${(await sub.text()).slice(0, 300)}`)
+  const subJson = (await sub.json()) as { output?: { task_id?: string } }
+  const taskId = subJson?.output?.task_id
+  if (!taskId) throw new Error('DashScope task_id alınamadı.')
+  const started = Date.now()
+  for (;;) {
+    if (opts?.signal?.aborted) throw new Error('İptal edildi.')
+    await new Promise((r) => setTimeout(r, 1800))
+    if (Date.now() - started > 150000) throw new Error('Görsel üretimi zaman aşımına uğradı.')
+    const poll = await fetch(`${host}/api/v1/tasks/${taskId}`, { headers, signal: opts?.signal })
+    if (!poll.ok) continue
+    const pj = (await poll.json()) as {
+      output?: { task_status?: string; message?: string; results?: Array<{ url?: string }> }
+    }
+    const status = pj?.output?.task_status
+    if (status) opts?.onStatus?.(`Görsel durumu: ${status}…`)
+    if (status === 'SUCCEEDED') {
+      const url = pj?.output?.results?.[0]?.url
+      if (!url) throw new Error('DashScope sonucunda görsel URL yok.')
+      return fetchImageToB64(url, opts?.signal)
+    }
+    if (status === 'FAILED' || status === 'UNKNOWN') {
+      throw new Error('DashScope görsel üretimi başarısız: ' + (pj?.output?.message || status))
+    }
+  }
+}
+
+async function generateImageDashscope(
+  c: { baseUrl: string; apiKey: string; model: string },
+  base: string,
+  prompt: string,
+  opts?: { signal?: AbortSignal; onStatus?: (s: string) => void }
+): Promise<{ b64: string; mime: string }> {
+  // native host: compatible-mode/v1 son ekini soy (görsel uç noktası ayrı).
+  const host = base.replace(/\/compatible-mode(\/v\d+)?\/?$/i, '').replace(/\/+$/, '')
+  // Düz qwen-image/-plus ve wanx ASENKRON; -max/-2.x/-2512 SENKRON. Emin
+  // olmadığımız için tercih edileni dener, olmazsa diğerini (model→pattern
+  // eşlemesi sağlayıcıya göre değişebiliyor — sağlam olsun).
+  const preferAsync =
+    /^(wanx|wan2|qwen-image(-plus)?)$/i.test(c.model) && !/max|2\.|-2$|v2|2512/i.test(c.model)
+  const order: Array<'sync' | 'async'> = preferAsync ? ['async', 'sync'] : ['sync', 'async']
+  let lastErr: unknown
+  for (const mode of order) {
+    try {
+      return mode === 'sync'
+        ? await dashscopeSyncImage(host, c, prompt, opts)
+        : await dashscopeAsyncImage(host, c, prompt, opts)
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('DashScope görsel üretimi başarısız.')
+}
+
+/** Aktif API modeliyle görsel üret — sağlayıcıya göre doğru adaptöre yönlendirir. */
+export async function generateImage(
+  prompt: string,
+  opts?: { signal?: AbortSignal; onStatus?: (s: string) => void }
+): Promise<{ b64: string; mime: string }> {
+  const c = active()
+  if (!c.model) throw new Error('Aktif bir görsel modeli yok.')
+  const base = c.baseUrl.replace(/\/+$/, '')
+  if (/dashscope|aliyuncs/i.test(base)) return generateImageDashscope(c, base, prompt, opts)
+  return generateImageOpenAI(c, base, prompt, opts)
+}
+
+/** Aktif modelin adı (renderer'ın gerek duymadığı ama main'in görsel yönlendirmede
+ *  kullanabileceği yardımcı). */
+export function getActiveModelId(): string {
+  return active().model
+}

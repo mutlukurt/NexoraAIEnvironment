@@ -47,7 +47,9 @@ import { runBehaviorTest } from './behaviorTest'
 import { reproCheck } from './reproCheck'
 import { analyzeImage, stopVisionServer, ensureVisionReady } from './visionService'
 import { detectHardware, getAdvisorPlan } from './advisorService'
-import { setApiConfig, promptApi, hasApiOverride, type ApiConfig } from './apiEngine'
+import { setApiConfig, promptApi, hasApiOverride, generateImage, type ApiConfig } from './apiEngine'
+import { writeFile, mkdir } from 'fs/promises'
+import { homedir } from 'os'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
 import {
@@ -453,6 +455,49 @@ function registerIpc(): void {
     return ensureVisionReady((msg) => {
       mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
     })
+  })
+
+  // Görsel ÜRETME — aktif API modeli görsel-üretme modeliyse (qwen-image, dall-e,
+  // flux…). Sonuç kendine-yeterli data-URL (base64) döner: sohbette inline
+  // önizleme + tam ekran + indirme + assets'e ekleme hepsi bundan çalışır.
+  ipcMain.handle(IPC.IMAGE_GENERATE, async (_e, input: { prompt: string }) => {
+    try {
+      const { b64, mime } = await generateImage(input.prompt, {
+        onStatus: (msg) => mainWindow?.webContents.send(IPC.IMAGE_STATUS, { msg })
+      })
+      const ext = /jpe?g/i.test(mime) ? 'jpg' : /webp/i.test(mime) ? 'webp' : 'png'
+      const slug =
+        input.prompt.toLowerCase().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gorsel'
+      const name = `${slug}-${Date.now()}.${ext}`
+      // Ham dosyayı cache'e de yaz (indirme/assets ham bayta ihtiyaç duyabilir).
+      try {
+        const dir = join(homedir(), 'NexoraAI', 'cache', 'generated')
+        await mkdir(dir, { recursive: true })
+        await writeFile(join(dir, name), Buffer.from(b64, 'base64'))
+      } catch {
+        /* cache opsiyonel — data-URL yeterli */
+      }
+      return { ok: true, dataUrl: `data:${mime};base64,${b64}`, name }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // Üretilen görseli kullanıcının seçtiği yere kaydet (indirme).
+  ipcMain.handle(IPC.IMAGE_SAVE_AS, async (_e, input: { dataUrl: string; name: string }) => {
+    try {
+      const m = /^data:([^;]+);base64,(.*)$/s.exec(input.dataUrl)
+      if (!m) return { ok: false, error: 'Geçersiz görsel verisi.' }
+      const res = await dialog.showSaveDialog({
+        defaultPath: join(homedir(), 'Masaüstü', input.name || 'gorsel.png'),
+        filters: [{ name: 'Görsel', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+      })
+      if (res.canceled || !res.filePath) return { ok: false, error: 'iptal' }
+      await writeFile(res.filePath, Buffer.from(m[2], 'base64'))
+      return { ok: true, savedPath: res.filePath }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   ipcMain.handle(IPC.ADVISOR_DETECT, async () => {

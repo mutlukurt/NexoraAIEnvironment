@@ -9,7 +9,8 @@ import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
 import RewindMenu from '@/components/RewindMenu'
 import { expandSlashCommand, matchSlash, type SlashCommand } from '@/lib/slashCommands'
-import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles } from 'lucide-react'
+import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles, Download, Maximize2, FolderPlus } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { translations } from '@/lib/translations'
 import ModelSelect from './ModelSelect'
 import ComposerOptions from './ComposerOptions'
@@ -30,6 +31,74 @@ function FileIcon({ path }: { path: string }) {
       <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
       <polyline points="14 2 14 8 20 8" />
     </svg>
+  )
+}
+
+/** Üretilen görsel mesajı: inline önizleme + tam ekran + indirme + assets'e ekle. */
+function ImageMessage({ image, language }: { image: NonNullable<ChatMessage['image']>; language: 'tr' | 'en' }) {
+  const [full, setFull] = useState(false)
+  const [added, setAdded] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const tr = language === 'tr'
+
+  const download = async () => {
+    const res = await window.nexora.images.saveAs({ dataUrl: image.dataUrl, name: image.name })
+    if (res.ok) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2200)
+    }
+  }
+  const addToAssets = () => {
+    // Assets'e ekle: artifacts store'a src/assets/<ad> olarak yaz (data-URL içerik).
+    // Files & Code'da görünür, export'ta diske iner, Preview import'u çözer.
+    const safe = image.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
+    useArtifactsStore.getState().upsertFile(`src/assets/${safe}`, image.dataUrl)
+    setAdded(true)
+    setTimeout(() => setAdded(false), 2200)
+  }
+
+  const btn =
+    'inline-flex items-center gap-1.5 rounded-lg border border-ink-line bg-ink-panel/50 px-3 py-1.5 text-[12.5px] font-semibold text-ink-mut transition hover:border-brand-500/40 hover:text-brand-600 dark:hover:text-brand-300'
+
+  return (
+    <div>
+      {image.prompt && <p className="mb-2 text-[13px] text-ink-dim">🎨 {image.prompt}</p>}
+      <img
+        src={image.dataUrl}
+        onClick={() => setFull(true)}
+        alt={image.prompt || 'üretilen görsel'}
+        className="max-h-[26rem] max-w-full cursor-zoom-in rounded-xl border border-ink-line shadow-sm"
+      />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={() => setFull(true)} className={btn} title={tr ? 'Tam ekran' : 'Fullscreen'}>
+          <Maximize2 className="h-3.5 w-3.5" /> {tr ? 'Tam ekran' : 'Fullscreen'}
+        </button>
+        <button onClick={() => void download()} className={btn} title={tr ? 'İndir' : 'Download'}>
+          <Download className="h-3.5 w-3.5" /> {saved ? (tr ? '✓ Kaydedildi' : '✓ Saved') : tr ? 'İndir' : 'Download'}
+        </button>
+        <button onClick={addToAssets} className={btn} title={tr ? "Projenin assets'ine ekle" : 'Add to project assets'}>
+          <FolderPlus className="h-3.5 w-3.5" />{' '}
+          {added ? (tr ? "✓ Assets'e eklendi" : '✓ Added') : tr ? "Assets'e ekle" : 'Add to assets'}
+        </button>
+      </div>
+      {full &&
+        createPortal(
+          <div
+            onClick={() => setFull(false)}
+            className="fixed inset-0 z-[9999] flex cursor-zoom-out items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
+          >
+            <img src={image.dataUrl} alt={image.prompt || ''} className="max-h-full max-w-full rounded-lg shadow-2xl" />
+            <button
+              onClick={() => setFull(false)}
+              className="absolute right-5 top-5 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+              aria-label={tr ? 'Kapat' : 'Close'}
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>,
+          document.body
+        )}
+    </div>
   )
 }
 
@@ -900,6 +969,10 @@ export default function ChatPanel() {
                 ) : m.tasks ? (
                   <div className="w-full max-w-[92%]">
                     <TaskListCard tasks={m.tasks} />
+                  </div>
+                ) : m.image ? (
+                  <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
+                    <ImageMessage image={m.image} language={language} />
                   </div>
                 ) : (
                   <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
