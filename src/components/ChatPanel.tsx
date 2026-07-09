@@ -524,18 +524,32 @@ export default function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const centerTaRef = useRef<HTMLTextAreaElement>(null)
+  // Dibe-yapış: yalnız kullanıcı ZATEN dipteyse otomatik dibe kaydır. Kullanıcı
+  // yukarı kaydırdıysa (bir şey okuyor/inceliyor) tur/görsel akarken bile onu
+  // AŞAĞI ZIPLATMA — özgürce gezsin. Dibe dönünce yapışma yeniden başlar.
+  const stickBottomRef = useRef(true)
+
+  const onScroll = (): void => {
+    const el = scrollRef.current
+    if (!el) return
+    stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }
 
   const t = translations[language]
 
   useEffect(() => {
     // Boş sohbette (hero ekranı) dibe kaydırma — açılışta üst görünsün.
     if (messages.length === 0) return
+    // Kullanıcı yukarı kaydırıp inceliyorsa akış onu aşağı ZIPLATMASIN.
+    if (!stickBottomRef.current) return
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
   const submit = (inputText: string) => {
     const raw = inputText.trim()
     if (!raw) return
+    // Kullanıcı mesaj gönderince dibe yapış (kendi mesajını + cevabı görsün).
+    stickBottomRef.current = true
     // 10.8: "/komut argümanlar" → .md/özel komut gövdesine genişler (değilse aynen).
     const val = expandSlashCommand(raw, slashCommands)
     // 7.7 tab-to-queue paritesi: tur koşarken Enter turu KESMEZ — istek
@@ -767,7 +781,7 @@ export default function ChatPanel() {
       </header>
 
       {/* Main scroll or empty container */}
-      <div ref={scrollRef} className="z-10 flex-1 overflow-y-auto px-6 py-6">
+      <div ref={scrollRef} onScroll={onScroll} className="z-10 flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
           <div className="flex min-h-full flex-col items-center justify-center text-center max-w-2xl mx-auto py-4">
             {/* Logo (kullanıcının şeffaf logosu — efektsiz) */}
