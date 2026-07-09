@@ -7,7 +7,9 @@
  * chat'teki dosyalar (artifacts) önce oraya senkronlanır. Böylece model
  * "[RUN] npm install" gibi komutları güvenli bir klasör bağlamında çalıştırır.
  */
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn, exec, type ChildProcess } from 'child_process'
+import { promisify } from 'util'
+import { createServer } from 'net'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { join, dirname, resolve, sep } from 'path'
@@ -1059,6 +1061,59 @@ export async function addGoogleFont(projectName: string, family: string, baseDir
 
 let devProc: ChildProcess | null = null
 let devUrl: string | null = null
+// En son kullanılan dev portu — süreç izi kaybolsa bile (app yeniden başladı,
+// vite kendi çocuğunu detach etti) Durdur bu portu yine de temizleyebilsin diye
+// hatırlanır. Varsayılan vite portu 5173.
+let lastDevPort = 5173
+
+const execP = promisify(exec)
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/** URL'den port çıkar (yoksa 5173). */
+function portOf(url: string | null): number {
+  if (!url) return lastDevPort
+  const m = url.match(/:(\d+)\b/)
+  return m ? Number(m[1]) : lastDevPort
+}
+
+/** Bir portu DİNLEYEN artık süreçleri öldür (çapraz platform). Süreç-grubu
+ * kill'i kaçıran yörüngesiz vite/esbuild çocuklarını temizler → sonraki Çalıştır
+ * portu temiz bulur, önceki projeyi göstermez. */
+async function killPortListeners(port: number): Promise<void> {
+  try {
+    if (process.platform === 'win32') {
+      await execP(
+        `for /f "tokens=5" %a in ('netstat -ano ^| findstr :${port} ^| findstr LISTENING') do @taskkill /F /PID %a`
+      ).catch(() => {})
+    } else {
+      // lsof yoksa fuser'a düş; ikisi de yoksa sessizce geç (grup-kill zaten denendi).
+      await execP(`lsof -ti tcp:${port} -sTCP:LISTEN | xargs -r kill -9`).catch(async () => {
+        await execP(`fuser -k ${port}/tcp`).catch(() => {})
+      })
+    }
+  } catch {
+    /* temizlik en iyi çabadır — asla Durdur'u bloklamaz */
+  }
+}
+
+/** Port dinlemeye açık mı? (bağlanabiliyorsak serbesttir). */
+function portFree(port: number): Promise<boolean> {
+  return new Promise((res) => {
+    const srv = createServer()
+    srv.once('error', () => res(false))
+    srv.once('listening', () => srv.close(() => res(true)))
+    srv.listen(port, '127.0.0.1')
+  })
+}
+
+/** Port serbest kalana dek kısa süre bekle (en çok ~3sn). */
+async function waitPortFree(port: number, tries = 10): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    if (await portFree(port)) return true
+    await delay(300)
+  }
+  return false
+}
 
 export interface DevResult {
   ok: boolean
@@ -1067,21 +1122,34 @@ export interface DevResult {
   error?: string
 }
 
+/**
+ * Dev sunucusunu TEMİZ durdur: süreç grubunu SIGTERM → (yaşıyorsa) SIGKILL ile
+ * öldür, portu dinleyen artıkları da temizle, port GERÇEKTEN serbest kalana dek
+ * bekle. Böylece Durdur sonrası kalıntı/çerez kalmaz ve sonraki Çalıştır portu
+ * temiz bulur — önceki projeyi değil, güncel projeyi gösterir (kullanıcı bildirimi).
+ */
 export async function stopDev(): Promise<void> {
-  if (devProc) {
+  const port = portOf(devUrl)
+  const proc = devProc
+  devProc = null
+  devUrl = null
+  if (proc?.pid) {
     try {
-      // npm alt süreç grubunu tümüyle sonlandır
-      if (devProc.pid) process.kill(-devProc.pid, 'SIGTERM')
+      process.kill(-proc.pid, 'SIGTERM')
     } catch {
-      try {
-        devProc.kill('SIGTERM')
-      } catch {
-        /* ignore */
-      }
+      try { proc.kill('SIGTERM') } catch { /* ignore */ }
     }
-    devProc = null
-    devUrl = null
+    // Kısa nezaket süresi; vite kapanmadıysa grubu SIGKILL ile kes.
+    await delay(1000)
+    try {
+      process.kill(-proc.pid, 'SIGKILL')
+    } catch {
+      try { proc.kill('SIGKILL') } catch { /* ignore */ }
+    }
   }
+  // Yörüngesiz dinleyicileri (vite/esbuild) portla temizle + serbest kalmasını bekle.
+  await killPortListeners(port)
+  await waitPortFree(port)
 }
 
 export async function startDev(
@@ -1146,7 +1214,12 @@ export async function startDev(
         settled = true
         clearTimeout(timer)
         devUrl = m[0]
-        void shell.openExternal(devUrl)
+        lastDevPort = Number(m[1]) // Durdur bu portu temizleyebilsin
+        // Önceki projeyi gösterme sorunu: tarayıcı aynı URL'de açık sekmeyi
+        // yeniden yüklemeden odaklıyordu → bayat içerik. Cache-bust ile taze
+        // gezinme zorlanır; güncel proje görünür (kullanıcı bildirimi).
+        const openUrl = devUrl + (devUrl.includes('?') ? '&' : '?') + '_nx=' + Date.now()
+        void shell.openExternal(openUrl)
         resolvePromise({ ok: true, url: devUrl, output: output.slice(-800) })
       }
     }
