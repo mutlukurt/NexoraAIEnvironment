@@ -66,6 +66,13 @@ export interface ChatSendInput {
   expectPlan?: boolean
   prompt: string
   /**
+   * 10.13 — Önceki sohbet turları (rol+içerik). Uzak (API) modeller DURUMSUZDUR:
+   * bu dizi gönderilmezse her istek sıfırdan sorulmuş gibi olur (model önceki
+   * mesajı unutur, "hangi konu?" diye sorar — canlı bug). Yerel motor kendi
+   * KV-cache history'sini tuttuğundan bu dizi YALNIZ API yolunda kullanılır.
+   */
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  /**
    * Proje profili bu turda DEĞİŞMESİN. Enhance brief'inin yeniden gönderimi
    * makine metnidir: brief'teki "mobil uyumlu" gibi ifadeler detectProfile'ı
    * tetikleyip web sitesini React Native projesine çeviriyordu (canlı test).

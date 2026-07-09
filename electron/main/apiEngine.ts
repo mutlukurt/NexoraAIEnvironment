@@ -142,12 +142,20 @@ async function pumpSse(
   return text
 }
 
+/** 10.13 — API turu ek seçenekleri: sohbet geçmişi + örnekleme (renderer'dan). */
+export type ApiTurnOpts = {
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  temperature?: number
+  maxTokens?: number
+}
+
 /** Anthropic native /v1/messages (SSE) — OpenAI şemasından farklı. */
 async function promptAnthropic(
   systemPrompt: string,
   userPrompt: string,
   onToken: (t: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts?: ApiTurnOpts
 ): Promise<string> {
   const c = active()
   const base = c.baseUrl.replace(/\/+$/, '')
@@ -162,10 +170,13 @@ async function promptAnthropic(
     body: JSON.stringify({
       model: c.model,
       stream: true,
-      max_tokens: 4096,
-      temperature: 0.1,
+      // Sohbette geniş tavan: "detaylı anlat" cevabı kısa max_token ile kesilmesin.
+      max_tokens: opts?.maxTokens ?? 4096,
+      // Sohbet 0.1'de mekanik/kısa kalıyordu; renderer'ın turhedefli sıcaklığını kullan.
+      temperature: opts?.temperature ?? 0.3,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }]
+      // Uzak model durumsuz: önceki turlar + bu tur birlikte gider.
+      messages: [...(opts?.history ?? []), { role: 'user', content: userPrompt }]
     }),
     signal
   })
@@ -185,11 +196,12 @@ export async function promptApi(
   systemPrompt: string,
   userPrompt: string,
   onToken: (t: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts?: ApiTurnOpts
 ): Promise<string> {
   lastApiUsage = null // 10.12.2: yeni tur — önceki usage'ı temizle
   const c = active()
-  if (c.adapter === 'anthropic') return promptAnthropic(systemPrompt, userPrompt, onToken, signal)
+  if (c.adapter === 'anthropic') return promptAnthropic(systemPrompt, userPrompt, onToken, signal, opts)
   const base = c.baseUrl.replace(/\/+$/, '')
   // Kullanıcı '/v1' verse de vermese de doğru uca vur.
   const url = /\/v\d+$/.test(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`
@@ -202,11 +214,16 @@ export async function promptApi(
     body: JSON.stringify({
       model: c.model,
       stream: true,
-      temperature: 0.1,
+      // 10.13: sohbet 0.1'de mekanik kalıyordu — renderer'ın tur-hedefli sıcaklığı.
+      temperature: opts?.temperature ?? 0.3,
+      // Geniş tavan ancak istenirse: "detaylı anlat" kısa max_token ile kesilmesin.
+      ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       // 10.12.2: usage'ı akışın SON chunk'ında iste (varsayılan kapalı — pitfall).
       stream_options: { include_usage: true },
+      // 10.13: uzak model durumsuz — sistem + ÖNCEKİ turlar + bu tur birlikte.
       messages: [
         { role: 'system', content: systemPrompt },
+        ...(opts?.history ?? []),
         { role: 'user', content: userPrompt }
       ]
     }),

@@ -331,6 +331,9 @@ export default function ChatPanel() {
   const sending = useAppStore((s) => s.sending)
   const error = useAppStore((s) => s.error)
   const modelInfo = useAppStore((s) => s.modelInfo)
+  // 10.13: API modeli aktifken YEREL GGUF şart değil — composer/gönder açık olmalı.
+  const activeApiModel = useSettingsStore((s) => s.activeApiModel)
+  const hasModel = !!modelInfo || !!activeApiModel
   const sendMessage = useAppStore((s) => s.sendMessage)
   const abort = useAppStore((s) => s.abort)
   const clearError = useAppStore((s) => s.clearError)
@@ -665,15 +668,15 @@ export default function ChatPanel() {
                     detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length, 'hero')
                   }}
                   onKeyDown={(e) => onKeyDown(e, text)}
-                  placeholder={modelInfo ? t.inputPlaceholderEmpty : t.inputPlaceholderNoModel}
-                  disabled={!modelInfo}
+                  placeholder={hasModel ? t.inputPlaceholderEmpty : t.inputPlaceholderNoModel}
+                  disabled={!hasModel}
                   className="max-h-40 w-full resize-none bg-transparent text-[15px] text-ink-text placeholder-ink-dim focus:outline-none disabled:opacity-50"
                 />
                 <div className="flex justify-between items-center gap-2 mt-2 pt-3 border-t border-ink-line">
                   <div className="flex items-center gap-2 min-w-0">
                     <button
                       onClick={() => void attachImage()}
-                      disabled={!modelInfo}
+                      disabled={!hasModel}
                       title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
                       className={
                         'shrink-0 rounded-lg p-1.5 transition disabled:opacity-40 ' +
@@ -703,7 +706,7 @@ export default function ChatPanel() {
                   ) : (
                     <button
                       onClick={() => submit(text)}
-                      disabled={!text.trim() || !modelInfo}
+                      disabled={!text.trim() || !hasModel}
                       className="rounded-xl bg-brand-600 px-6 py-2 text-sm font-bold text-white hover:bg-brand-500 hover:shadow-[0_4px_12px_rgba(95,75,240,0.25)] active:scale-95 disabled:opacity-40 transition duration-150"
                     >
                       {t.send}
@@ -821,7 +824,7 @@ export default function ChatPanel() {
                     <button
                       key={item.title}
                       onClick={() => void sendMessage(getPromptText())}
-                      disabled={sending || !modelInfo}
+                      disabled={sending || !hasModel}
                       className="group rounded-[1.5rem] border border-ink-line bg-ink-card/50 p-5 text-left transition duration-200 hover:border-brand-500/30 hover:bg-ink-hi/70 disabled:opacity-50"
                     >
                       <div className="mb-3 flex items-start justify-between">

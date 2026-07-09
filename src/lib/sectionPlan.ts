@@ -168,3 +168,30 @@ export function looksLikeBuildRequest(text: string): boolean {
   if (!hasArtifact) return false
   return MAKE_RE.test(text) || WANT_RE.test(text)
 }
+
+// Net DÜZENLEME fiilleri — bunlar varsa mesaj sohbet DEĞİL, projeye müdahaledir.
+const EDIT_VERB_RE =
+  /\b(ekle|ekler\s*misin|ekleyebilir|yap|yapar\s*m[ıi]s[ıi]n|oluştur|olustur|de[ğg]i[şs]tir|d[üu]zelt|kald[ıi]r|\bsil\b|silebilir|g[üu]ncelle|ta[şs][ıi]|ayarla|d[üu]zenle|uygula|yerle[şs]tir|kodla|inşa|insa|create|add|make|change|fix|update|remove|delete|build|implement|refactor|rename|replace|move)\b/i
+// Selam/teşekkür — açık sosyal mesaj.
+const CHAT_GREET_RE =
+  /^\s*(merhaba|selam|s\.?a\b|hey|naber|nas[ıi]ls[ıi]n|te[şs]ekk[üu]r|sa[ğg]\s?ol|g[üu]nayd[ıi]n|iyi\s?(ak[şs]am|g[üu]nler|geceler)|hi\b|hello|thanks|thank\s?you|good\s?(morning|evening))/i
+// Soru/açıklama niyeti — cevaplanmalı, inşa edilmemeli.
+const CHAT_QUESTION_RE =
+  /(^|\s)(ne(dir|den|reye|rede|zaman)?\b|ni[çc]in|niye|nas[ıi]l|kim(dir)?\b|ka[çc]\b|hangi|nerede|a[çc][ıi]kla|anlat|tan[ıi]mla|ne\s?demek|sen\s?kimsin|fark[ıi]?\s?ne|\bwhat\b|\bwhy\b|\bhow\b|\bwho\b|\bwhich\b|\bwhere\b|explain|describe|difference)/i
+
+/**
+ * Mesaj net bir SOHBET/SORU mu? (proje oturumunda bile cevaplanmalı, build/edit
+ * DEĞİL). Yüksek-hassasiyet: düzenleme fiili varsa ASLA sohbet sayılmaz (edit
+ * kaçmasın); yalnız selam / soru-kelimesi / "?" ile biten kısa mesaj sohbettir.
+ * CANLI BUG: proje oturumunda "endüstri ilişkilerini anlat" build sanılıyordu.
+ */
+export function looksLikeChatIntent(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (EDIT_VERB_RE.test(t)) return false
+  if (looksLikeBuildRequest(t)) return false
+  if (CHAT_GREET_RE.test(t)) return true
+  if (CHAT_QUESTION_RE.test(t)) return true
+  if (/\?\s*$/.test(t) && t.length < 240) return true
+  return false
+}

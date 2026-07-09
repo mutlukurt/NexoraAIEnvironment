@@ -21,7 +21,8 @@ import {
   detectAgentIntent,
   AGENT_HINT,
   UPDATE_MODE_RULES,
-  FIDELITY_RULES
+  FIDELITY_RULES,
+  chatSystemPrompt
 } from '../shared/prompts'
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
 import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
@@ -305,7 +306,20 @@ ${UPDATE_MODE_RULES}
       // Telemetri (5.5): hangi kademe hangi vakayı aldı — zayıf sınıflar saha
       // verisinden çıksın diye her yönlendirme kararı kalıcı günlüğe yazılır.
       void appendRepairLog({ layer: escalate ? 'api-escalated' : 'api-turn' })
-      const apiText = await promptApi(getFullSystemPrompt(), prompt, onChunk, apiAbort.signal)
+      // 10.13 BUG DÜZELTMESİ: sohbet/soru turunda API'ye de KOD personası değil
+      // KONUŞMA sistem prompt'u gider (server motoru zaten böyle yapıyordu). Yoksa
+      // qwen-plus "Ben NexoraAI, senior React mühendisiyim" diye cevap veriyordu.
+      const apiSys = input.options?.purpose
+        ? chatSystemPrompt(input.options.answerLang, input.options.purpose)
+        : getFullSystemPrompt()
+      // 10.13: uzak model DURUMSUZ — önceki sohbet turlarını + tur-hedefli
+      // örneklemeyi (sıcaklık/tavan) de ilet. Yoksa qwen-plus önceki mesajı
+      // unutuyor ("hangi konu?") ve 0.1 sıcaklıkta mekanik/kısa kalıyordu.
+      const apiText = await promptApi(apiSys, prompt, onChunk, apiAbort.signal, {
+        history: input.history,
+        temperature: input.options?.temperature,
+        maxTokens: input.options?.maxTokens
+      })
       recordTurn('api', prompt.length, apiText.length) // 10.12.2
       return apiText
     } catch (err) {

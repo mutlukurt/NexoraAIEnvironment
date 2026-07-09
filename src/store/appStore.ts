@@ -21,13 +21,14 @@ import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
-import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, planEligible } from '@/lib/sectionPlan'
+import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories } from '@/lib/agentActions'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
 import { turnDiffStats } from '@/lib/diffStat'
+import { buildApiHistory } from '@/lib/apiHistory'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
 import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
@@ -42,6 +43,7 @@ function autoApplyInitial(): boolean {
     return true
   }
 }
+
 
 const PLAN_FIRST_KEY = 'nexora.planFirst'
 const THEME_KEY = 'nexora.theme'
@@ -3340,6 +3342,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       /* diske yazılamadıysa sohbeti bozma */
     }
+    // 10.12.1: proje oturumlarında geçmişin genel-bakışını çekirdekle (yalnız
+    // BOŞSA yazar). diff throat-point'i atlayan planlı çok-dosya build'lerde de
+    // Amaç/Teknoloji/Mimari dolar → hangi model olursa olsun projeyi anlar.
+    if (kind === 'project') {
+      try {
+        const pkg = files['package.json']?.content
+        const deps = pkg ? Object.keys((() => { try { return JSON.parse(pkg).dependencies ?? {} } catch { return {} } })()) : []
+        void window.nexora.projHistory?.seed({
+          projectName: projectName ?? getProjectName(),
+          purpose: firstUser.content.split('\n')[0].slice(0, 300),
+          techStack: deps.length ? ['React + TypeScript', ...deps.slice(0, 8)] : undefined,
+          architecture: Object.keys(files).filter((p) => /\.(tsx|jsx|ts|js|html)$/.test(p)).slice(0, 14)
+        })
+      } catch {
+        /* geçmiş çekirdeklenemezse sorun değil */
+      }
+    }
   },
 
   openSession: async (id: string) => {
@@ -3866,6 +3885,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
       // En yeni checkpoint'ler tutulur (oturum dosyası şişmesin).
       set((s) => ({ checkpoints: pushCheckpoint(s.checkpoints, cp) }))
     }
+    // 10.13: API sohbet sürekliliği — YENİ user/asst balonları eklenMEDEN önce
+    // önceki konuşmayı yakala (uzak model durumsuz; bu dizi olmadan geçmişi unutur).
+    const apiHistory = buildApiHistory(get().messages)
     set((s) => ({
       messages: [...s.messages, ...(userMsg ? [userMsg] : []), asstMsg],
       sending: true,
@@ -3959,14 +3981,20 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     planBypassNext = false
     // Sohbet turu: boş oturumda build olmayan mesaj (selamlaşma, soru). Kod
     // üretim sistem prompt'unu bir sohbet direktifiyle geçersiz kıl.
+    // 10.13 CANLI BUG DÜZELTMESİ: proje oturumunda da SOHBET/SORU cevaplanmalı.
+    // Eskiden chat turu YALNIZ boş oturumda mümkündü (allFiles.length===0) →
+    // dosyalı projede "endüstri ilişkilerini anlat" gibi bir soru bile UPDATE
+    // build turu sanılıp tüm dosyalar+kod personasıyla gidiyordu. Artık: net bir
+    // sohbet/soru (looksLikeChatIntent — düzenleme fiili YOK) projede de chat'tir.
     const isChatTurn =
       !isEnhanceTurn &&
       !isPlanTurn &&
       !fixFlow &&
       !visionAnalysis &&
       !opts?.expectFile &&
-      allFiles.length === 0 &&
-      !buildReq
+      !opts?.hideUser &&
+      !buildReq &&
+      (allFiles.length === 0 || looksLikeChatIntent(trimmed))
 
     // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
     // kalanlar modele yalnızca yol listesi olarak bildirilir. Plan turunda
@@ -3975,7 +4003,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     let excludedPaths: string[] = []
     // Planlı dosya turunda bağlam gönderilmez: gerekli sözleşmeler prompt'un
     // içinde, önceki dosyalar motorun sohbet geçmişinde (prompt cache ucuz).
-    if (!isPlanTurn && !opts?.expectFile) {
+    // 10.13: SOHBET turunda proje dosyaları GÖNDERİLMEZ — soru/sohbet, projeyi
+    // düzenleme isteği değil; dosyaları bağlam yapmak modeli "edit" moduna sokuyor.
+    if (!isPlanTurn && !opts?.expectFile && !isChatTurn) {
       // Bağlam bütçesini yüklü modelin GERÇEK ctx'ine göre ölçekle: 32k model
       // 8k'lık diyete mahkûm kalmasın (küçük projede dosyalar dışlanıp körlemesine
       // edit → mismatch). ctx'in yarısı dosyalara, kalanı sistem+geçmiş+yanıta.
@@ -4004,7 +4034,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Bekçi bağlamı: bu tur bir iterasyon mu, hangi dosyalar zaten vardı?
     // preTurnPaths TÜM proje dosyalarını kapsar — bağlama girmeyen bir
     // dosyanın körlemesine baştan yazılması da yasaktır.
-    updateTurn = !isPlanTurn && !opts?.expectFile && allFiles.length > 0
+    updateTurn = !isPlanTurn && !opts?.expectFile && !isChatTurn && allFiles.length > 0
     preTurnPaths = new Set(allFiles.map((f) => f.path))
     // 6.4: transaction anlık görüntüsü — yalnızca iterasyon turlarında
     // (yeni-dosya/plan turlarında null: kesinti dosya kaybettirmez, korur).
@@ -4157,7 +4187,7 @@ User description: ${trimmed}`
       const merged = window.nexora.rules.getMerged
         ? (await window.nexora.rules.getMerged(getProjectName())).merged.trim()
         : (await window.nexora.rules.get(getProjectName())).content.trim()
-      if (merged) {
+      if (merged && !isChatTurn) {
         outgoing += `
 
 === PROJECT RULES (user-defined, ALWAYS obey) ===
@@ -4173,7 +4203,7 @@ ${merged.slice(0, 2200)}
     // Bütçeli özet; boş projede blok hiç eklenmez.
     try {
       const ki = window.nexora.knowledge ? (await window.nexora.knowledge.context(getProjectName())).trim() : ''
-      if (ki) {
+      if (ki && !isChatTurn) {
         outgoing += `
 
 === PROJECT KNOWLEDGE (learned from THIS project's verified history — trust and apply) ===
@@ -4189,7 +4219,7 @@ ${ki}
     // her tura bütçeli girer. KV cache'de değil METİNDE olduğundan model-agnostik.
     try {
       const ph = window.nexora.projHistory ? (await window.nexora.projHistory.context(getProjectName())).trim() : ''
-      if (ph) {
+      if (ph && !isChatTurn) {
         outgoing = `=== PROJE GEÇMİŞİ (kalıcı bağlam — bu projede şimdiye kadar ne yapıldı, hangi kararlar; kaldığın yeri anla ve TUTARLI devam et) ===
 ${ph}
 === END PROJE GEÇMİŞİ ===
@@ -4257,11 +4287,13 @@ ${outgoing}`
       ? // Sohbet: doğal-dil örneklemesi (Qwen3 kartı: 0.6/0.95). Kod sıcaklığı
         // (0.2) + tekrar cezaları Türkçe cevapları bozuyordu. maxTokens tavanı
         // düşünen modellerin sınırsız düşünme spiraline karşı emniyet.
-        { temperature: 0.6, topP: 0.95, maxTokens: 3072, purpose: 'chat' }
+        // 10.13: "detaylı anlat" cevabı 3072 tavanında kesiliyordu — güçlü API
+        // (ve düşünen yerel) modele nefes payı. Yine de sınırsız değil (emniyet).
+        { temperature: 0.6, topP: 0.95, maxTokens: 8192, purpose: 'chat' }
       : isEnhanceTurn
         ? // Ayrıntılı brief + düşünen modellerin düşünme payı için geniş tavan.
           // ephemeral: enhance meta-talimatı motor geçmişine yazılmaz.
-          { temperature: 0.6, topP: 0.95, maxTokens: 4096, purpose: 'prose', ephemeral: true }
+          { temperature: 0.6, topP: 0.95, maxTokens: 8192, purpose: 'prose', ephemeral: true }
         : isPlanTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
@@ -4305,6 +4337,9 @@ ${outgoing}`
     try {
       const res = await window.nexora.chat.send({
         prompt: outgoing,
+        // 10.13: uzak (API) model durumsuz — önceki turları taşı (main yalnız
+        // API yolunda kullanır; yerel motor kendi history'sini tutar).
+        history: apiHistory.length > 0 ? apiHistory : undefined,
         fidelity: fidelityActive || undefined,
         // Brief yeniden gönderimi makine metnidir: içindeki "mobil" gibi
         // kelimeler proje profilini değiştirmesin (RN'e uçan site vakası).
