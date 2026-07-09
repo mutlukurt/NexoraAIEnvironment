@@ -3792,9 +3792,29 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       const apiModelActive = !!useSettingsStore.getState().activeApiModel
       if (apiModelActive) {
         apiImagePath = image.path
-        set((s) => ({
-          messages: [...s.messages, { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` }]
-        }))
+        // Görsel API'ye multimodal olarak gider — AMA model görsel-yetenekli
+        // değilse (ör. deepseek-v4-pro metin modeli) görseli göremez ve
+        // geçmişten uydurur. Sessiz yanlış-build yerine kullanıcıyı uyar.
+        const activeModel = useSettingsStore.getState().activeApiModel?.model ?? ''
+        const { isVisionCapableModel } = await import('@/lib/visionIntent')
+        const newMsgs: ChatMessage[] = [
+          { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` }
+        ]
+        if (!isVisionCapableModel(activeModel)) {
+          newMsgs.push({
+            id: nanoid(),
+            role: 'assistant',
+            content:
+              `⚠️ **${activeModel}** bir görsel (vision) modeli değil gibi görünüyor — bu model iliştirdiğin görseli **göremez**, bu yüzden tahmine dayalı (yanlış) sonuç üretebilir.\n\n` +
+              `Görselden tasarım/analiz için **görsel-yetenekli bir modele** geç (üstteki model seçiciden):\n` +
+              `• **Qwen-VL** — \`qwen-vl-max\`, \`qwen-vl-plus\`\n` +
+              `• **OpenAI** — \`gpt-4o\`\n` +
+              `• **Anthropic** — \`claude-sonnet\` / \`claude-opus\`\n` +
+              `• **Google** — \`gemini-2.5-flash\` / \`gemini-2.5-pro\`\n\n` +
+              `_(Görsel yine de API'ye gönderildi; model destekliyorsa kullanır.)_`
+          })
+        }
+        set((s) => ({ messages: [...s.messages, ...newMsgs] }))
       } else {
       const { isBuildIntent } = await import('@/lib/visionIntent')
       const isBuild = isBuildIntent(trimmed)
