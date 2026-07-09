@@ -64,6 +64,8 @@ Phase 10 set out to close the one gap the engine/security/repair/fidelity work h
 
 **v0.17 does both:** it ships the whole ecosystem layer *and* cuts the cord between "capable model" and "3B training wheels." Everything below was live-verified on the real app — the local path on a real 3B, the API path against a real Qwen-Plus endpoint.
 
+> **v0.17.1 (patch) — vision routing follows the same rule.** Attaching a reference image no longer forces the local Qwen-VL model: on an **API** model the image goes **straight to the API as multimodal input** (DeepSeek v4 Pro, Qwen-VL, GPT-4o read it natively — the local VL never downloads or runs), live-verified against `qwen-vl-plus` (it read the exact text off a test image in one ~10 s call). And when the local VL *is* used (on a local model), it now downloads a **device-appropriate** size — Qwen2.5-VL-3B / 7B / 32B by free RAM, matching what the Hardware Advisor already recommends — instead of being pinned at 3B. *Nothing local ever touches the API path.*
+
 ### Ecosystem & discoverability — all local-first, opt-in (10.1 – 10.9)
 
 | Added | What it does |
