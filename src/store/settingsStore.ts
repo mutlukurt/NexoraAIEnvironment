@@ -45,6 +45,10 @@ export interface Settings {
   provider: string
   /** 10.9 — seçili model id'si. */
   providerModel: string
+  /** 10.10 — sağlayıcı başına AÇIK bırakılan modeller (model seçicide görünür). */
+  enabledModels: Record<string, string[]>
+  /** 10.10 — şu an AÇIKÇA seçili API modeli (null = yerel model kullanılıyor). */
+  activeApiModel: { provider: string; model: string; label: string } | null
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -65,7 +69,9 @@ const DEFAULT_SETTINGS: Settings = {
   notifyOnDone: true,
   keepAwakeOnRun: true,
   provider: '',
-  providerModel: ''
+  providerModel: '',
+  enabledModels: {},
+  activeApiModel: null
 }
 
 function loadSettings(): Settings {
@@ -95,7 +101,12 @@ function loadSettings(): Settings {
       notifyOnDone: parsed.notifyOnDone !== false,
       keepAwakeOnRun: parsed.keepAwakeOnRun !== false,
       provider: typeof parsed.provider === 'string' ? parsed.provider : '',
-      providerModel: typeof parsed.providerModel === 'string' ? parsed.providerModel : ''
+      providerModel: typeof parsed.providerModel === 'string' ? parsed.providerModel : '',
+      enabledModels: parsed.enabledModels && typeof parsed.enabledModels === 'object' ? parsed.enabledModels : {},
+      activeApiModel:
+        parsed.activeApiModel && typeof parsed.activeApiModel === 'object' && parsed.activeApiModel.provider && parsed.activeApiModel.model
+          ? parsed.activeApiModel
+          : null
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -117,6 +128,10 @@ interface SettingsState extends Settings {
   setSystem: (patch: Partial<Pick<Settings, 'notifyOnDone' | 'keepAwakeOnRun'>>) => void
   /** 10.9 — sağlayıcı/model seç + hibrit motoru kur (keychain anahtarı main'de). */
   setProvider: (patch: Partial<Pick<Settings, 'provider' | 'providerModel' | 'apiMode' | 'apiBaseUrl'>>) => void
+  /** 10.10 — bir modeli aç/kapat (model seçicide görünsün/görünmesin). */
+  toggleModel: (providerId: string, model: string) => void
+  /** 10.10 — açık seçili API modelini kaydet (null = yerel). Yalnız durum; yan etki appStore'da. */
+  setActiveApiModelState: (v: { provider: string; model: string; label: string } | null) => void
   save: () => void
 }
 
@@ -145,6 +160,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
   setSystem: (patch) => set(patch),
+  toggleModel: (providerId, model) => {
+    const cur = get().enabledModels[providerId] ?? []
+    const next = cur.includes(model) ? cur.filter((m) => m !== model) : [...cur, model]
+    set({ enabledModels: { ...get().enabledModels, [providerId]: next } })
+    get().save()
+  },
+  setActiveApiModelState: (v) => {
+    set({ activeApiModel: v })
+    get().save()
+  },
   setProvider: (patch) => {
     set(patch)
     const st = get()
@@ -182,6 +207,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           keepAwakeOnRun: get().keepAwakeOnRun,
           provider: get().provider,
           providerModel: get().providerModel,
+          enabledModels: get().enabledModels,
+          activeApiModel: get().activeApiModel,
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )
@@ -223,6 +250,14 @@ try {
       providerId: st.provider,
       model: st.providerModel,
       mode: st.apiMode,
+      customBaseUrl: st.apiBaseUrl
+    })
+  }
+  // 10.10: açık seçili API modeli kalıcıysa override'ı kur (yeniden başlatınca korunur).
+  if (st.activeApiModel) {
+    void window.nexora.providers?.setActiveModel({
+      providerId: st.activeApiModel.provider,
+      model: st.activeApiModel.model,
       customBaseUrl: st.apiBaseUrl
     })
   }

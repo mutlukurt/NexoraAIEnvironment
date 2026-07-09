@@ -73,7 +73,7 @@ import { startServe, stopServe, serveStatus } from './serveEngine'
 import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
 import { globalSearch } from './searchService'
 import { listCommands } from './commandsService'
-import { activateProvider, fetchProviderModels } from './providersService'
+import { activateProvider, fetchProviderModels, setActiveModel, clearActiveModel } from './providersService'
 import { setProviderKey, deleteProviderKey, listConfiguredProviders } from './providerKeysService'
 import {
   IPC,
@@ -634,6 +634,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.PROVIDERS_FETCH_MODELS, (_e, input: { providerId: string; customBaseUrl?: string }) =>
     fetchProviderModels(input.providerId, input.customBaseUrl)
   )
+  ipcMain.handle(IPC.PROVIDERS_SET_ACTIVE_MODEL, (_e, input: { providerId: string; model: string; customBaseUrl?: string }) =>
+    setActiveModel(input)
+  )
+  ipcMain.handle(IPC.PROVIDERS_CLEAR_ACTIVE_MODEL, () => clearActiveModel())
 }
 
 void app.whenReady().then(async () => {

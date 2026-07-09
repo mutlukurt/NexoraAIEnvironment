@@ -313,7 +313,10 @@ ${UPDATE_MODE_RULES}
     }
   }
 
-  return engine!.prompt(prompt, options, onChunk)
+  // 10.10 — yerel model yüklü değilse (yalnız API modeli aktifken) ve API branch'e
+  // girmediyse/başarısız olduysa net hata ver (engine! çökmesin).
+  if (!engine) throw new Error('Model yüklü değil ve API turu başarısız oldu.')
+  return engine.prompt(prompt, options, onChunk)
 }
 
 /**

@@ -188,7 +188,9 @@ export const IPC = {
   PROVIDERS_DELETE_KEY: 'providers:delete-key',
   PROVIDERS_LIST_CONFIGURED: 'providers:list-configured',
   PROVIDERS_ACTIVATE: 'providers:activate',
-  PROVIDERS_FETCH_MODELS: 'providers:fetch-models'
+  PROVIDERS_FETCH_MODELS: 'providers:fetch-models',
+  PROVIDERS_SET_ACTIVE_MODEL: 'providers:set-active-model',
+  PROVIDERS_CLEAR_ACTIVE_MODEL: 'providers:clear-active-model'
 } as const
 
 /** 10.6 — genel arama sonuçları (oturum/proje/bilgi/kod). */

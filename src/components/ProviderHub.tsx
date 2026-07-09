@@ -19,6 +19,8 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
   const apiMode = useSettingsStore((s) => s.apiMode)
   const apiBaseUrl = useSettingsStore((s) => s.apiBaseUrl)
   const setProvider = useSettingsStore((s) => s.setProvider)
+  const enabledModels = useSettingsStore((s) => s.enabledModels)
+  const toggleModel = useSettingsStore((s) => s.toggleModel)
 
   const [query, setQuery] = useState('')
   const [showAll, setShowAll] = useState(false)
@@ -209,8 +211,34 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
               <Download className={'h-3.5 w-3.5 ' + (fetching ? 'animate-pulse' : '')} /> {tr ? 'Modelleri çek' : 'Fetch models'}
             </button>
           </div>
-          {models.length > 0 && <p className="mt-1 text-[10px] font-semibold text-ink-dim">{models.length} {tr ? 'model bulundu' : 'models'}</p>}
           {fetchErr && <p className="mt-1 text-[10px] font-semibold text-red-500">{fetchErr}</p>}
+
+          {/* 10.10 — modelleri AÇ/KAPAT: açık olanlar model seçicide görünür */}
+          {(() => {
+            const enabled = enabledModels[sel.id] ?? []
+            const list = Array.from(new Set([...models, ...enabled])).sort()
+            if (list.length === 0) return null
+            return (
+              <div className="mt-2">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-ink-dim">
+                  {tr ? 'Modeller — aç/kapat' : 'Models — enable/disable'}{' '}
+                  <span className="normal-case text-ink-mut">({enabled.length} {tr ? 'açık' : 'on'})</span>
+                </p>
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-ink-line/60 bg-ink-panel">
+                  {list.map((m) => {
+                    const on = enabled.includes(m)
+                    return (
+                      <label key={m} className="flex cursor-pointer items-center gap-2 border-b border-ink-line/40 px-2.5 py-1.5 last:border-b-0 hover:bg-ink-hi/40">
+                        <input type="checkbox" checked={on} onChange={() => toggleModel(sel.id, m)} className="h-3.5 w-3.5 shrink-0 accent-brand-500" />
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-text">{m}</span>
+                        {on && <span className="shrink-0 text-[9px] font-bold text-emerald-600 dark:text-emerald-400">{tr ? 'seçicide' : 'in picker'}</span>}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
           {sel.docs && <p className="mt-1.5 font-mono text-[9px] text-ink-dim">{sel.docs}</p>}
         </div>
       )}

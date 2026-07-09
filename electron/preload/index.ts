@@ -222,6 +222,10 @@ export interface NexoraApi {
     activate: (input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) => Promise<{ ok: boolean; error?: string }>
     /** Sağlayıcının /models ucundan canlı model listesi. */
     fetchModels: (input: { providerId: string; customBaseUrl?: string }) => Promise<{ ok: boolean; models: string[]; error?: string }>
+    /** 10.10: açık seçilen API modelini etkinleştir (tüm turlar buna gider). */
+    setActiveModel: (input: { providerId: string; model: string; customBaseUrl?: string }) => Promise<{ ok: boolean; error?: string }>
+    /** 10.10: yerel modele dön (override temizle). */
+    clearActiveModel: () => Promise<{ ok: boolean }>
   }
 }
 
@@ -399,7 +403,10 @@ const api: NexoraApi = {
     listConfigured: () => ipcRenderer.invoke(IPC.PROVIDERS_LIST_CONFIGURED),
     activate: (input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) =>
       ipcRenderer.invoke(IPC.PROVIDERS_ACTIVATE, input),
-    fetchModels: (input: { providerId: string; customBaseUrl?: string }) => ipcRenderer.invoke(IPC.PROVIDERS_FETCH_MODELS, input)
+    fetchModels: (input: { providerId: string; customBaseUrl?: string }) => ipcRenderer.invoke(IPC.PROVIDERS_FETCH_MODELS, input),
+    setActiveModel: (input: { providerId: string; model: string; customBaseUrl?: string }) =>
+      ipcRenderer.invoke(IPC.PROVIDERS_SET_ACTIVE_MODEL, input),
+    clearActiveModel: () => ipcRenderer.invoke(IPC.PROVIDERS_CLEAR_ACTIVE_MODEL)
   }
 }
 

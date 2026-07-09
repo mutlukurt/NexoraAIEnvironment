@@ -122,6 +122,10 @@ interface AppState {
   loadModel: () => Promise<void>
   loadModelPath: (path: string) => Promise<void>
   unloadModel: () => Promise<void>
+  /** 10.10 — aynı sohbette AÇIK seçilen bir API modeline geç (yeni pencere YOK). */
+  switchToApiModel: (provider: string, model: string, label: string) => Promise<void>
+  /** 10.10 — yerel modele dön (override temizle). */
+  switchToLocalModel: () => Promise<void>
   newSession: () => Promise<void>
   /** Klasör Aç (roadmap 3.1): var olan projeyi içe aktarıp bağla. */
   importFolder: () => Promise<void>
@@ -2724,6 +2728,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ modelInfo: null, messages: [] })
   },
 
+  // 10.10 — AYNI sohbette API modeline geç: yeni pencere açılmaz, sadece bundan
+  // sonraki turlar bu modele gider. Yerelle geliştirirken takıldığında anlık geçiş.
+  switchToApiModel: async (provider, model, label) => {
+    if (get().generating || get().sending) return
+    const settings = useSettingsStore.getState()
+    const r = await window.nexora.providers.setActiveModel({
+      providerId: provider,
+      model,
+      customBaseUrl: settings.apiBaseUrl
+    })
+    if (!r.ok) {
+      set({ error: r.error ?? 'API modeli etkinleştirilemedi' })
+      return
+    }
+    settings.setActiveApiModelState({ provider, model, label })
+    const tr = get().language === 'tr'
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        { id: nanoid(), role: 'assistant', content: `🔀 ${tr ? 'Modele geçildi' : 'Switched to'}: **${label}** — ${tr ? 'aynı sohbette devam ediliyor.' : 'continuing in this chat.'}` }
+      ]
+    }))
+  },
+  switchToLocalModel: async () => {
+    if (get().generating || get().sending) return
+    await window.nexora.providers.clearActiveModel()
+    useSettingsStore.getState().setActiveApiModelState(null)
+    const tr = get().language === 'tr'
+    const info = get().modelInfo
+    const localName = info ? (info.name.split('/').pop() ?? info.name).replace(/\.gguf$/i, '') : tr ? 'yerel model' : 'local model'
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        { id: nanoid(), role: 'assistant', content: `🔀 ${tr ? 'Yerel modele dönüldü' : 'Back to local'}: **${localName}**` }
+      ]
+    }))
+  },
+
   newSession: async () => {
     // Mevcut çalışmayı kaybetmeden yeni sayfa: önce kaydet, sonra temizle.
     await get().saveSessionNow()
@@ -3572,8 +3614,9 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
   sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean }) => {
     const trimmed = text.trim()
     if (!trimmed || get().sending) return
-    if (!get().modelInfo) {
-      set({ error: 'Önce bir GGUF modeli seç.' })
+    // 10.10 — yerel model YOKSA bile AÇIK seçili bir API modeli varsa gönderilebilir.
+    if (!get().modelInfo && !useSettingsStore.getState().activeApiModel) {
+      set({ error: 'Önce bir model seç (yerel GGUF ya da API modeli).' })
       return
     }
     // expectFile turları da makine turudur (planlı dosya/yeniden-üretim):

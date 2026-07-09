@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAppStore, fmtBytes } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
-import { ChevronUp, Cpu, FolderOpen, Database, RefreshCw, Check, Zap, Gauge, AlertTriangle } from 'lucide-react'
+import { useSettingsStore } from '@/store/settingsStore'
+import { findProvider } from '@shared/providers'
+import { ChevronUp, Cpu, FolderOpen, Database, RefreshCw, Check, Zap, Gauge, AlertTriangle, Cloud, Plug } from 'lucide-react'
 
 /**
  * Composer'a gömülü model seçici (Antigravity tarzı): yüklü modelin adını
@@ -26,6 +28,14 @@ export default function ModelSelect() {
   const refreshLocal = useHfStore((s) => s.refreshLocal)
   const setModalOpen = useHfStore((s) => s.setModalOpen)
   const init = useHfStore((s) => s.init)
+
+  // 10.10 — açık bırakılan API modelleri + aktif seçim (aynı sohbette geçiş).
+  const enabledModels = useSettingsStore((s) => s.enabledModels)
+  const activeApiModel = useSettingsStore((s) => s.activeApiModel)
+  const switchToApiModel = useAppStore((s) => s.switchToApiModel)
+  const switchToLocalModel = useAppStore((s) => s.switchToLocalModel)
+  const apiEntries = Object.entries(enabledModels)
+    .flatMap(([pid, models]) => (models ?? []).map((m) => ({ pid, provider: findProvider(pid)?.name ?? pid, model: m })))
 
   const [open, setOpen] = useState(false)
   const [benchBusy, setBenchBusy] = useState(false)
@@ -87,9 +97,11 @@ export default function ModelSelect() {
     ? modelLoadProgress?.stage === 'context'
       ? tr ? 'Hazırlanıyor…' : 'Preparing…'
       : `%${Math.round((modelLoadProgress?.progress ?? 0) * 100)}`
-    : shortName
-      ? shortName.replace(/\.gguf$/i, '')
-      : tr ? 'Model seç' : 'Select model'
+    : activeApiModel
+      ? activeApiModel.label
+      : shortName
+        ? shortName.replace(/\.gguf$/i, '')
+        : tr ? 'Model seç' : 'Select model'
 
   return (
     <div className="relative shrink-0">
@@ -108,6 +120,8 @@ export default function ModelSelect() {
       >
         {modelLoading ? (
           <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-ink-dim border-t-brand-400" />
+        ) : activeApiModel ? (
+          <Cloud className="h-3.5 w-3.5 shrink-0 text-violet-500" />
         ) : (
           <Cpu className={'h-3.5 w-3.5 shrink-0 ' + (modelInfo ? 'text-emerald-600 dark:text-emerald-400' : '')} />
         )}
@@ -149,12 +163,13 @@ export default function ModelSelect() {
                 </p>
               ) : (
                 localModels.map((lm) => {
-                  const active = lm.path === activePath
+                  const active = lm.path === activePath && !activeApiModel
                   return (
                     <button
                       key={lm.path}
                       onClick={() => {
-                        if (!active) void loadModelPath(lm.path)
+                        if (activeApiModel) void switchToLocalModel()
+                        if (lm.path !== activePath) void loadModelPath(lm.path)
                         setOpen(false)
                       }}
                       className={
@@ -171,6 +186,38 @@ export default function ModelSelect() {
                     </button>
                   )
                 })
+              )}
+
+              {/* 10.10 — Açık bırakılan API modelleri (sağlayıcı başlığıyla) */}
+              {apiEntries.length > 0 && (
+                <div className="mt-1.5 border-t border-ink-line pt-1.5">
+                  <p className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-ink-dim">
+                    {tr ? 'API modelleri' : 'API models'}
+                  </p>
+                  {apiEntries.map((e) => {
+                    const on = activeApiModel?.provider === e.pid && activeApiModel?.model === e.model
+                    return (
+                      <button
+                        key={e.pid + ':' + e.model}
+                        onClick={() => {
+                          if (!on) void switchToApiModel(e.pid, e.model, e.model)
+                          setOpen(false)
+                        }}
+                        className={
+                          'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ' +
+                          (on ? 'bg-violet-500/15' : 'hover:bg-ink-hi/60')
+                        }
+                      >
+                        <Plug className={'h-4 w-4 shrink-0 ' + (on ? 'text-violet-500' : 'text-ink-dim')} />
+                        <div className="min-w-0 flex-1 leading-tight">
+                          <p className="truncate text-xs font-bold text-ink-text">{e.model}</p>
+                          <p className="text-[10px] font-semibold text-ink-dim">{e.provider}</p>
+                        </div>
+                        {on && <Check className="h-4 w-4 shrink-0 text-violet-500" />}
+                      </button>
+                    )
+                  })}
+                </div>
               )}
             </div>
 

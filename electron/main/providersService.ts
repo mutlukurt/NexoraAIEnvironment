@@ -7,7 +7,7 @@
  * model listesi (hardcode gerekmez). YEREL VARSAYILAN korunur: seçim opt-in.
  */
 import { findProvider } from '../shared/providers'
-import { setApiConfig } from './apiEngine'
+import { setApiConfig, setActiveOverride } from './apiEngine'
 import { getProviderKey } from './providerKeysService'
 
 export interface ActivateInput {
@@ -25,6 +25,30 @@ export async function activateProvider(input: ActivateInput): Promise<{ ok: bool
   if (!baseUrl && input.mode !== 'off') return { ok: false, error: 'base URL gerekli' }
   const apiKey = p.local ? '' : (await getProviderKey(input.providerId)) || ''
   setApiConfig({ baseUrl, apiKey, model: input.model, mode: input.mode, adapter: p.adapter })
+  return { ok: true }
+}
+
+/**
+ * 10.10 — Açık model geçişi: kullanıcı model seçicide bir API modelini seçti.
+ * Override kurulur → TÜM turlar bu modele gider (hibrit kipi ne olursa olsun).
+ */
+export async function setActiveModel(input: {
+  providerId: string
+  model: string
+  customBaseUrl?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const p = findProvider(input.providerId)
+  if (!p) return { ok: false, error: 'sağlayıcı bulunamadı' }
+  const baseUrl = (p.baseUrl || input.customBaseUrl || '').trim()
+  if (!baseUrl) return { ok: false, error: 'base URL gerekli' }
+  const apiKey = p.local ? '' : (await getProviderKey(input.providerId)) || ''
+  setActiveOverride({ baseUrl, apiKey, model: input.model, adapter: p.adapter })
+  return { ok: true }
+}
+
+/** 10.10 — yerel modele dön (override temizle). */
+export function clearActiveModel(): { ok: boolean } {
+  setActiveOverride(null)
   return { ok: true }
 }
 

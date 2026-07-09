@@ -25,11 +25,28 @@ export interface ApiConfig {
 
 let cfg: ApiConfig = { baseUrl: '', apiKey: '', model: '', mode: 'off', adapter: 'openai' }
 
+/**
+ * 10.10 — Açık model geçişi (override): kullanıcı model seçicide bir API modelini
+ * AÇIKÇA seçtiğinde bu ayarlanır ve hibrit `cfg`/`mode`'u EZER — TÜM turlar bu
+ * modele gider (kullanıcı "yerel"e dönene dek). Hibrit escalation ayrı kalır.
+ */
+let override: { baseUrl: string; apiKey: string; model: string; adapter: 'openai' | 'anthropic' } | null = null
+
 export function setApiConfig(next: Partial<ApiConfig>): void {
   cfg = { ...cfg, ...next }
 }
 export function getApiConfig(): ApiConfig {
   return cfg
+}
+
+/** 10.10 — açık seçilen API modelini kur (null = yerele dön). */
+export function setActiveOverride(o: { baseUrl: string; apiKey: string; model: string; adapter: 'openai' | 'anthropic' } | null): void {
+  override = o && o.baseUrl && o.model ? o : null
+}
+/** Etkin çağrı yapılandırması: override varsa o, yoksa hibrit cfg. */
+function active(): { baseUrl: string; apiKey: string; model: string; adapter: 'openai' | 'anthropic' } {
+  const c = override ?? cfg
+  return { baseUrl: c.baseUrl, apiKey: c.apiKey, model: c.model, adapter: c.adapter ?? 'openai' }
 }
 
 /**
@@ -40,6 +57,8 @@ export function getApiConfig(): ApiConfig {
  * kullanıcının açık tercihi olduğundan tırmanış beklemez.
  */
 export function shouldUseApi(isFixTurn: boolean, escalate = false, fidelityEscalate = false): boolean {
+  // 10.10 — açık seçilmiş API modeli her turu alır (hibrit kipi ne olursa olsun).
+  if (override) return true
   if (!cfg.baseUrl || !cfg.model || cfg.mode === 'off') return false
   if (cfg.mode === 'all') return true
   // 'fix' modu: klasik düzelt-tırmanışı (isFixTurn && escalate) VEYA
@@ -98,17 +117,18 @@ async function promptAnthropic(
   onToken: (t: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  const base = cfg.baseUrl.replace(/\/+$/, '')
+  const c = active()
+  const base = c.baseUrl.replace(/\/+$/, '')
   const url = /\/v\d+$/.test(base) ? `${base}/messages` : `${base}/v1/messages`
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-api-key': cfg.apiKey,
+      'x-api-key': c.apiKey,
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: cfg.model,
+      model: c.model,
       stream: true,
       max_tokens: 4096,
       temperature: 0.1,
@@ -135,18 +155,19 @@ export async function promptApi(
   onToken: (t: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  if (cfg.adapter === 'anthropic') return promptAnthropic(systemPrompt, userPrompt, onToken, signal)
-  const base = cfg.baseUrl.replace(/\/+$/, '')
+  const c = active()
+  if (c.adapter === 'anthropic') return promptAnthropic(systemPrompt, userPrompt, onToken, signal)
+  const base = c.baseUrl.replace(/\/+$/, '')
   // Kullanıcı '/v1' verse de vermese de doğru uca vur.
   const url = /\/v\d+$/.test(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {})
+      ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {})
     },
     body: JSON.stringify({
-      model: cfg.model,
+      model: c.model,
       stream: true,
       temperature: 0.1,
       messages: [
