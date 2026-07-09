@@ -40,6 +40,9 @@ const ok = (c, l) => { if (c) { pass++; console.log('✓', l) } else { fail++; f
   ok(/framer-motion/i.test(et), 'edit-prompt: modern kütüphaneler/animasyon serbest')
   ok(/ONLY the file\(s\) you actually change|Do not re-output/i.test(et), 'edit-prompt: yalnız değişen dosyalar (format disiplini)')
   ok(!/COMPACT|monolithic App\.tsx only/i.test(et), 'edit-prompt: 3B COMPACT personası DEĞİL')
+  // CANLI BUG: yeni FAQ bileşeni oluşturuldu ama App.tsx'e bağlanmadı (orphan).
+  ok(/WIRE UP|new component that nothing imports|INVISIBLE/i.test(et), 'edit-prompt: yeni bileşeni App.tsx\'e BAĞLA kuralı (orphan önleme)')
+  ok(/complete updated App\.tsx|import.*line AND place/i.test(et), 'edit-prompt: yeni bölümde App.tsx tam güncellensin')
   ok(/multi-file|components\//i.test(tr), 'prompt: çok-dosya mimari dayatıyor')
   ok(/```tsx src\/components\/Hero\.tsx|fence header/i.test(tr), 'prompt: fenced-path çıktı formatı örneği var')
   ok(/App\.tsx/.test(tr) && /index\.css/.test(tr), 'prompt: App.tsx + index.css isteniyor')
