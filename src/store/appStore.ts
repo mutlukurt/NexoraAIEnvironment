@@ -18,7 +18,7 @@ import { decideCommand } from '@shared/trust'
 import { makeTask, nextRunnable, transition, clearFinished, deactivateTasks, type QueuedTask } from '@/lib/taskQueue'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { useSettingsStore } from './settingsStore'
-import { parseStreaming, isEditBlock, applySearchReplace, hasOversizedOpenSearch } from '@/lib/parseCode'
+import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
@@ -1775,12 +1775,11 @@ let forceBuildNext = false
 const FIX_WORDS =
   /d[üu]zelt|onar|tamir|gider|[çc][öo]z|hata|fix|repair|solve|correct|debug|error|arregl|corrig|repar|solucion|conserta|r[ée]par|beheb|korrigier|reparier|risolv|corregg|napraw|исправ|почин|herstel|verbeter/i
 
+// 10.15 — CERRAHİ DÜZENLEME KALDIRILDI: bu fonksiyon eskiden tam-dosya yazımını
+// "ihlal" sayıp turu keserdi. Artık no-op (hiçbir tetikleyici çağırmıyor; tam
+// dosya yeniden yazımı tüm modellerde serbest). Güvenlik için gövde boş bırakıldı.
 function editViolation(): void {
-  if (oversizedEditAborting) return
-  oversizedEditAborting = true
-  if (oversizedEditRetries < 1) oversizedEditRetries++
-  else violationStop = true
-  void window.nexora.chat.abort()
+  /* no-op: cerrahi düzenleme zorlaması söküldü */
 }
 
 /**
@@ -1824,30 +1823,17 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
     // yan-ürün blokları (App.tsx/index.css'i ezmek) yutulur.
     if (restrictWriteToPath && f.path !== restrictWriteToPath) continue
     if (!f.path.includes('/') && batchPaths.has('src/' + f.path)) continue
-    // İterasyonda mevcut dosyanın tam-yazımı: ARAŞTIRMA (Aider/endüstri, 2026)
-    // — küçük modeller SEARCH/REPLACE'i güvenilir ÜRETEMEZ (whitespace/içeriği
-    // birebir tekrarlayamaz, "0 blok eşleşmedi") ama KÜÇÜK bir dosyanın TAMAMINI
-    // doğru yazar; "whole" formatı zayıf modellerde daha KARARLI. Bu yüzden KÜÇÜK
-    // dosyalarda tam-yazıma İZİN verilir (3B'nin id-fix gibi basit işleri gerçekten
-    // yapabilmesi için), BÜYÜK dosyalarda hâlâ cerrahi şart (17-dk rewrite dersi).
+    // 10.15 — CERRAHİ DÜZENLEME KALDIRILDI (tüm modeller). Model mevcut bir
+    // dosyayı KOMPLE yeniden yazar, app olduğu gibi yazar: SEARCH/REPLACE zorlaması,
+    // boyut yasağı ("büyük dosya cerrahi şart") ve "baştan yazmaya kalktı" kesicisi
+    // YOK — hiçbir modele yaramıyordu (zayıf zaten iterasyon yapamıyor, güçlü
+    // kendi yapar). Tek koruma yarım-akışa karşı: blok TAMAMLANMADAN finalize etme
+    // (canlı akış editöre yansır; tur transaction + üretim-sonrası doğrulama arkada).
     if (updateTurn && preTurnPaths.has(f.path) && !isEditBlock(f.lang, f.code)) {
-      const existing = useArtifactsStore.getState().files[f.path]
-      const existingLines = existing ? existing.content.split('\n').length : Infinity
-      const SMALL_FILE_LINES = 200
-      if (!existing || existingLines > SMALL_FILE_LINES) {
-        if (!final) editViolation() // büyük/bilinmeyen dosya: tam-yazım yasak
-        continue
-      }
-      // Küçük dosya tam-yazımı: yalnız blok TAMAMLANINCA ve truncated/tembel
-      // DEĞİLSE uygulanır (yarım dosya editöre yazılıp bozmaz; tur transaction +
-      // üretim-sonrası doğrulama zaten koruyor). Aşağıdaki normal yazıma düşer.
       const completeNow = f.complete || final
       if (!completeNow) {
         writing = f.path
         continue
-      }
-      if (f.code.split('\n').length < Math.max(8, Math.floor(existingLines * 0.4))) {
-        continue // kırpılmış/tembel tam-yazım — dosyayı bozma
       }
     }
     // On the final pass the stream is over — every block counts as complete.
@@ -2613,16 +2599,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
     lastTokenAt = Date.now()
     sawFirstToken = true
     currentStreamingContent += token
-    // Bekçi: açık SEARCH bölümü sınırı aştıysa model bölümü/dosyayı baştan
-    // yazıyordur — kes; done dalı ya küçük bloklarla yeniden dener ya durdurur.
-    if (
-      !oversizedEditAborting &&
-      updateTurn &&
-      currentStreamingContent.includes('```edit') &&
-      hasOversizedOpenSearch(currentStreamingContent)
-    ) {
-      editViolation()
-    }
+    // 10.15 — CERRAHİ DÜZENLEME KALDIRILDI: eskiden burada açık SEARCH bloğu
+    // sınırı aşınca akış kesilir, model "küçük bloklarla yeniden yaz" diye
+    // zorlanırdı. Bu köstek tamamen söküldü — model komple dosya yazar, kesme yok.
     set((s) => {
       const streaming = s.messages.find((m) => m.streaming)
       if (!streaming) return {}
@@ -4346,9 +4325,11 @@ ${outgoing}`
         : isPlanTurn
         ? { temperature: 0.7, topP: 0.95 }
         : fixFlow
-          ? // Cerrahi düzeltme blokları küçüktür; tavan hayalet-üretim sigortası.
-            { temperature: 0.1, maxTokens: 2560 }
-          : { temperature: 0.2, maxTokens: 4096 }
+          ? // 10.15: cerrahi düzeltme kaldırıldı — düzeltme de KOMPLE dosya yazar,
+            // tavan tam dosyaya yetecek kadar geniş (2560 truncate ediyordu).
+            { temperature: 0.1, maxTokens: 8192 }
+          : // Kod/iterasyon: tam-dosya yeniden yazımı için nefes payı (4096 küçüktü).
+            { temperature: 0.2, maxTokens: 8192 }
     if (sampling.purpose) sampling.answerLang = get().language === 'tr' ? 'tr' : 'en'
     // 5.5 çift-modlu cerrah: yerel modelin çözemediği hata turu API'ye
     // tırmandırılabilir ('fix' modunda API yalnız bu bayrakla çalışır).

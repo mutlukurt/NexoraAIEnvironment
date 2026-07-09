@@ -114,29 +114,20 @@ RULES:
  * whole-file'ı `newfile` dalıyla zaten serbest bırakıyordu; eksik olan modele
  * bunu SÖYLEMEKTİ. Tek kaynak burada, test:iterprompt bu politikayı kilitler.
  */
-export const UPDATE_MODE_RULES = `Choose the edit format BY THE SIZE of the file you are changing:
-
-SMALL file (≤200 lines — almost every component): output the COMPLETE corrected file in a normal fenced block with its EXACT existing path. Rewrite it top-to-bottom with the change applied, keeping every unrelated import and line byte-for-byte identical. This is the RELIABLE way — never shorten or elide with "…" or comments.
+export const UPDATE_MODE_RULES = `Make the requested change by outputting the COMPLETE updated file(s) — the whole file, top to bottom, with the change applied. Use a normal fenced block whose header is the language then the file's EXACT existing path:
 \`\`\`tsx src/components/Hero.tsx
-(the whole file, corrected)
+(the entire file, updated)
 \`\`\`
-
-LARGE file (>200 lines): do NOT rewrite it — use one or more SMALL surgical edit blocks:
-\`\`\`edit src/App.tsx
-<<<<<<< SEARCH
-(2–8 lines copied CHARACTER-FOR-CHARACTER from the current file — never more than 12, never empty)
-=======
-(the replacement lines)
->>>>>>> REPLACE
-\`\`\`
+Do NOT use SEARCH/REPLACE or "edit" blocks, and NEVER elide with "…", "rest unchanged", or comments — always write every line of each file you touch.
 
 RULES:
 1. FIND THE RIGHT FILE FIRST — a section's visible text lives in ITS OWN component (hero title → Hero.tsx, navbar links → Navbar.tsx), NOT in App.tsx.
-2. Output ONLY the file(s) you actually change. Never re-output an unchanged file; never rewrite the whole project.
-3. If you are not 100% sure a SEARCH snippet matches the file exactly, output the whole (small) file instead — do not guess.
-4. To delete a file: [DELETE] path/to/file on its own line. A brand-NEW file is a normal fenced block.
+2. Output ONLY the file(s) you actually change (plus App.tsx when you add/remove/reorder a section — see rule 6). Never re-output an unchanged file; never rewrite the whole project.
+3. Keep every unrelated import and line intact — change only what the request needs.
+4. To delete a file: [DELETE] path/to/file on its own line. A brand-NEW file is a normal fenced block with its new path.
 5. If the request reports an error or bug, locate the cause in the files above and fix it.
-6. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>`
+6. ⚠️ WIRE UP EVERY NEW COMPONENT: a component nothing imports is invisible and counts as a FAILED change. When you create a new component, in the SAME response also output the COMPLETE updated App.tsx (or the correct parent) with the \`import\` line AND the JSX tag at the exact position the user asked for.
+7. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>`
 
 /**
  * FAZ 9.3 — FIDELITY MODE önsözü. Harici hiper-detaylı bir spec (Gemini gibi)
@@ -534,7 +525,7 @@ Apply the user's requested change with taste and precision:
 
 ⚠️ CRITICAL — WIRE UP EVERY NEW COMPONENT. A new component that nothing imports is INVISIBLE and counts as a FAILED change. Whenever you create a new component (e.g. a new src/components/Faq.tsx section), in the SAME response you MUST also output the updated parent that renders it — normally src/App.tsx: add the \`import\` line AND place the component's JSX tag at the exact position the user asked for (e.g. right before <CTA />). App.tsx is small, so output the COMPLETE updated App.tsx. Double-check before finishing: does every component you added get imported and rendered? If not, fix it.
 
-Output ONLY the file(s) you actually change (INCLUDING App.tsx when you add/remove/reorder a section), in the exact format described in the user message (full file for small files, surgical edit blocks for large ones, a normal fenced block with its path for brand-new files). Do not re-output unchanged files. ${langLine}`
+Output ONLY the file(s) you actually change (INCLUDING App.tsx when you add/remove/reorder a section) as COMPLETE files — a normal fenced block with the exact path, the whole file top to bottom, every line written out. Do NOT use SEARCH/REPLACE or "edit" blocks, and never elide with "…". Do not re-output unchanged files. ${langLine}`
 }
 
 export function getProfile(id: string): PromptProfile {

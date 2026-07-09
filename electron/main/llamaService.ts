@@ -30,7 +30,7 @@ import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './eng
 import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
-import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
+import { buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
 import { shouldUseApi, promptApi, getLastApiUsage, hasApiOverride } from './apiEngine'
 import { getLastServerUsage } from './llamaServerEngine'
 import type { UsageSample } from '../shared/ipc'
@@ -285,13 +285,11 @@ ${UPDATE_MODE_RULES}
     options.grammar = buildFileGrammar(input.expectFile)
   } else if (input.expectPlan) {
     options.grammar = buildPlanGrammar()
-  } else if (input.currentFiles && input.currentFiles.length > 0) {
-    const allPaths = [
-      ...input.currentFiles.map((f) => f.path),
-      ...(input.otherPaths ?? [])
-    ]
-    options.grammar = buildEditGrammar(allPaths)
   }
+  // 10.15 — CERRAHİ DÜZENLEME KALDIRILDI: iterasyon (currentFiles) turunda eskiden
+  // buildEditGrammar ile SEARCH/REPLACE formatı ZORLANIRDI. Kaldırıldı — model
+  // komple dosya yazar, gramer dayatması yok (zaten API bunu yok sayıyordu, yerel
+  // model de tam-dosya yazımıyla daha kararlı).
 
   // Hibrit API (roadmap 4.1): bu tur bir DÜZELTME turu mu? (otomatik/kullanıcı
   // "düzelt" + derleme/runtime hata metni taşıyan iterasyon turları). Kullanıcı

@@ -1,12 +1,11 @@
 /**
- * v0.14.3 — İterasyon prompt politikası regresyon takımı.
+ * 10.15 — İterasyon prompt politikası regresyon takımı.
  *
- * v0.14.1 sistem-promptu (ITERATION_RULES) + applier küçük dosyada whole-file'ı
- * KABUL ediyordu; ama UPDATE turunun kullanıcı-prompt sarmalayıcısı hâlâ "SADECE
- * cerrahi; tam-dosya REDDEDİLİR" diyordu → zayıf model (3B) beceremediği cerrahiyi
- * deneyip "id ekle" gibi istekleri sessizce tutturamıyordu. Bu takım, sarmalayıcı
- * politikasının (UPDATE_MODE_RULES) uyumlu kaldığını kilitler: çelişki geri gelirse
- * kırmızı yanar.
+ * CERRAHİ DÜZENLEME KALDIRILDI (tüm modeller). UPDATE_MODE_RULES artık tek bir
+ * basit politika dayatır: DEĞİŞEN dosyaların TAMAMINI yaz (SEARCH/REPLACE YOK).
+ * Bu köstek hiçbir modele yaramıyordu (zayıf zaten iterasyon yapamıyor, güçlü
+ * kendi yapar) ve API turlarını kesip öldürüyordu. Bu takım yeni politikayı
+ * kilitler: SEARCH/REPLACE geri sızarsa kırmızı yanar.
  *
  * Çalıştırma: npm run test:iterprompt
  */
@@ -35,61 +34,53 @@ const check = (name, cond, detail) => {
 const R = String(UPDATE_MODE_RULES || '')
 const low = R.toLowerCase()
 
-// 1) Küçük dosya için whole-file KESİN politika
+// 1) TAM dosya yazımı KESİN politika
 check(
-  'küçük dosya (≤200) = TAM dosya yaz',
-  /small file/i.test(R) && /≤\s*200|<=\s*200|200 lines/.test(R) && /complete\s+corrected\s+file|whole file|entire file/i.test(R),
+  'tam dosya yaz (COMPLETE updated file)',
+  /complete updated file/i.test(R) && /(whole file|entire file)/i.test(R),
   R.slice(0, 200)
 )
 
-// 2) Büyük dosya için cerrahi
+// 2) SEARCH/REPLACE / cerrahi edit KALDIRILDI (geri sızmasın)
 check(
-  'büyük dosya (>200) = cerrahi SEARCH/REPLACE',
-  /large file/i.test(R) && />\s*200/.test(R) && /surgical edit block/i.test(R) && /<<<<<<< SEARCH/.test(R),
-  R.slice(0, 200)
+  'SEARCH/REPLACE YOK (cerrahi düzenleme söküldü)',
+  !/<<<<<<< SEARCH/.test(R) && !/surgical edit block/i.test(low) && !/```edit/.test(R) && /do not use search\/replace/i.test(low),
+  'SEARCH/REPLACE hâlâ prompt\'ta'
 )
 
-// 3) ÇELİŞKİ GİTTİ: "tam-dosya otomatik reddedilir" ifadesi OLMAMALI
+// 3) Boyuta göre dallanma (≤200 küçük / >200 büyük cerrahi) YOK
 check(
-  'çelişki yok: "existing file ... REJECTED" ifadesi yok',
-  !/automatically rejected/i.test(low) && !/rewriting an existing file in full/i.test(low),
-  'çelişkili ifade hâlâ var'
+  'boyut-tabanlı cerrahi dallanma yok',
+  !/large file/i.test(low) || !/surgical/i.test(low),
+  'boyut-tabanlı cerrahi kuralı hâlâ var'
 )
 
-// 4) ÇELİŞKİ GİTTİ: "SADECE cerrahi edit blokları" dayatması OLMAMALI
+// 4) Elleme/"…" yasağı (tembel kırpma) korunur
 check(
-  'çelişki yok: "ONLY ... surgical edit blocks" dayatması yok',
-  !/only\s+with\s+surgical edit blocks/i.test(low) && !/respond only with surgical/i.test(low),
-  'surgical-only dayatması hâlâ var'
+  'elide/"…" yasağı korunur',
+  /never elide|rest unchanged|every line/i.test(R),
+  'kırpma yasağı yok'
 )
 
-// 5) Doğru dosyayı bul önseli (3B App.tsx yerine Hero.tsx'i hedeflesin)
+// 5) YENİ bileşeni App.tsx'e BAĞLA kuralı (orphan önleme)
 check(
-  'find-the-right-file önseli var (Hero.tsx örneğiyle)',
-  /find the right file first/i.test(R) && /hero\.tsx/i.test(R) && /not in app\.tsx|not.*app\.tsx/i.test(low),
+  'yeni bileşeni App.tsx\'e BAĞLA kuralı var',
+  /wire up every new component|nothing imports is invisible|updated app\.tsx/i.test(low),
+  'wiring kuralı yok'
+)
+
+// 6) Doğru dosyayı bul önseli
+check(
+  'find-the-right-file önseli (Hero.tsx örneğiyle)',
+  /find the right file first/i.test(R) && /hero\.tsx/i.test(R),
   R
 )
 
-// 6) Boş SEARCH yasağı korunur
-check(
-  'boş SEARCH yasak (never empty)',
-  /never empty/i.test(R) || /never leave search empty/i.test(low),
-  'boş-SEARCH koruması yok'
-)
-
 // 7) Soru turu kaçışı korunur (ANSWER:)
-check(
-  'salt-soru kaçışı korunur (ANSWER:)',
-  /ANSWER:/.test(R),
-  'ANSWER kaçışı yok'
-)
+check('salt-soru kaçışı korunur (ANSWER:)', /ANSWER:/.test(R), 'ANSWER kaçışı yok')
 
 // 8) [DELETE] silme yolu korunur
-check(
-  'dosya silme yolu korunur ([DELETE])',
-  /\[DELETE\]/.test(R),
-  '[DELETE] yok'
-)
+check('dosya silme yolu korunur ([DELETE])', /\[DELETE\]/.test(R), '[DELETE] yok')
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\n${pass}/${pass + fail} geçti`)
