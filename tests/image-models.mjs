@@ -59,6 +59,20 @@ img('imagen-3.0-generate')
 img('ideogram-v2')
 img('recraft-v3')
 img('grok-2-image-1212')
+// Yeni/beklenmedik isimler — "image" segmenti sağlam kural (canlı bug: z-image-turbo):
+img('z-image-turbo')
+img('wan2.7-image-pro')
+img('wan2.5-image')
+img('flash-image')
+img('gemini-2.5-flash-image')
+img('gemini-2.0-flash-preview-image-generation')
+img('text-to-image-v2')
+img('hunyuan-image-2.1')
+img('hunyuan-dit')
+img('flux-kontext-pro')
+img('aura-flow-v0.3')
+img('sana-1.6b')
+img('nano-banana')
 
 // --- Metin ve GÖRSEL-GİRDİ (vision) modelleri — ASLA görsel-üretme sayılmamalı ---
 notImg('qwen-vl-max') // vision (görsel GİRDİ) — üretme değil
@@ -75,6 +89,9 @@ notImg('deepseek-v4-pro')
 notImg('deepseek-chat')
 notImg('llama-3.3-70b')
 notImg('mistral-large')
+notImg('image-to-text-v1') // görsel GİRDİ (altyazı) — üretme değil
+notImg('blip-image-captioning') // image-caption → GİRDİ
+notImg('qwen2-vl-image-understanding') // vl + understanding
 notImg('')
 notImg(null)
 notImg(undefined)
