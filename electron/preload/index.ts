@@ -181,6 +181,18 @@ export interface NexoraApi {
     restoreGreen: (projectName: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; hash?: string; error?: string }>
     filesAt: (projectName: string, ref: string) => Promise<{ ok: boolean; files?: Array<{ path: string; content: string }>; error?: string }>
   }
+  mcp: {
+    /** 10.1: yapılandırılmış yerel MCP sunucularının durumu + keşfedilen araçları. */
+    servers: () => Promise<{ servers: import('../shared/ipc').McpServerInfo[] }>
+    /** Bir MCP aracını çağır (güven katmanı renderer'da uygulanır). */
+    call: (input: import('../shared/ipc').McpCallInput) => Promise<import('../shared/ipc').McpCallResult>
+    /** Tüm sunucuları kapatıp yeniden bağlan. */
+    reload: () => Promise<{ servers: import('../shared/ipc').McpServerInfo[] }>
+    /** mcp.json içeriğini + dosya yolunu getir. */
+    getConfig: () => Promise<{ servers: import('../shared/ipc').McpServerConfigInput[]; path: string }>
+    /** mcp.json'ı yaz + yeniden bağlan. */
+    setConfig: (servers: import('../shared/ipc').McpServerConfigInput[]) => Promise<{ servers: import('../shared/ipc').McpServerInfo[] }>
+  }
 }
 
 const api: NexoraApi = {
@@ -328,6 +340,14 @@ const api: NexoraApi = {
     restore: (projectName: string, hash: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE, projectName, hash),
     restoreGreen: (projectName: string) => ipcRenderer.invoke(IPC.HISTORY_RESTORE_GREEN, projectName),
     filesAt: (projectName: string, ref: string) => ipcRenderer.invoke(IPC.HISTORY_FILES_AT, projectName, ref)
+  },
+  mcp: {
+    servers: () => ipcRenderer.invoke(IPC.MCP_SERVERS),
+    call: (input: { server: string; tool: string; args?: Record<string, unknown> }) =>
+      ipcRenderer.invoke(IPC.MCP_CALL, input),
+    reload: () => ipcRenderer.invoke(IPC.MCP_RELOAD),
+    getConfig: () => ipcRenderer.invoke(IPC.MCP_GET_CONFIG),
+    setConfig: (servers: import('../shared/ipc').McpServerConfigInput[]) => ipcRenderer.invoke(IPC.MCP_SET_CONFIG, servers)
   }
 }
 

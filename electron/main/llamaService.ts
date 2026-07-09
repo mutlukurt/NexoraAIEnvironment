@@ -24,6 +24,7 @@ import {
   FIDELITY_RULES
 } from '../shared/prompts'
 import type { InferenceEngine, LoadProgressCallback, PromptOptions } from './engineTypes'
+import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
 import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
@@ -227,6 +228,20 @@ ${UPDATE_MODE_RULES}
   // Sohbet/brief turunda hiç eklenmez: soru cevaplanacak, eylem yapılmayacak.
   if (!isProseTurn && detectAgentIntent(input.prompt)) {
     prompt += '\n\n' + AGENT_HINT
+    // 10.1 — bağlı MCP araçları varsa modele bildir. Sunucu yoksa liste boştur
+    // (mcp.json yoksa hiç süreç spawn edilmez → sıfır maliyet).
+    try {
+      const mcpTools = await mcpToolsForPrompt()
+      if (mcpTools.length > 0) {
+        const lines = mcpTools.map((t) => `[MCP] ${t.server} ${t.tool}${t.description ? '  — ' + t.description : ''}`)
+        prompt +=
+          '\n\nLOCAL MCP TOOLS (call at most one per line, outside code blocks, with JSON args): ' +
+          '[MCP] server tool {"arg":"value"}\nAvailable:\n' +
+          lines.join('\n')
+      }
+    } catch {
+      /* MCP bağlantısı bu turu bloklamasın */
+    }
   }
 
   // FAZ 9.3 — Fidelity build/edit turu: spec'e HARFİYEN uy + __SLOT__

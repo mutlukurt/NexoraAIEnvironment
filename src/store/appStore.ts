@@ -155,9 +155,9 @@ interface AppState {
   openSession: (id: string) => Promise<void>
   removeSession: (id: string) => Promise<void>
 
-  /** Riskli agent eylemleri ([RUN]/[FETCH]) için bekleyen izin istemi. */
+  /** Riskli agent eylemleri ([RUN]/[FETCH]/[MCP]) için bekleyen izin istemi. */
   permissionRequest: {
-    items: Array<{ kind: 'run' | 'fetch'; text: string; reason?: string }>
+    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string }>
     resolve: (d: 'once' | 'always' | 'deny') => void
   } | null
 
@@ -2393,9 +2393,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             let effective = directives
 
             if (tier === 'read') {
-              const proposed = directives.runs.length + directives.fetches.length + (directives.dev ? 1 : 0)
+              const proposed = directives.runs.length + directives.fetches.length + directives.mcp.length + (directives.dev ? 1 : 0)
               if (proposed > 0) {
-                effective = { ...directives, runs: [], fetches: [], dev: false }
+                effective = { ...directives, runs: [], fetches: [], dev: false, mcp: [] }
                 logRepair({ layer: 'trust-deny', notes: ['read-tier', `${proposed} eylem önerildi, çalıştırılmadı`] })
                 set((s) => ({
                   messages: [
@@ -2406,6 +2406,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                       content: `📖 Salt Okunur kip: ajan ${proposed} eylem önerdi ama hiçbiri çalıştırılmadı:\n${[
                         ...directives.runs.map((r) => '  $ ' + r),
                         ...directives.fetches.map((f) => '  ⬇ ' + f.url),
+                        ...directives.mcp.map((c) => '  🔌 ' + c.server + '.' + c.tool),
                         ...(directives.dev ? ['  ▶ dev sunucusu'] : [])
                       ].join('\n')}\nÇalıştırmak için Ayarlar → Güven ve İzinler'den kipi değiştir.`
                     }
@@ -2427,6 +2428,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               // İndirme her zaman sınır sınıfıdır (varsayılan izin listesi YOK —
               // Antigravity'nin webhook.site dersi); Tam Erişim/proje-izni koşturur.
               const fetchesAsk = tier === 'full' || projectAlways ? [] : directives.fetches
+              // MCP araç çağrısı da sınır sınıfı: yerel bir süreci tetikler, ne
+              // yapacağı araca bağlı. Tam Erişim/proje-izni onaysız koşar.
+              const mcpAsk = tier === 'full' || projectAlways ? [] : directives.mcp
               if (blocked.length > 0) {
                 logRepair({ layer: 'trust-deny', notes: blocked.slice(0, 4) })
                 set((s) => ({
@@ -2441,13 +2445,18 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 }))
               }
               let approvedAsk = true
-              if (askRuns.length > 0 || fetchesAsk.length > 0) {
+              if (askRuns.length > 0 || fetchesAsk.length > 0 || mcpAsk.length > 0) {
                 const items = [
                   ...askRuns.map((r) => ({ kind: 'run' as const, text: r.text, reason: r.reason })),
                   ...fetchesAsk.map((f) => ({
                     kind: 'fetch' as const,
                     text: `${f.url} → ${f.path}`,
                     reason: get().language === 'tr' ? 'ağdan indirme — kaynak dış dünya' : 'network download'
+                  })),
+                  ...mcpAsk.map((c) => ({
+                    kind: 'mcp' as const,
+                    text: `${c.server}.${c.tool}${Object.keys(c.args).length ? ' ' + JSON.stringify(c.args) : ''}`,
+                    reason: get().language === 'tr' ? 'yerel MCP aracı — süreç dışı eylem' : 'local MCP tool call'
                   }))
                 ]
                 const decision = await new Promise<'once' | 'always' | 'deny'>((resolve) => {
@@ -2473,7 +2482,8 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               effective = {
                 ...directives,
                 runs: [...autoRuns, ...(approvedAsk ? askRuns.map((r) => r.text) : [])],
-                fetches: approvedAsk ? directives.fetches : directives.fetches.filter(() => tier === 'full' || projectAlways)
+                fetches: approvedAsk ? directives.fetches : directives.fetches.filter(() => tier === 'full' || projectAlways),
+                mcp: approvedAsk ? directives.mcp : directives.mcp.filter(() => tier === 'full' || projectAlways)
               }
               if (!hasDirectives(effective)) return
             }

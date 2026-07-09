@@ -12,12 +12,20 @@
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useTermStore } from '@/store/termStore'
 
+export interface McpCallDirective {
+  server: string
+  tool: string
+  args: Record<string, unknown>
+}
+
 export interface AgentDirectives {
   pkgs: string[]
   fonts: string[]
   fetches: Array<{ url: string; path: string }>
   runs: string[]
   dev: boolean
+  /** 10.1: yerel MCP araç çağrıları — [MCP] sunucu araç {json}. */
+  mcp: McpCallDirective[]
 }
 
 const RUN_RE = /^\s*\[RUN\]\s+(.+?)\s*$/gm
@@ -25,9 +33,11 @@ const FETCH_RE = /^\s*\[FETCH\]\s+(\S+)\s*(?:->|→)\s*(\S+)\s*$/gm
 const FONT_RE = /^\s*\[FONT\]\s+(.+?)\s*$/gm
 const PKG_RE = /^\s*\[PKG\]\s+(.+?)\s*$/gm
 const DEV_RE = /^\s*\[DEV\]\s*$/m
+// [MCP] sunucu araç {"json":"args"}   → JSON opsiyonel (argümansız araçlar için)
+const MCP_RE = /^\s*\[MCP\]\s+(\S+)\s+(\S+)[ \t]*(\{.*\})?[ \t]*$/gm
 
 /** Chat balonunda gizlenecek direktif satırları. */
-export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE)\]/
+export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP)\]/
 
 /**
  * İçeriği yalnızca direktif/şablon satırlarından oluşan "dosya" — küçük model
@@ -52,8 +62,23 @@ export function isPlaceholderValue(v: string): boolean {
 }
 
 export function parseDirectives(text: string): AgentDirectives {
-  const d: AgentDirectives = { pkgs: [], fonts: [], fetches: [], runs: [], dev: false }
+  const d: AgentDirectives = { pkgs: [], fonts: [], fetches: [], runs: [], dev: false, mcp: [] }
   if (!text) return d
+  for (const m of text.matchAll(MCP_RE)) {
+    const server = m[1].trim()
+    const tool = m[2].trim()
+    if (isPlaceholderValue(server) || isPlaceholderValue(tool)) continue
+    let args: Record<string, unknown> = {}
+    if (m[3]) {
+      try {
+        const parsed = JSON.parse(m[3])
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed as Record<string, unknown>
+      } catch {
+        continue // bozuk JSON — uydurma çağrı, atla
+      }
+    }
+    d.mcp.push({ server, tool, args })
+  }
   for (const m of text.matchAll(PKG_RE)) {
     for (const p of m[1].split(/[\s,]+/)) {
       if (/^(@[\w.-]+\/)?[\w.-]+(@[\w.^~-]+)?$/.test(p)) d.pkgs.push(p)
@@ -76,7 +101,7 @@ export function parseDirectives(text: string): AgentDirectives {
 }
 
 export function hasDirectives(d: AgentDirectives): boolean {
-  return d.pkgs.length > 0 || d.fonts.length > 0 || d.fetches.length > 0 || d.runs.length > 0 || d.dev
+  return d.pkgs.length > 0 || d.fonts.length > 0 || d.fetches.length > 0 || d.runs.length > 0 || d.dev || d.mcp.length > 0
 }
 
 function currentFiles(): Array<{ path: string; content: string }> {
@@ -231,6 +256,19 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
       log(`✓ Komut tamamlandı${tail ? '\n' + tail : ''}`)
     } else {
       log(`✗ Komut başarısız (kod ${res.exitCode ?? '?'})${tail ? '\n' + tail : ''}`)
+    }
+  }
+
+  for (const call of d.mcp) {
+    const argStr = Object.keys(call.args).length ? ' ' + JSON.stringify(call.args) : ''
+    log(`🔌 MCP: ${call.server}.${call.tool}${argStr}`)
+    try {
+      const res = await window.nexora.mcp.call({ server: call.server, tool: call.tool, args: call.args })
+      const body = res.content.length > 1200 ? res.content.slice(0, 1200) + '…' : res.content
+      if (res.ok) log(`✓ ${call.server}.${call.tool} →\n${body}`)
+      else log(`✗ ${call.server}.${call.tool} başarısız →\n${body}`)
+    } catch (err) {
+      log(`✗ MCP çağrı hatası (${call.server}.${call.tool}): ${(err as Error).message}`)
     }
   }
 

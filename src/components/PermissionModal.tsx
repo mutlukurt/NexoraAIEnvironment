@@ -8,7 +8,7 @@
  */
 import { useAppStore } from '@/store/appStore'
 import { translations } from '@/lib/translations'
-import { Terminal, Download, ShieldAlert } from 'lucide-react'
+import { Terminal, Download, ShieldAlert, Plug } from 'lucide-react'
 
 export default function PermissionModal() {
   const request = useAppStore((s) => s.permissionRequest)
@@ -34,12 +34,27 @@ export default function PermissionModal() {
           <div className="flex flex-col gap-2">
             {request.items.map((item, i) => (
               <div key={i} className="flex items-start gap-2.5 rounded-xl border border-ink-line bg-ink-card/50 px-3.5 py-2.5">
-                <span className={'mt-0.5 shrink-0 ' + (item.kind === 'run' ? 'text-red-600 dark:text-red-400' : 'text-sky-500')}>
-                  {item.kind === 'run' ? <Terminal className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+                <span
+                  className={
+                    'mt-0.5 shrink-0 ' +
+                    (item.kind === 'run'
+                      ? 'text-red-600 dark:text-red-400'
+                      : item.kind === 'mcp'
+                        ? 'text-violet-500'
+                        : 'text-sky-500')
+                  }
+                >
+                  {item.kind === 'run' ? (
+                    <Terminal className="h-4 w-4" />
+                  ) : item.kind === 'mcp' ? (
+                    <Plug className="h-4 w-4" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
                 </span>
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
-                    {item.kind === 'run' ? t.permRunLabel : t.permFetchLabel}
+                    {item.kind === 'run' ? t.permRunLabel : item.kind === 'mcp' ? 'MCP ARAÇ ÇAĞRISI' : t.permFetchLabel}
                   </p>
                   <p className="break-all font-mono text-xs font-semibold text-ink-text">{item.text}</p>
                   {item.reason && (

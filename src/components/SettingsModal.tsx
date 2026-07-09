@@ -4,6 +4,7 @@ import { useAppStore } from '@/store/appStore'
 import { X, Plus, Trash2, TerminalSquare } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
+import McpPanel from './McpPanel'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -469,6 +470,9 @@ export default function SettingsModal() {
               </div>
             )}
           </div>
+
+          {/* 10.1: yerel MCP araç sunucuları */}
+          <McpPanel language={language} />
 
           {/* Özel hızlı komutlar */}
           <div>

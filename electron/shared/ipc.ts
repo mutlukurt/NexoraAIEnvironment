@@ -172,8 +172,44 @@ export const IPC = {
   DEBUG_INSPECT: 'debug:inspect',
   BEHAVIOR_TEST: 'debug:behavior-test',
   REPRO_CHECK: 'debug:repro-check',
-  REPAIR_STATS: 'debug:repair-stats'
+  REPAIR_STATS: 'debug:repair-stats',
+  MCP_SERVERS: 'mcp:servers',
+  MCP_CALL: 'mcp:call',
+  MCP_RELOAD: 'mcp:reload',
+  MCP_GET_CONFIG: 'mcp:get-config',
+  MCP_SET_CONFIG: 'mcp:set-config'
 } as const
+
+/** 10.1 MCP: bir yerel stdio araç sunucusunun bağlantı durumu + keşfedilen araçları. */
+export interface McpServerInfo {
+  name: string
+  command: string
+  args: string[]
+  enabled: boolean
+  connected: boolean
+  starting: boolean
+  error: string | null
+  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>
+}
+
+export interface McpServerConfigInput {
+  name: string
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+  enabled?: boolean
+}
+
+export interface McpCallInput {
+  server: string
+  tool: string
+  args?: Record<string, unknown>
+}
+
+export interface McpCallResult {
+  ok: boolean
+  content: string
+}
 
 /** 6.5 davranışsal doğrulama raporu: motor siteyi kullanıcı gibi gezdi. */
 export interface BehaviorReport {

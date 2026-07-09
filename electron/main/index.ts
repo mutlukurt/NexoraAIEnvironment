@@ -60,6 +60,15 @@ import { getRules, setRules } from './rulesService'
 import { historyCommit, historyList, historyRestore, historyRestoreGreen, historyFilesAt } from './gitService'
 import { capturePage } from './captureService'
 import {
+  getServers as mcpGetServers,
+  callTool as mcpCallTool,
+  reload as mcpReload,
+  readConfig as mcpReadConfig,
+  writeConfig as mcpWriteConfig,
+  configPath as mcpConfigPath,
+  shutdown as mcpShutdown
+} from './mcpService'
+import {
   IPC,
   type ChatSendInput,
   type HfDownloadInput,
@@ -68,7 +77,9 @@ import {
   type AgentFetchInput,
   type AgentFontInput,
   type AgentDevInput,
-  type SessionData
+  type SessionData,
+  type McpCallInput,
+  type McpServerConfigInput
 } from '../shared/ipc'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
@@ -547,6 +558,24 @@ function registerIpc(): void {
   ipcMain.handle(IPC.AGENT_DEV_STATUS, async () => {
     return { url: getDevUrl() }
   })
+
+  // ── 10.1 MCP: yerel stdio araç sunucuları ──────────────────────────────────
+  ipcMain.handle(IPC.MCP_SERVERS, async () => {
+    return { servers: await mcpGetServers() }
+  })
+  ipcMain.handle(IPC.MCP_CALL, async (_e, input: McpCallInput) => {
+    return mcpCallTool(input.server, input.tool, input.args || {})
+  })
+  ipcMain.handle(IPC.MCP_RELOAD, async () => {
+    return { servers: await mcpReload() }
+  })
+  ipcMain.handle(IPC.MCP_GET_CONFIG, async () => {
+    return { servers: await mcpReadConfig(), path: mcpConfigPath() }
+  })
+  ipcMain.handle(IPC.MCP_SET_CONFIG, async (_e, servers: McpServerConfigInput[]) => {
+    await mcpWriteConfig(servers)
+    return { servers: await mcpReload() }
+  })
 }
 
 void app.whenReady().then(async () => {
@@ -638,4 +667,5 @@ app.on('before-quit', () => {
   disposeWorker()
   void stopDev()
   stopVisionServer()
+  mcpShutdown()
 })
