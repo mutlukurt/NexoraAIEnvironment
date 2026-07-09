@@ -70,6 +70,7 @@ import {
   shutdown as mcpShutdown
 } from './mcpService'
 import { startServe, stopServe, serveStatus } from './serveEngine'
+import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
 import {
   IPC,
   type ChatSendInput,
@@ -596,11 +597,24 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle(IPC.SERVE_STATUS, () => serveStatus())
+
+  // ── 10.5 OS tümleşiği: bildirim + uyku engelleyici ───────────────────────
+  ipcMain.handle(IPC.SYSTEM_NOTIFY, (_e, input: { title: string; body: string }) => {
+    // Pencere odaktaysa bildirim gösterme (renderer da kontrol eder — çift kemer).
+    if (mainWindow?.isFocused()) return { shown: false }
+    showNotification(input.title, input.body)
+    return { shown: true }
+  })
+  ipcMain.handle(IPC.SYSTEM_KEEP_AWAKE, (_e, on: boolean) => {
+    setKeepAwake(on)
+    return { ok: true }
+  })
 }
 
 void app.whenReady().then(async () => {
   registerIpc()
   createWindow()
+  setupTray(() => mainWindow) // 10.5: sistem tepsisi
 
   if (process.env['NEXORA_SELFTEST']) {
     const path = process.env['NEXORA_SELFTEST']
@@ -689,4 +703,6 @@ app.on('before-quit', () => {
   stopVisionServer()
   mcpShutdown()
   stopServe()
+  setKeepAwake(false)
+  disposeTray()
 })

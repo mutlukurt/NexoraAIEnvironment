@@ -37,6 +37,10 @@ export interface Settings {
   /** 10.2 — yerel modeli OpenAI-uyumlu HTTP ucu olarak sun (127.0.0.1). Varsayılan KAPALI. */
   serveEnabled: boolean
   servePort: number
+  /** 10.5 — uzun koşu bitince pencere arka plandaysa yerel bildirim. Varsayılan AÇIK. */
+  notifyOnDone: boolean
+  /** 10.5 — koşarken makinenin uyumasını engelle. Varsayılan AÇIK. */
+  keepAwakeOnRun: boolean
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -53,7 +57,9 @@ const DEFAULT_SETTINGS: Settings = {
   trustAllowList: [],
   trustDenyList: [],
   serveEnabled: false,
-  servePort: 8787
+  servePort: 8787,
+  notifyOnDone: true,
+  keepAwakeOnRun: true
 }
 
 function loadSettings(): Settings {
@@ -79,7 +85,9 @@ function loadSettings(): Settings {
       trustAllowList: Array.isArray(parsed.trustAllowList) ? parsed.trustAllowList.filter((x: unknown) => typeof x === 'string') : [],
       trustDenyList: Array.isArray(parsed.trustDenyList) ? parsed.trustDenyList.filter((x: unknown) => typeof x === 'string') : [],
       serveEnabled: parsed.serveEnabled === true,
-      servePort: typeof parsed.servePort === 'number' && parsed.servePort > 0 ? parsed.servePort : 8787
+      servePort: typeof parsed.servePort === 'number' && parsed.servePort > 0 ? parsed.servePort : 8787,
+      notifyOnDone: parsed.notifyOnDone !== false,
+      keepAwakeOnRun: parsed.keepAwakeOnRun !== false
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -97,6 +105,8 @@ interface SettingsState extends Settings {
   setTrust: (patch: Partial<Pick<Settings, 'trustTier' | 'trustAllowList' | 'trustDenyList'>>) => void
   /** 10.2 — servis ucunu aç/kapat; main sürecine bildirir + ayarı kalıcılaştırır. */
   setServe: (patch: Partial<Pick<Settings, 'serveEnabled' | 'servePort'>>) => void
+  /** 10.5 — bildirim / uyku-engelleyici tercihleri. */
+  setSystem: (patch: Partial<Pick<Settings, 'notifyOnDone' | 'keepAwakeOnRun'>>) => void
   save: () => void
 }
 
@@ -124,6 +134,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       /* main hazır değilse açılışta gider */
     }
   },
+  setSystem: (patch) => set(patch),
   save: () => {
     try {
       localStorage.setItem(
@@ -143,6 +154,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           trustDenyList: get().trustDenyList.filter((x) => x.trim()),
           serveEnabled: get().serveEnabled,
           servePort: get().servePort,
+          notifyOnDone: get().notifyOnDone,
+          keepAwakeOnRun: get().keepAwakeOnRun,
           customCommands: get().customCommands.filter((c) => c.label.trim() || c.prompt.trim())
         })
       )

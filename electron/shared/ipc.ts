@@ -179,7 +179,9 @@ export const IPC = {
   MCP_GET_CONFIG: 'mcp:get-config',
   MCP_SET_CONFIG: 'mcp:set-config',
   SERVE_SET: 'serve:set',
-  SERVE_STATUS: 'serve:status'
+  SERVE_STATUS: 'serve:status',
+  SYSTEM_NOTIFY: 'system:notify',
+  SYSTEM_KEEP_AWAKE: 'system:keep-awake'
 } as const
 
 /** 10.2 — yerel OpenAI-uyumlu servis ucu durumu. */

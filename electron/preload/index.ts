@@ -198,6 +198,12 @@ export interface NexoraApi {
     set: (input: { enabled: boolean; port?: number }) => Promise<import('../shared/ipc').ServeStatusIpc>
     status: () => Promise<import('../shared/ipc').ServeStatusIpc>
   }
+  system: {
+    /** 10.5: pencere arka plandaysa yerel bildirim göster (odaktaysa main atlar). */
+    notify: (input: { title: string; body: string }) => Promise<{ shown: boolean }>
+    /** 10.5: koşarken uyku engelleyici (true) / serbest bırak (false). */
+    keepAwake: (on: boolean) => Promise<{ ok: boolean }>
+  }
 }
 
 const api: NexoraApi = {
@@ -357,6 +363,10 @@ const api: NexoraApi = {
   serve: {
     set: (input: { enabled: boolean; port?: number }) => ipcRenderer.invoke(IPC.SERVE_SET, input),
     status: () => ipcRenderer.invoke(IPC.SERVE_STATUS)
+  },
+  system: {
+    notify: (input: { title: string; body: string }) => ipcRenderer.invoke(IPC.SYSTEM_NOTIFY, input),
+    keepAwake: (on: boolean) => ipcRenderer.invoke(IPC.SYSTEM_KEEP_AWAKE, on)
   }
 }
 

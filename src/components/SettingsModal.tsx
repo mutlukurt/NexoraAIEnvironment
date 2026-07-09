@@ -38,6 +38,9 @@ export default function SettingsModal() {
   const addCommand = useSettingsStore((s) => s.addCommand)
   const updateCommand = useSettingsStore((s) => s.updateCommand)
   const removeCommand = useSettingsStore((s) => s.removeCommand)
+  const notifyOnDone = useSettingsStore((s) => s.notifyOnDone)
+  const keepAwakeOnRun = useSettingsStore((s) => s.keepAwakeOnRun)
+  const setSystem = useSettingsStore((s) => s.setSystem)
 
   const language = useAppStore((s) => s.language)
   const t = translations[language]
@@ -477,6 +480,25 @@ export default function SettingsModal() {
 
           {/* 10.2: yerel modeli OpenAI-uyumlu uç olarak sun */}
           <ServePanel language={language} />
+
+          {/* 10.5: sistem tümleşiği — bildirim + uyku engelleyici */}
+          <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
+            <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+              {language === 'tr' ? 'Sistem' : 'System'}
+            </span>
+            <label className="mt-3 flex cursor-pointer items-center justify-between gap-3">
+              <span className="text-[12px] font-semibold text-ink-mut">
+                {language === 'tr' ? 'Uzun koşu bitince bildir (pencere arka plandaysa)' : 'Notify when a long run finishes (if backgrounded)'}
+              </span>
+              <input type="checkbox" checked={notifyOnDone} onChange={(e) => setSystem({ notifyOnDone: e.target.checked })} className="h-4 w-4 accent-brand-500" />
+            </label>
+            <label className="mt-2 flex cursor-pointer items-center justify-between gap-3">
+              <span className="text-[12px] font-semibold text-ink-mut">
+                {language === 'tr' ? 'Koşarken makinenin uyumasını engelle' : 'Keep the machine awake during runs'}
+              </span>
+              <input type="checkbox" checked={keepAwakeOnRun} onChange={(e) => setSystem({ keepAwakeOnRun: e.target.checked })} className="h-4 w-4 accent-brand-500" />
+            </label>
+          </div>
 
           {/* Özel hızlı komutlar */}
           <div>
