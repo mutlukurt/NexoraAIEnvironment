@@ -379,6 +379,13 @@ interface Usage {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number }
+}
+
+// 10.12.2 — son turun usage'ı (llama-server include_usage'dan) + bağlam boyutu.
+let lastServerUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number; contextSize: number } | null = null
+export function getLastServerUsage(): typeof lastServerUsage {
+  return lastServerUsage
 }
 
 async function chatRequest(
@@ -685,6 +692,16 @@ export const serverEngine: InferenceEngine = {
         history.push({ role: 'assistant', content: r.text })
         if (r.usage?.total_tokens) ctxUsed = r.usage.total_tokens
         else ctxUsed += Math.ceil((promptText.length + r.text.length) / 4)
+      }
+      // 10.12.2: usage'ı dışa aç (panel için). ephemeral/isolate turlar da sayılır.
+      if (r.usage) {
+        lastServerUsage = {
+          promptTokens: r.usage.prompt_tokens ?? 0,
+          completionTokens: r.usage.completion_tokens ?? 0,
+          totalTokens: r.usage.total_tokens ?? 0,
+          cachedTokens: r.usage.prompt_tokens_details?.cached_tokens,
+          contextSize: ctxSize
+        }
       }
       return r.text
     } finally {

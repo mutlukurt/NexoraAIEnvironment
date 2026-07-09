@@ -13,6 +13,7 @@ import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashb
 import { translations } from '@/lib/translations'
 import ModelSelect from './ModelSelect'
 import ComposerOptions from './ComposerOptions'
+import ContextMeter from './ContextMeter'
 
 function FileIcon({ path }: { path: string }) {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
@@ -945,6 +946,8 @@ export default function ChatPanel() {
       {/* Bottom input area: only visible when there are messages */}
       {messages.length > 0 && (
         <div className="z-10 border-t border-ink-line bg-ink-bg p-4">
+          {/* 10.12.2: token/bağlam kullanım ölçeri (açılır) */}
+          <ContextMeter />
           {/* 7.4: sıradaki inceleme yorumları — koşan turu kesmez, bekler */}
           {pendingComments.length > 0 && (
             <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2">

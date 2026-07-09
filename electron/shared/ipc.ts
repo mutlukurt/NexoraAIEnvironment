@@ -192,8 +192,27 @@ export const IPC = {
   PROVIDERS_ACTIVATE: 'providers:activate',
   PROVIDERS_FETCH_MODELS: 'providers:fetch-models',
   PROVIDERS_SET_ACTIVE_MODEL: 'providers:set-active-model',
-  PROVIDERS_CLEAR_ACTIVE_MODEL: 'providers:clear-active-model'
+  PROVIDERS_CLEAR_ACTIVE_MODEL: 'providers:clear-active-model',
+  PROJHIST_RECORD: 'projhist:record',
+  PROJHIST_DECISION: 'projhist:decision',
+  PROJHIST_SEED: 'projhist:seed',
+  PROJHIST_SWITCH: 'projhist:switch',
+  PROJHIST_GET: 'projhist:get',
+  PROJHIST_SET: 'projhist:set',
+  PROJHIST_CONTEXT: 'projhist:context',
+  USAGE_UPDATE: 'usage:update'
 } as const
+
+/** 10.12.2 — bir turun token kullanımı (motor-agnostik normalize). */
+export interface UsageSample {
+  source: 'llama-native' | 'llama-server' | 'api-usage' | 'estimate'
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cachedTokens?: number
+  contextSize: number
+  exact: boolean
+}
 
 /** 10.6 — genel arama sonuçları (oturum/proje/bilgi/kod). */
 export interface GlobalSearchResults {

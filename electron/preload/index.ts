@@ -212,6 +212,17 @@ export interface NexoraApi {
     /** 10.8: ~/NexoraAI/commands/*.md slash-komutlarını listele. */
     list: () => Promise<Array<{ name: string; description: string; body: string }>>
   }
+  projHistory: {
+    /** 10.12.1: proje-gecmisi.md'ye deterministik değişiklik satırı ekle. */
+    record: (input: { projectName: string; text: string; model?: string }) => Promise<{ ok: boolean }>
+    decision: (input: { projectName: string; text: string }) => Promise<{ ok: boolean }>
+    seed: (input: { projectName: string; purpose?: string; techStack?: string[]; architecture?: string[] }) => Promise<{ ok: boolean }>
+    switch: (input: { projectName: string; toModel: string }) => Promise<{ ok: boolean }>
+    get: (projectName: string) => Promise<{ path: string; content: string }>
+    set: (input: { projectName: string; content: string }) => Promise<{ ok: boolean }>
+    /** Her tura gömülecek bütçeli, comment-stripped kalıcı bağlam. */
+    context: (projectName: string) => Promise<string>
+  }
   providers: {
     /** 10.9: sağlayıcı API anahtarını OS keychain'e (safeStorage) yaz. */
     setKey: (input: { providerId: string; key: string }) => Promise<{ ok: boolean; encrypted: boolean }>
@@ -396,6 +407,15 @@ const api: NexoraApi = {
   },
   commands: {
     list: () => ipcRenderer.invoke(IPC.COMMANDS_LIST)
+  },
+  projHistory: {
+    record: (input: { projectName: string; text: string; model?: string }) => ipcRenderer.invoke(IPC.PROJHIST_RECORD, input),
+    decision: (input: { projectName: string; text: string }) => ipcRenderer.invoke(IPC.PROJHIST_DECISION, input),
+    seed: (input: { projectName: string; purpose?: string; techStack?: string[]; architecture?: string[] }) => ipcRenderer.invoke(IPC.PROJHIST_SEED, input),
+    switch: (input: { projectName: string; toModel: string }) => ipcRenderer.invoke(IPC.PROJHIST_SWITCH, input),
+    get: (projectName: string) => ipcRenderer.invoke(IPC.PROJHIST_GET, projectName),
+    set: (input: { projectName: string; content: string }) => ipcRenderer.invoke(IPC.PROJHIST_SET, input),
+    context: (projectName: string) => ipcRenderer.invoke(IPC.PROJHIST_CONTEXT, projectName)
   },
   providers: {
     setKey: (input: { providerId: string; key: string }) => ipcRenderer.invoke(IPC.PROVIDERS_SET_KEY, input),

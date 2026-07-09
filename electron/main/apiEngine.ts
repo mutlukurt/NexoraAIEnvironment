@@ -12,6 +12,7 @@
  */
 
 import { pumpWithLiveness, SERVER_FIRST_TOKEN_MS, SERVER_IDLE_MS } from './streamLiveness'
+import { normalizeOpenAiUsage } from '../shared/usage'
 
 export interface ApiConfig {
   baseUrl: string
@@ -67,6 +68,34 @@ export function shouldUseApi(isFixTurn: boolean, escalate = false, fidelityEscal
   return cfg.mode === 'fix' && ((isFixTurn && escalate) || fidelityEscalate)
 }
 
+/**
+ * 10.12.2 — Son API turunun token kullanımı. include_usage ile OpenAI-uyumlu
+ * uçlar son (choices:[]) chunk'ta usage döndürür; Anthropic message_start/delta
+ * event'lerinde. Durdur/watchdog'da usage GELMEZ → null kalır, üst kat estimate'e düşer.
+ */
+let lastApiUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | null = null
+export function getLastApiUsage(): typeof lastApiUsage {
+  return lastApiUsage
+}
+function captureUsageFrom(j: Record<string, unknown>): void {
+  // OpenAI-uyumlu: {usage:{prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details:{cached_tokens}}}
+  const u = j.usage as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_tokens_details?: { cached_tokens?: number }; input_tokens?: number; output_tokens?: number } | undefined
+  const norm = normalizeOpenAiUsage(u)
+  if (norm) {
+    lastApiUsage = norm
+    return
+  }
+  // Anthropic: message_start → usage.input_tokens; message_delta → usage.output_tokens
+  const type = j.type as string | undefined
+  if (type === 'message_start') {
+    const mu = (j.message as { usage?: { input_tokens?: number } } | undefined)?.usage
+    if (mu?.input_tokens != null) lastApiUsage = { promptTokens: mu.input_tokens, completionTokens: 0, totalTokens: mu.input_tokens }
+  } else if (type === 'message_delta' && u?.output_tokens != null) {
+    const prev = lastApiUsage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    lastApiUsage = { promptTokens: prev.promptTokens, completionTokens: u.output_tokens, totalTokens: prev.promptTokens + u.output_tokens }
+  }
+}
+
 /** İç yardımcı: SSE akışını canlılık bekçisiyle tüket, delta'ları çıkar. */
 async function pumpSse(
   res: Response,
@@ -90,7 +119,10 @@ async function pumpSse(
       const payload = line.slice(6).trim()
       if (!payload || payload === '[DONE]') continue
       try {
-        const delta = extractDelta(JSON.parse(payload))
+        const j = JSON.parse(payload)
+        // usage ve delta BAĞIMSIZ ele alınır: usage chunk'ında choices=[] olur.
+        captureUsageFrom(j)
+        const delta = extractDelta(j)
         if (delta) {
           text += delta
           onToken(delta)
@@ -155,6 +187,7 @@ export async function promptApi(
   onToken: (t: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
+  lastApiUsage = null // 10.12.2: yeni tur — önceki usage'ı temizle
   const c = active()
   if (c.adapter === 'anthropic') return promptAnthropic(systemPrompt, userPrompt, onToken, signal)
   const base = c.baseUrl.replace(/\/+$/, '')
@@ -170,6 +203,8 @@ export async function promptApi(
       model: c.model,
       stream: true,
       temperature: 0.1,
+      // 10.12.2: usage'ı akışın SON chunk'ında iste (varsayılan kapalı — pitfall).
+      stream_options: { include_usage: true },
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }

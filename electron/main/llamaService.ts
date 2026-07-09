@@ -28,7 +28,9 @@ import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
 import { buildEditGrammar, buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
-import { shouldUseApi, promptApi } from './apiEngine'
+import { shouldUseApi, promptApi, getLastApiUsage } from './apiEngine'
+import { getLastServerUsage } from './llamaServerEngine'
+import type { UsageSample } from '../shared/ipc'
 import { appendRepairLog } from './agentService'
 
 export type { LoadProgressCallback } from './engineTypes'
@@ -303,7 +305,9 @@ ${UPDATE_MODE_RULES}
       // Telemetri (5.5): hangi kademe hangi vakayı aldı — zayıf sınıflar saha
       // verisinden çıksın diye her yönlendirme kararı kalıcı günlüğe yazılır.
       void appendRepairLog({ layer: escalate ? 'api-escalated' : 'api-turn' })
-      return await promptApi(getFullSystemPrompt(), prompt, onChunk, apiAbort.signal)
+      const apiText = await promptApi(getFullSystemPrompt(), prompt, onChunk, apiAbort.signal)
+      recordTurn('api', prompt.length, apiText.length) // 10.12.2
+      return apiText
     } catch (err) {
       // API başarısızsa sessizce yerele düş — kullanıcı asla motorsuz kalmaz.
       console.warn('[NexoraAI] API motoru başarısız, yerele düşülüyor:', (err as Error).message)
@@ -316,7 +320,9 @@ ${UPDATE_MODE_RULES}
   // 10.10 — yerel model yüklü değilse (yalnız API modeli aktifken) ve API branch'e
   // girmediyse/başarısız olduysa net hata ver (engine! çökmesin).
   if (!engine) throw new Error('Model yüklü değil ve API turu başarısız oldu.')
-  return engine.prompt(prompt, options, onChunk)
+  const localText = await engine.prompt(prompt, options, onChunk)
+  recordTurn(engine === serverEngine ? 'server' : 'worker', prompt.length, localText.length) // 10.12.2
+  return localText
 }
 
 /**
@@ -334,6 +340,40 @@ export async function generateForServe(
 }
 
 let apiAbort: AbortController | null = null
+
+// ── 10.12.2 Token/bağlam kullanımı ──────────────────────────────────────────
+const API_CTX_DEFAULT = 128000 // sağlayıcı-özel pencere bilinmiyor → yaygın varsayılan
+let turnSource: 'api' | 'server' | 'worker' = 'worker'
+let turnPromptChars = 0
+let turnRespChars = 0
+
+function recordTurn(source: 'api' | 'server' | 'worker', promptChars: number, respChars: number): void {
+  turnSource = source
+  turnPromptChars = promptChars
+  turnRespChars = respChars
+}
+
+/** Son turun token kullanımı — motor usage'ı varsa GERÇEK, yoksa (~) tahmin. */
+export function getLastTurnUsage(): UsageSample | null {
+  const estimate = (source: UsageSample['source'], ctx: number): UsageSample => {
+    const pt = Math.ceil(turnPromptChars / 3.2)
+    const ct = Math.ceil(turnRespChars / 3.2)
+    return { source, promptTokens: pt, completionTokens: ct, totalTokens: pt + ct, contextSize: ctx, exact: false }
+  }
+  if (turnSource === 'api') {
+    const u = getLastApiUsage()
+    return u
+      ? { source: 'api-usage', promptTokens: u.promptTokens, completionTokens: u.completionTokens, totalTokens: u.totalTokens, cachedTokens: u.cachedTokens, contextSize: API_CTX_DEFAULT, exact: true }
+      : estimate('estimate', API_CTX_DEFAULT)
+  }
+  if (turnSource === 'server') {
+    const u = getLastServerUsage()
+    return u
+      ? { source: 'llama-server', promptTokens: u.promptTokens, completionTokens: u.completionTokens, totalTokens: u.totalTokens, cachedTokens: u.cachedTokens, contextSize: u.contextSize, exact: true }
+      : estimate('estimate', getLoadedInfo()?.contextSize ?? 4096)
+  }
+  return estimate('llama-native', getLoadedInfo()?.contextSize ?? 4096)
+}
 
 export async function abortChat(): Promise<void> {
   try {

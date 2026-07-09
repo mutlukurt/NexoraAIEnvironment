@@ -108,6 +108,11 @@ interface AppState {
   sending: boolean
   error: string | null
 
+  /** 10.12.2: oturumda harcanan token (giriş/çıkış toplamı) + son turun örneği. */
+  sessionTokensIn: number
+  sessionTokensOut: number
+  lastUsage: import('@shared/ipc').UsageSample | null
+
   /** 10.4: prompt-başı checkpoint'ler — her görünür kullanıcı turundan önce alınır. */
   checkpoints: import('@shared/ipc').CheckpointEntry[]
   /** 10.4: bir checkpoint'e geri sar — kod / sohbet / ikisi. */
@@ -620,8 +625,11 @@ const logRepair = (entry: Record<string, unknown>): void => {
           for (const n of notes.slice(0, 3)) {
             void kn.learn({ projectName: getProjectName(), kind: 'repair-pattern', title: n.slice(0, 120), body: n })
           }
+          // 10.12.1: onarım kalıbı proje geçmişine de düşer (model-agnostik bağlam).
+          void window.nexora.projHistory?.record({ projectName: getProjectName(), text: `🔧 onarım: ${notes[0].slice(0, 140)}` })
         } else if (layer === 'repro-verified' && detail) {
           void kn.learn({ projectName: getProjectName(), kind: 'verified-fix', title: detail.slice(0, 120), body: detail, sig: detail.slice(0, 200) })
+          void window.nexora.projHistory?.record({ projectName: getProjectName(), text: `✅ doğrulandı: ${detail.slice(0, 140)}` })
         } else if (layer === 'repro-failed' && detail) {
           void kn.retire({ projectName: getProjectName(), sig: detail.slice(0, 200) })
         }
@@ -1926,6 +1934,16 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       cancelScheduledApply()
       clearLiveness()
 
+      // 10.12.2: turun token kullanımını oturum toplamına ekle + son örneği tut.
+      const usage = (event as ChatStreamEvent & { usage?: import('@shared/ipc').UsageSample }).usage
+      if (usage) {
+        set((s) => ({
+          sessionTokensIn: s.sessionTokensIn + (usage.promptTokens || 0),
+          sessionTokensOut: s.sessionTokensOut + (usage.completionTokens || 0),
+          lastUsage: usage
+        }))
+      }
+
       // 8.1 MUTLAK DURDUR: bu done, kullanıcı Durdur'u ya da "tur öldü" hükmüyle
       // GEÇERSİZ KILINMIŞ bir tura mı ait? abort()/declareStreamDead epoku
       // artırır; o yüzden currentTurnEpoch güncel epoktan farklıysa bu done bir
@@ -2026,6 +2044,31 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const stats = turnDiffStats(touchedPaths, turnBaseFiles, (p) => af[p]?.content)
         if (stats.length > 0 && streamMsgId) {
           set((s) => ({ messages: s.messages.map((m) => (m.id === streamMsgId ? { ...m, diffStats: stats } : m)) }))
+        }
+        // 10.12.1: bu turda ne değişti → proje geçmişine (Son Değişiklikler) yaz.
+        // "istek → dokunulan dosyalar" özeti; hangi model olursa olsun okur.
+        if (stats.length > 0) {
+          const req = (lastVisibleUserPrompt || '').split('\n')[0].slice(0, 70)
+          const fileSummary = stats
+            .slice(0, 4)
+            .map((d) => `${d.path.split('/').pop()}${d.isNew ? '(yeni)' : ` +${d.added}/-${d.removed}`}`)
+            .join(', ')
+          const activeModel = useSettingsStore.getState().activeApiModel
+          const modelLabel = activeModel ? activeModel.label : get().modelInfo?.name?.split('/').pop()?.replace(/\.gguf$/i, '')
+          void window.nexora.projHistory?.record({
+            projectName: getProjectName(),
+            text: `${req ? req + ' → ' : ''}${fileSummary}`,
+            model: modelLabel
+          })
+          // İlk build: amaç + teknoloji yığınını çekirdekle (yalnız boşsa yazar).
+          const pkg = af['package.json']?.content
+          const deps = pkg ? Object.keys((() => { try { return JSON.parse(pkg).dependencies ?? {} } catch { return {} } })()) : []
+          void window.nexora.projHistory?.seed({
+            projectName: getProjectName(),
+            purpose: lastVisibleUserPrompt ? lastVisibleUserPrompt.slice(0, 300) : undefined,
+            techStack: deps.length ? ['React + TypeScript', ...deps.slice(0, 8)] : undefined,
+            architecture: Object.keys(af).filter((p) => /\.(tsx|jsx|ts|js|html)$/.test(p)).slice(0, 14)
+          })
         }
       }
 
@@ -2621,6 +2664,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   sending: false,
   error: null,
   pendingDelete: null,
+  sessionTokensIn: 0,
+  sessionTokensOut: 0,
+  lastUsage: null,
 
   autoApply: autoApplyInitial(),
   sessions: [],
@@ -2777,6 +2823,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
     settings.setActiveApiModelState({ provider, model, label })
+    // 10.12.1: geçiş proje geçmişine yazılır → yeni model "devraldığını" görür.
+    void window.nexora.projHistory?.switch({ projectName: getProjectName(), toModel: label })
     const tr = get().language === 'tr'
     set((s) => ({
       messages: [
@@ -2792,6 +2840,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const tr = get().language === 'tr'
     const info = get().modelInfo
     const localName = info ? (info.name.split('/').pop() ?? info.name).replace(/\.gguf$/i, '') : tr ? 'yerel model' : 'local model'
+    void window.nexora.projHistory?.switch({ projectName: getProjectName(), toModel: localName })
     set((s) => ({
       messages: [
         ...s.messages,
@@ -2813,7 +2862,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
     queuePaused = false
-    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null, checkpoints: [] })
+    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null, checkpoints: [], sessionTokensIn: 0, sessionTokensOut: 0, lastUsage: null })
     set({
       messages: [],
       currentSessionId: null,
@@ -3329,7 +3378,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       pendingComments: data.comments ?? [],
       queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
       queueWaitReason: null,
-      checkpoints: data.checkpoints ?? []
+      checkpoints: data.checkpoints ?? [],
+      sessionTokensIn: 0,
+      sessionTokensOut: 0,
+      lastUsage: null
     })
     queuePaused = false // yeni oturum: Durdur duraklaması taşınmaz
     stopQueueHeartbeat() // önceki oturumun kalp atışını sıfırla
@@ -4130,6 +4182,22 @@ ${ki}
       }
     } catch {
       /* bilgi tabanı okunamadıysa istek bilgisiz gider */
+    }
+
+    // 10.12.1: KALICI PROJE BAĞLAMI — model YEREL↔API geçse de "kaldığı yeri"
+    // anlaması için proje-gecmisi.md (amaç/mimari/kararlar/son değişiklikler)
+    // her tura bütçeli girer. KV cache'de değil METİNDE olduğundan model-agnostik.
+    try {
+      const ph = window.nexora.projHistory ? (await window.nexora.projHistory.context(getProjectName())).trim() : ''
+      if (ph) {
+        outgoing = `=== PROJE GEÇMİŞİ (kalıcı bağlam — bu projede şimdiye kadar ne yapıldı, hangi kararlar; kaldığın yeri anla ve TUTARLI devam et) ===
+${ph}
+=== END PROJE GEÇMİŞİ ===
+
+${outgoing}`
+      }
+    } catch {
+      /* geçmiş okunamadıysa istek geçmişsiz gider */
     }
 
     // 7.4 yorumla-yönlendir: kuyruktaki inceleme yorumları bu görünür tura

@@ -12,7 +12,8 @@ import {
   disposeWorker,
   getActiveFamily,
   debugHasFamilyNote,
-  generateForServe
+  generateForServe,
+  getLastTurnUsage
 } from './llamaService'
 import {
   searchModels,
@@ -75,6 +76,15 @@ import { globalSearch } from './searchService'
 import { listCommands } from './commandsService'
 import { activateProvider, fetchProviderModels, setActiveModel, clearActiveModel } from './providersService'
 import { setProviderKey, deleteProviderKey, listConfiguredProviders } from './providerKeysService'
+import {
+  recordChange as histRecord,
+  recordDecision as histDecision,
+  seedOverview as histSeed,
+  recordModelSwitch as histSwitch,
+  getHistoryRaw,
+  setHistoryRaw,
+  historyContext
+} from './historyService'
 import {
   IPC,
   type ChatSendInput,
@@ -217,7 +227,8 @@ function registerIpc(): void {
       const full = await chat(input, (token) => {
         mainWindow?.webContents.send(IPC.CHAT_STREAM, { token, done: false })
       })
-      mainWindow.webContents.send(IPC.CHAT_STREAM, { done: true, full })
+      // 10.12.2: turun token kullanımını done olayıyla ilet (motor usage'ı / tahmin).
+      mainWindow.webContents.send(IPC.CHAT_STREAM, { done: true, full, usage: getLastTurnUsage() })
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -638,6 +649,23 @@ function registerIpc(): void {
     setActiveModel(input)
   )
   ipcMain.handle(IPC.PROVIDERS_CLEAR_ACTIVE_MODEL, () => clearActiveModel())
+
+  // ── 10.12.1 Kalıcı proje bağlamı: proje-gecmisi.md ───────────────────────
+  ipcMain.handle(IPC.PROJHIST_RECORD, (_e, i: { projectName: string; text: string; model?: string }) =>
+    histRecord(i.projectName, i.text, i.model).then(() => ({ ok: true }))
+  )
+  ipcMain.handle(IPC.PROJHIST_DECISION, (_e, i: { projectName: string; text: string }) =>
+    histDecision(i.projectName, i.text).then(() => ({ ok: true }))
+  )
+  ipcMain.handle(IPC.PROJHIST_SEED, (_e, i: { projectName: string; purpose?: string; techStack?: string[]; architecture?: string[] }) =>
+    histSeed(i.projectName, i).then(() => ({ ok: true }))
+  )
+  ipcMain.handle(IPC.PROJHIST_SWITCH, (_e, i: { projectName: string; toModel: string }) =>
+    histSwitch(i.projectName, i.toModel).then(() => ({ ok: true }))
+  )
+  ipcMain.handle(IPC.PROJHIST_GET, (_e, projectName: string) => getHistoryRaw(projectName))
+  ipcMain.handle(IPC.PROJHIST_SET, (_e, i: { projectName: string; content: string }) => setHistoryRaw(i.projectName, i.content))
+  ipcMain.handle(IPC.PROJHIST_CONTEXT, (_e, projectName: string) => historyContext(projectName))
 }
 
 void app.whenReady().then(async () => {
