@@ -3207,7 +3207,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       // Katman 2 — vizyon modeli (yalnızca diskte hazırsa: Run sürpriz GB'lık
       // indirme başlatmamalı; model Ayarlar/görsel akışından indirilebiliyor).
-      if (!cap.visionReady) return
+      // GÖRSEL BUG DÜZELTMESİ: API modeli aktifken YEREL VL öz-denetimi ÇALIŞMAZ —
+      // local'deki hiçbir şey API akışına karışmamalı (davranış testi + build
+      // denetimi zaten API build'ini doğruluyor).
+      if (!cap.visionReady || !!useSettingsStore.getState().activeApiModel) return
       set((s) => ({
         messages: [
           ...s.messages,
@@ -3779,8 +3782,20 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // doğrudan gösterilir.
     const image = get().pendingImage
     let visionAnalysis: string | null = null
+    let apiImagePath: string | null = null
     if (image) {
       set({ pendingImage: null })
+      // GÖRSEL BUG DÜZELTMESİ: API modeli aktifse (ör. DeepSeek v4 Pro) görsel
+      // DOĞRUDAN API'ye multimodal girdi olarak gider — yerel VL modeli HİÇ
+      // çalıştırılmaz (indirmez, sunucu başlatmaz). Yerel VL yalnız yerel modelde.
+      // API bağımsızdır; local'deki hiçbir şey onu etkilemez.
+      const apiModelActive = !!useSettingsStore.getState().activeApiModel
+      if (apiModelActive) {
+        apiImagePath = image.path
+        set((s) => ({
+          messages: [...s.messages, { id: nanoid(), role: 'user', content: `🖼 ${image.name}\n${trimmed}` }]
+        }))
+      } else {
       const { isBuildIntent } = await import('@/lib/visionIntent')
       const isBuild = isBuildIntent(trimmed)
       const statusId = nanoid()
@@ -3835,6 +3850,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
             : m
         )
       }))
+      } // else (yerel VL) sonu
     }
 
     // Snapshot for the accept/reject cycle (iteration support).
@@ -3843,7 +3859,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // Görsel akışında kullanıcı mesajı (🖼 adıyla) yukarıda zaten eklendi.
     // Planlı dosya turlarının teknik prompt'u sohbeti kirletmesin: kullanıcı
     // balonu gösterilmez (görsel-analiz akışıyla aynı yaklaşım).
-    const userMsg: ChatMessage | null = visionAnalysis || opts?.expectFile || opts?.hideUser
+    const userMsg: ChatMessage | null = visionAnalysis || opts?.expectFile || opts?.hideUser || apiImagePath
       ? null
       : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
@@ -4377,6 +4393,9 @@ ${outgoing}`
         // 10.14 — frontier build: main 3B kod personası yerine elit çok-dosya
         // frontier personasını kullanır (güçlü model tam gücünü kullanır).
         frontier: frontierTurn || undefined,
+        // Görsel bug düzeltmesi: API modeli aktifken iliştirilen görsel doğrudan
+        // API'ye (multimodal) gider; yerel VL çalışmaz.
+        imagePath: apiImagePath || undefined,
         fidelity: fidelityActive || undefined,
         // Brief yeniden gönderimi makine metnidir: içindeki "mobil" gibi
         // kelimeler proje profilini değiştirmesin (RN'e uçan site vakası).

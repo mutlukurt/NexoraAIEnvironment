@@ -94,6 +94,13 @@ export interface ChatSendInput {
    * modern proje. Yalnız API modeli aktifken + build isteğinde set edilir.
    */
   frontier?: boolean
+  /**
+   * Görsel bug düzeltmesi: bu turda iliştirilmiş referans görselin YOLU. YALNIZCA
+   * API modeli aktifken set edilir — API modeli (ör. DeepSeek v4 Pro) görseli
+   * DOĞRUDAN çok-kipli (multimodal) girdi olarak alır; yerel VL modeli çalıştırılmaz.
+   * Yerel modelde bu boş kalır ve eski yol (yerel VL → metin analizi) sürer.
+   */
+  imagePath?: string
   options?: {
     temperature?: number
     topP?: number

@@ -11,7 +11,8 @@
  * modu sarmalayıcısından sorumludur; motorlar yalnızca "yükle/üret" bilir.
  */
 import { basename } from 'path'
-import { stat } from 'fs/promises'
+import { stat, readFile } from 'fs/promises'
+import { nativeImage } from 'electron'
 import type { ChatSendInput, ModelLoadedInfo } from '../shared/ipc'
 import {
   DEFAULT_PROFILE_ID,
@@ -71,6 +72,29 @@ function getFullSystemPrompt(): string {
 
 export function isModelLoaded(): boolean {
   return !!loadedInfo && !!engine
+}
+
+/**
+ * Görsel bug düzeltmesi: bir görsel dosyasını API multimodal girdisi için
+ * data-URL'e çevir. Uzun kenar 1024px'e küçültülür (token + bant tasarrufu;
+ * visionService ile aynı yaklaşım); nativeImage başarısızsa ham baytlara düşer.
+ */
+async function imageToDataUrl(imagePath: string): Promise<string> {
+  let buf: Buffer
+  let mime = 'image/png'
+  try {
+    const img = nativeImage.createFromPath(imagePath)
+    const { width, height } = img.getSize()
+    if (width === 0) throw new Error('boş görsel')
+    const long = Math.max(width, height)
+    buf = long > 1024 ? img.resize(width >= height ? { width: 1024 } : { height: 1024 }).toPNG() : img.toPNG()
+    if (buf.length === 0) throw new Error('boş PNG')
+  } catch {
+    buf = await readFile(imagePath)
+    const ext = imagePath.split('.').pop()?.toLowerCase() ?? 'png'
+    mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
+  }
+  return `data:${mime};base64,${buf.toString('base64')}`
 }
 
 export function getLoadedInfo(): ModelLoadedInfo | null {
@@ -340,13 +364,25 @@ ${UPDATE_MODE_RULES}
         : input.options?.purpose
         ? chatSystemPrompt(input.options.answerLang, input.options.purpose)
         : getFullSystemPrompt()
+      // Görsel bug düzeltmesi: iliştirilmiş referans görsel API'ye DOĞRUDAN
+      // (çok-kipli) gider — yerel VL modeli çalıştırılmaz. Renderer yalnız API
+      // aktifken imagePath gönderir. Uzun kenar 1024'e küçültülüp base64'lenir.
+      let imageDataUrl: string | undefined
+      if (input.imagePath) {
+        try {
+          imageDataUrl = await imageToDataUrl(input.imagePath)
+        } catch (e) {
+          console.warn('[NexoraAI] görsel okunamadı, metin-only devam:', (e as Error).message)
+        }
+      }
       // 10.13: uzak model DURUMSUZ — önceki sohbet turlarını + tur-hedefli
       // örneklemeyi (sıcaklık/tavan) de ilet. Yoksa qwen-plus önceki mesajı
       // unutuyor ("hangi konu?") ve 0.1 sıcaklıkta mekanik/kısa kalıyordu.
       const apiText = await promptApi(apiSys, prompt, onChunk, apiAbort.signal, {
         history: input.history,
         temperature: input.options?.temperature,
-        maxTokens: input.options?.maxTokens
+        maxTokens: input.options?.maxTokens,
+        imageDataUrl
       })
       recordTurn('api', prompt.length, apiText.length) // 10.12.2
       return apiText

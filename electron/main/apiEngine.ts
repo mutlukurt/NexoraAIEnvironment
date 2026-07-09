@@ -153,6 +153,19 @@ export type ApiTurnOpts = {
   history?: Array<{ role: 'user' | 'assistant'; content: string }>
   temperature?: number
   maxTokens?: number
+  /**
+   * Görsel bug düzeltmesi: iliştirilmiş referans görselin data-URL'i
+   * (`data:image/png;base64,...`). Set edilirse bu tur ÇOK-KİPLİ gider — API
+   * modeli görseli doğrudan görür (yerel VL çalışmaz). OpenAI-uyumlu uçlarda
+   * `image_url`, Anthropic'te `image`/`source` bloğu olarak paketlenir.
+   */
+  imageDataUrl?: string
+}
+
+/** data:mime;base64,xxxx → { mime, b64 } (Anthropic base64 bloğu için). */
+function splitDataUrl(dataUrl: string): { mime: string; b64: string } | null {
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  return m ? { mime: m[1], b64: m[2] } : null
 }
 
 /** Anthropic native /v1/messages (SSE) — OpenAI şemasından farklı. */
@@ -182,7 +195,22 @@ async function promptAnthropic(
       temperature: opts?.temperature ?? 0.3,
       system: systemPrompt,
       // Uzak model durumsuz: önceki turlar + bu tur birlikte gider.
-      messages: [...(opts?.history ?? []), { role: 'user', content: userPrompt }]
+      // Görsel varsa Anthropic çok-kipli bloğu: [image(source:base64), text].
+      messages: [
+        ...(opts?.history ?? []),
+        (() => {
+          const img = opts?.imageDataUrl ? splitDataUrl(opts.imageDataUrl) : null
+          return img
+            ? {
+                role: 'user',
+                content: [
+                  { type: 'image', source: { type: 'base64', media_type: img.mime, data: img.b64 } },
+                  { type: 'text', text: userPrompt }
+                ]
+              }
+            : { role: 'user', content: userPrompt }
+        })()
+      ]
     }),
     signal
   })
@@ -227,10 +255,19 @@ export async function promptApi(
       // 10.12.2: usage'ı akışın SON chunk'ında iste (varsayılan kapalı — pitfall).
       stream_options: { include_usage: true },
       // 10.13: uzak model durumsuz — sistem + ÖNCEKİ turlar + bu tur birlikte.
+      // Görsel varsa bu tur ÇOK-KİPLİ: user içeriği [metin, image_url] dizisi.
       messages: [
         { role: 'system', content: systemPrompt },
         ...(opts?.history ?? []),
-        { role: 'user', content: userPrompt }
+        opts?.imageDataUrl
+          ? {
+              role: 'user',
+              content: [
+                { type: 'text', text: userPrompt },
+                { type: 'image_url', image_url: { url: opts.imageDataUrl } }
+              ]
+            }
+          : { role: 'user', content: userPrompt }
       ]
     }),
     signal
