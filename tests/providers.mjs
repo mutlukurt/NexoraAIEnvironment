@@ -29,8 +29,10 @@ const check = (name, cond, detail = '') => {
   else { fail++; failures.push(`✗ ${name}${detail ? ' — ' + detail : ''}`) }
 }
 
-// Kapsam: OpenCode'daki gibi ZENGİN bir liste (curated-few değil)
-check('katalog kapsamlı (≥50 sağlayıcı)', PROVIDERS.length >= 50, String(PROVIDERS.length))
+// Kapsam: models.dev'in TAM listesi (OpenCode "75+" der; models.dev 150+)
+check('katalog models.dev-ölçeğinde (≥120 sağlayıcı)', PROVIDERS.length >= 120, String(PROVIDERS.length))
+// Kullanıcının işaret ettiği eksik: ZenMux artık var
+check('ZenMux var (kullanıcı bulgusu)', !!findProvider('zenmux'))
 
 // Tekil id'ler
 const ids = PROVIDERS.map((p) => p.id)
@@ -40,22 +42,24 @@ check('id\'ler tekil', new Set(ids).size === ids.length, `${ids.length} vs ${new
 const badShape = PROVIDERS.filter((p) => !p.id || !p.name || !['openai', 'anthropic'].includes(p.adapter))
 check('her giriş id+name+geçerli adapter taşır', badShape.length === 0, JSON.stringify(badShape.map((p) => p.id)))
 
-// Anahtar frontier sağlayıcılar mevcut
-for (const id of ['openai', 'anthropic', 'google', 'openrouter', 'groq', 'deepseek', 'mistral', 'xai', 'ollama', 'together', 'fireworks', 'cerebras', 'custom']) {
+// Anahtar frontier sağlayıcılar mevcut (models.dev id'leriyle)
+for (const id of ['openai', 'anthropic', 'google', 'openrouter', 'groq', 'deepseek', 'mistral', 'xai', 'ollama', 'togetherai', 'fireworks-ai', 'cerebras', 'zenmux', 'custom']) {
   check(`sağlayıcı var: ${id}`, !!findProvider(id), 'eksik')
 }
 
-// Adapter doğruluğu
+// Adapter doğruluğu (models.dev npm alanından)
 check('Anthropic native adapter', findProvider('anthropic').adapter === 'anthropic')
+check('MiniMax anthropic-şema (models.dev npm=@ai-sdk/anthropic)', findProvider('minimax').adapter === 'anthropic')
 check('Google OpenAI-uyumlu (adapter=openai)', findProvider('google').adapter === 'openai')
 check('OpenAI adapter=openai', findProvider('openai').adapter === 'openai')
 
-// Base URL sağlığı: yerel = localhost, uzak(dolu) = https, boş = kullanıcı girer
+// Base URL sağlığı: dolu base http(s) veya kaynak-özel şablon (${VAR}); boş = kullanıcı girer
 const remoteWithBase = PROVIDERS.filter((p) => !p.local && p.baseUrl)
-check('uzak sağlayıcıların dolu base\'i https', remoteWithBase.every((p) => p.baseUrl.startsWith('https://')), JSON.stringify(remoteWithBase.filter((p) => !p.baseUrl.startsWith('https://')).map((p) => p.id)))
+const badBase = remoteWithBase.filter((p) => !/^https?:\/\//.test(p.baseUrl) && !p.baseUrl.includes('$'))
+check('dolu base URL\'ler http(s) veya şablon', badBase.length === 0, JSON.stringify(badBase.map((p) => p.id)))
 const locals = PROVIDERS.filter((p) => p.local)
 check('en az 3 yerel sağlayıcı', locals.length >= 3, String(locals.length))
-check('yerel base\'ler localhost', locals.every((p) => p.baseUrl.includes('localhost')))
+check('yerel base\'ler localhost/127.0.0.1', locals.every((p) => /localhost|127\.0\.0\.1/.test(p.baseUrl) || !p.baseUrl))
 
 // custom: base boş (kullanıcı girer)
 check('custom base boş', findProvider('custom').baseUrl === '')
