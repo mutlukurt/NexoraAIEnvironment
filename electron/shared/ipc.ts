@@ -17,6 +17,8 @@ export interface ChatMessage {
    * ("⏹ durduruldu" gibi). Oturum kaydında mesajla birlikte kalıcıdır.
    */
   tasks?: { title: string; steps: TaskStep[]; active: boolean; note?: string }
+  /** 10.11.1: bu turda dokunulan dosyaların +eklenen/−silinen satır dökümü. */
+  diffStats?: Array<{ path: string; added: number; removed: number; isNew: boolean }>
 }
 
 export interface ModelInfo {
@@ -320,6 +322,10 @@ export interface SessionMeta {
   updatedAt: number
   msgCount: number
   fileCount: number
+  /** 10.11.2: oturum türü — 'chat' (saf sohbet) vs 'project' (proje geliştirme). */
+  kind?: 'chat' | 'project'
+  /** 10.11.2: proje oturumları bir projeye bağlıdır (slug); sidebar'da altında görünür. */
+  projectName?: string
 }
 
 /**

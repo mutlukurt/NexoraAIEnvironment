@@ -32,7 +32,10 @@ function toMeta(d: SessionData): SessionMeta {
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     msgCount: d.msgCount,
-    fileCount: d.fileCount
+    fileCount: d.fileCount,
+    // 10.11.2: türü taşı; eski oturumlarda çıkarım (dosya varsa proje, yoksa sohbet).
+    kind: d.kind ?? (d.fileCount > 0 ? 'project' : 'chat'),
+    projectName: d.projectName
   }
 }
 

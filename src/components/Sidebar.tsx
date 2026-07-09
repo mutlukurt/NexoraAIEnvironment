@@ -3,6 +3,7 @@ import { useAppStore, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, Sun, Moon, Palette, ChevronUp, ChevronDown, Command } from 'lucide-react'
 import { translations } from '@/lib/translations'
+import { splitSessions, groupByProject } from '@/lib/sessionGroups'
 import logoImg from '@/assets/logo.png'
 
 export default function Sidebar() {
@@ -11,20 +12,75 @@ export default function Sidebar() {
   const currentSessionId = useAppStore((s) => s.currentSessionId)
   const refreshSessions = useAppStore((s) => s.refreshSessions)
   const openSession = useAppStore((s) => s.openSession)
-  const removeSession = useAppStore((s) => s.removeSession)
+  const requestDeleteSession = useAppStore((s) => s.requestDeleteSession)
+  const newProjectSession = useAppStore((s) => s.newProjectSession)
 
   const activeTab = useAppStore((s) => s.activeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
   const importFolder = useAppStore((s) => s.importFolder)
-  const openProject = useAppStore((s) => s.openProject)
   const [projects] = useProjectsList()
   const language = useAppStore((s) => s.language)
+  const t = translations[language]
+
+  // 10.11.2: oturumları türe göre ayır — proje oturumları projelerin altında,
+  // sohbet oturumları ayrı listede. Eski oturumlarda çıkarım (dosya varsa proje).
+  const { chats: chatSessions, projects: projectSessions } = splitSessions(sessions)
+  const byProject = groupByProject(projectSessions, language === 'tr' ? 'proje' : 'project')
+  // Proje listesi: klasörler (useProjectsList) ∪ oturumu olan projeler.
+  const folderByName = new Map(projects.map((p) => [p.name, p]))
+  const projectNames = [...new Set([...projects.map((p) => p.name), ...byProject.keys()])]
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  const toggleProject = (name: string) =>
+    setExpandedProjects((prev) => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
+
+  // 10.11.2/3: buton-benzeri, daha görünür oturum kartı (küçük satır değil).
+  const sessionCard = (sess: (typeof sessions)[number], project: boolean) => {
+    const active = sess.id === currentSessionId
+    return (
+      <div
+        key={sess.id}
+        onClick={() => void openSession(sess.id)}
+        className={
+          'group flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition ' +
+          (active
+            ? 'border-brand-500/60 bg-brand-500/10 text-ink-text'
+            : 'border-ink-line/50 bg-ink-panel/40 hover:border-brand-500/30 hover:bg-ink-hi/60')
+        }
+      >
+        {project ? (
+          <FileCode className={'h-4 w-4 shrink-0 ' + (active ? 'text-brand-600 dark:text-brand-400' : 'text-ink-dim')} />
+        ) : (
+          <MessageSquare className={'h-4 w-4 shrink-0 ' + (active ? 'text-brand-600 dark:text-brand-400' : 'text-ink-dim')} />
+        )}
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-xs font-bold text-ink-text">{sess.title || (language === 'tr' ? 'Adsız' : 'Untitled')}</p>
+          <p className="text-[10px] font-medium text-ink-dim">
+            {new Date(sess.updatedAt).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            {project ? ` · ${sess.fileCount} ${t.filesCount}` : ''}
+          </p>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            requestDeleteSession(sess.id, sess.title)
+          }}
+          title={t.sessionDelete}
+          className="rounded-lg p-1.5 text-ink-dim opacity-0 transition group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
+  }
   const setLanguage = useAppStore((s) => s.setLanguage)
   const theme = useAppStore((s) => s.theme)
   const setTheme = useAppStore((s) => s.setTheme)
 
   const [profileOpen, setProfileOpen] = useState(false)
-  const t = translations[language]
 
   // Projeler ↔ Sohbetler: katlanabilir + aralarındaki çizgiden yeniden
   // boyutlandırılabilir. Tercih localStorage'da kalıcı.
@@ -134,28 +190,58 @@ export default function Sidebar() {
             </button>
           </div>
           {!projClosed && (
-            <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pb-1">
-              {projects.length === 0 ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pb-1">
+              {projectNames.length === 0 ? (
                 <p className="px-2 py-3 text-center text-[11px] font-medium text-ink-dim">
                   {language === 'tr' ? 'Henüz proje yok' : 'No projects yet'}
                 </p>
               ) : (
-                projects.slice(0, 12).map((pr) => (
-                  <button
-                    key={pr.dir}
-                    onClick={() => void openProject(pr.dir, pr.name)}
-                    title={pr.dir}
-                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{pr.name}</span>
-                    {pr.linked && (
-                      <span className="ml-auto shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">
-                        {language === 'tr' ? 'bagli' : 'linked'}
-                      </span>
-                    )}
-                  </button>
-                ))
+                projectNames.map((name) => {
+                  const folder = folderByName.get(name)
+                  const sess = byProject.get(name) ?? []
+                  const open = expandedProjects.has(name)
+                  return (
+                    <div key={name} className="rounded-lg">
+                      <div className="group flex items-center gap-1 rounded-lg px-1.5 py-1.5 transition hover:bg-ink-hi/50">
+                        <button onClick={() => toggleProject(name)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left" title={folder?.dir}>
+                          <ChevronDown className={'h-3 w-3 shrink-0 text-ink-dim transition ' + (open ? '' : '-rotate-90')} />
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                          <span className="truncate text-xs font-bold text-ink-text">{name}</span>
+                          {folder?.linked && (
+                            <span className="shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">{language === 'tr' ? 'bagli' : 'linked'}</span>
+                          )}
+                          {sess.length > 0 && <span className="ml-auto shrink-0 text-[9px] font-bold text-ink-dim">{sess.length}</span>}
+                        </button>
+                        {folder && (
+                          <button
+                            onClick={() => void newProjectSession(folder.dir, name)}
+                            title={language === 'tr' ? 'Bu projede yeni oturum' : 'New session in this project'}
+                            className="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-ink-dim opacity-0 transition hover:bg-brand-500/10 hover:text-brand-600 group-hover:opacity-100 dark:hover:text-brand-300"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      {open && (
+                        <div className="ml-3 mt-1 flex flex-col gap-1 border-l border-ink-line/50 pb-1 pl-2">
+                          {sess.length === 0 ? (
+                            <p className="px-1 py-1 text-[10px] font-medium text-ink-dim">{language === 'tr' ? 'Oturum yok' : 'No sessions'}</p>
+                          ) : (
+                            sess.map((s) => sessionCard(s, true))
+                          )}
+                          {folder && (
+                            <button
+                              onClick={() => void newProjectSession(folder.dir, name)}
+                              className="flex items-center gap-1.5 rounded-lg border border-dashed border-ink-line px-2.5 py-1.5 text-[11px] font-bold text-ink-mut transition hover:border-brand-500/50 hover:text-brand-600 dark:hover:text-brand-300"
+                            >
+                              <Plus className="h-3.5 w-3.5" /> {language === 'tr' ? 'Yeni oturum' : 'New session'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </div>
           )}
@@ -184,50 +270,11 @@ export default function Sidebar() {
           </button>
           {!chatClosed && (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {sessions.length === 0 ? (
+              {chatSessions.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs font-medium text-ink-dim">{t.noChats}</p>
               ) : (
                 <div className="mt-1 flex flex-col gap-1 pb-3">
-                  {sessions.map((sess) => (
-                    <div
-                      key={sess.id}
-                      onClick={() => void openSession(sess.id)}
-                      className={
-                        'group flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 transition ' +
-                        (sess.id === currentSessionId ? 'bg-brand-500/15 text-ink-text' : 'hover:bg-ink-hi/60')
-                      }
-                    >
-                      <MessageSquare
-                        className={
-                          'h-3.5 w-3.5 shrink-0 ' +
-                          (sess.id === currentSessionId ? 'text-brand-600 dark:text-brand-400' : 'text-ink-dim')
-                        }
-                      />
-                      <div className="min-w-0 flex-1 leading-tight">
-                        <p className="truncate text-xs font-semibold text-ink-mut">{sess.title}</p>
-                        <p className="text-[10px] font-medium text-ink-dim">
-                          {new Date(sess.updatedAt).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', {
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                          {' · '}
-                          {sess.fileCount} {t.filesCount}
-                        </p>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void removeSession(sess.id)
-                        }}
-                        title={t.sessionDelete}
-                        className="rounded-lg p-1.5 text-ink-dim opacity-0 transition group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                  {chatSessions.map((sess) => sessionCard(sess, false))}
                 </div>
               )}
             </div>

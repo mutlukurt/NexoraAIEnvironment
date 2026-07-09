@@ -27,6 +27,7 @@ import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories } from '@/lib/agentActions'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
+import { turnDiffStats } from '@/lib/diffStat'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
 import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
@@ -131,6 +132,8 @@ interface AppState {
   importFolder: () => Promise<void>
   /** 4.3: bilinen projeyi (Projects/ ya da bağlı klasör) çalışma alanına yükle. */
   openProject: (dir: string, name: string) => Promise<void>
+  /** 10.11.2: bir projeden yeni bir PROJE oturumu aç (projenin altında görünür). */
+  newProjectSession: (dir: string, name: string) => Promise<void>
   /** Görsel öz-denetim (roadmap 3.3): Run sonrası sayfayı vizyon modeline göster. */
   runVisualReview: (url: string) => Promise<void>
   /** 6.5: siteyi tester gibi gez, raporu sohbete yaz (Çalıştır sonrası otomatik). */
@@ -164,6 +167,11 @@ interface AppState {
   saveSessionNow: () => Promise<void>
   openSession: (id: string) => Promise<void>
   removeSession: (id: string) => Promise<void>
+  /** 10.11.3: silme onay istemi (kazayla silmeye karşı). */
+  pendingDelete: { id: string; title: string } | null
+  requestDeleteSession: (id: string, title: string) => void
+  cancelDeleteSession: () => void
+  confirmDeleteSession: () => Promise<void>
 
   /** Riskli agent eylemleri ([RUN]/[FETCH]/[MCP]) için bekleyen izin istemi. */
   permissionRequest: {
@@ -215,6 +223,10 @@ let pendingBuildVerify = false
 // atlanır (done olayı zaten tetikler). Oturum, ilk kullanıcı mesajıyla doğar.
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null
 let sessionCreatedAt = 0
+// 10.11.2: aktif oturumun türü + bağlı projesi (kaydederken meta'ya yazılır).
+// Yeni Sohbet → 'chat'; bir projeden/inşadan doğan oturum → 'project' + slug.
+let currentSessionKind: 'chat' | 'project' = 'chat'
+let currentSessionProject: string | null = null
 
 // Proje bazlı kalıcı ajan izni ("bu projede hep izin ver").
 function agentAllowKey(): string {
@@ -1355,6 +1367,13 @@ let preTurnPaths: Set<string> = new Set()
  */
 let turnSnapshot: Map<string, string> | null = null
 
+/**
+ * 10.11.1 — diff istatistiği için tur BAŞINDAKİ tüm dosya içerikleri (path→content).
+ * turnSnapshot yalnız UPDATE turlarında dolduğundan (rollback), taze build'lerde de
+ * doğru +/- vermek için ayrı ve HER turda dolan bir taban tutulur (yeni dosya = hepsi +).
+ */
+let turnBaseFiles: Map<string, string> = new Map()
+
 // Plan modu: bu üretim bir plan turu mu; bir sonraki gönderim planı atlasın mı.
 let planTurnActive = false
 let planBypassNext = false
@@ -1971,6 +1990,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         return
       }
 
+      // 10.11.1: diff rozetlerini iliştireceğimiz asistan mesajının id'si (finalize
+      // set()'i streaming bayrağını temizlemeden ÖNCE yakala).
+      const streamMsgId = get().messages.find((m) => m.streaming)?.id
       let outcome: ApplyOutcome = { fileCount: 0, edits: [], written: [] }
       // Planlı üretimde her dosya turu otomatik uygulanır: onay planın
       // kendisiyle verildi, dosya başına ayrıca sorulmaz (undo hep açık).
@@ -1995,6 +2017,17 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       const touchedPaths = [
         ...new Set([...outcome.written, ...outcome.edits.filter((e) => e.applied > 0).map((e) => e.path)])
       ]
+
+      // 10.11.1: dokunulan dosyaların +eklenen/−silinen satır dökümü (OpenCode gibi).
+      // Tur başı taban (turnBaseFiles) ile şimdiki içerik karşılaştırılır; finalize
+      // edilen asistan mesajına iliştirilir (ChatPanel dosya başına rozet çizer).
+      if (touchedPaths.length > 0) {
+        const af = useArtifactsStore.getState().files
+        const stats = turnDiffStats(touchedPaths, turnBaseFiles, (p) => af[p]?.content)
+        if (stats.length > 0 && streamMsgId) {
+          set((s) => ({ messages: s.messages.map((m) => (m.id === streamMsgId ? { ...m, diffStats: stats } : m)) }))
+        }
+      }
 
       // FAZ 9.3 — Fidelity rehydrate: üretilen dosyalardaki __SLOT__ token'larını
       // (birebir kopya/URL/class) gerçek baytlarla değiştir. Model token'ları
@@ -2587,6 +2620,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   messages: [],
   sending: false,
   error: null,
+  pendingDelete: null,
 
   autoApply: autoApplyInitial(),
   sessions: [],
@@ -2772,6 +2806,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.nexora.chat.newSession()
     useArtifactsStore.getState().clearAll()
     sessionCreatedAt = 0
+    // 10.11.2: "Yeni Sohbet" → saf sohbet oturumu (dosya üretilirse otomatik projeye yükselir).
+    currentSessionKind = 'chat'
+    currentSessionProject = null
     pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
@@ -2785,6 +2822,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
+  // 10.11.2: bir projeden YENİ oturum aç — proje dosyaları yüklenir, oturum o
+  // projeye bağlı 'project' türünde doğar (sidebar'da projenin altında görünür).
+  newProjectSession: async (dir, name) => {
+    await get().openProject(dir, name)
+    currentSessionKind = 'project'
+    currentSessionProject = name
+  },
+
   openProject: async (dir: string, name: string) => {
     const res = await window.nexora.projects.open(dir)
     if (!res.ok || !res.files) {
@@ -2792,6 +2837,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
     await get().newSession()
+    // 10.11.2: bu oturum artık bir PROJE oturumu (bağlı projeye slug ile).
+    currentSessionKind = 'project'
+    currentSessionProject = name
     const files = Object.fromEntries(
       res.files.map((f: { path: string; content: string }) => [
         f.path,
@@ -3207,6 +3255,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     if (!sessionCreatedAt) sessionCreatedAt = Date.now()
     const files = useArtifactsStore.getState().files
+    // 10.11.2: türü belirle — açıkça proje ya da dosya üretildiyse 'project'
+    // (otomatik yükseliş: bir sohbette inşa edildiyse artık proje oturumudur),
+    // yoksa 'chat'. Proje oturumları projeye slug ile bağlanır.
+    const isProject = currentSessionKind === 'project' || Object.keys(files).length > 0
+    const kind: 'chat' | 'project' = isProject ? 'project' : 'chat'
+    const projectName = isProject ? currentSessionProject ?? getProjectName() : undefined
     const data: SessionData = {
       id,
       title: firstUser.content.split('\n')[0].slice(0, 48),
@@ -3214,6 +3268,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       updatedAt: Date.now(),
       msgCount: s.messages.length,
       fileCount: Object.keys(files).length,
+      kind,
+      projectName,
       messages: s.messages.map((m) => ({ ...m, streaming: false })),
       files: Object.fromEntries(
         Object.entries(files).map(([p, f]) => [
@@ -3262,6 +3318,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     )
     useArtifactsStore.getState().replaceAll(files, data.selectedPath)
     sessionCreatedAt = data.createdAt
+    // 10.11.2: açılan oturumun türü + bağlı projesi geri yüklenir.
+    currentSessionKind = data.kind ?? (data.fileCount > 0 ? 'project' : 'chat')
+    currentSessionProject = data.projectName ?? null
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
     // 7.4: açılan oturumun KENDİ yorum kuyruğu geri gelir — çapalar o
     // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.
@@ -3294,6 +3353,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionCreatedAt = 0
     }
     void get().refreshSessions()
+  },
+  // 10.11.3: silmeden ÖNCE onay iste — kazayla silme olmasın.
+  requestDeleteSession: (id, title) => set({ pendingDelete: { id, title } }),
+  cancelDeleteSession: () => set({ pendingDelete: null }),
+  confirmDeleteSession: async () => {
+    const p = get().pendingDelete
+    if (!p) return
+    set({ pendingDelete: null })
+    await get().removeSession(p.id)
   },
 
   setPlanFirst: (v: boolean) => {
@@ -3889,6 +3957,8 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // 6.4: transaction anlık görüntüsü — yalnızca iterasyon turlarında
     // (yeni-dosya/plan turlarında null: kesinti dosya kaybettirmez, korur).
     turnSnapshot = updateTurn ? new Map(allFiles.map((f) => [f.path, f.content])) : null
+    // 10.11.1: diff istatistiği tabanı — HER turda (taze build dahil) tur başı içerik.
+    turnBaseFiles = new Map(allFiles.map((f) => [f.path, f.content]))
 
     // "Düzelt" akışı: Çalıştır denetimi bir derleme hatası yakaladıysa ve
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)

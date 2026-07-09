@@ -9,6 +9,7 @@ import DiffModal from '@/components/DiffModal'
 import PermissionModal from '@/components/PermissionModal'
 import CommandPalette from '@/components/CommandPalette'
 import GlobalSearch from '@/components/GlobalSearch'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { useHfStore } from '@/store/hfStore'
 import { useAppStore } from '@/store/appStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -70,6 +71,7 @@ export default function App() {
       <PermissionModal />
       <CommandPalette />
       <GlobalSearch />
+      <ConfirmDialog />
     </div>
   )
 }

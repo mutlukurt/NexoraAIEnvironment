@@ -189,13 +189,15 @@ function AssistantMessage({
   streaming,
   isLast,
   t,
-  language
+  language,
+  diffStats
 }: {
   content: string
   streaming?: boolean
   isLast: boolean
   t: any
   language: string
+  diffStats?: Array<{ path: string; added: number; removed: number; isNew: boolean }>
 }) {
   const acceptChanges = useArtifactsStore((s) => s.acceptChanges)
   const restoreSnapshot = useArtifactsStore((s) => s.restoreSnapshot)
@@ -248,6 +250,20 @@ function AssistantMessage({
         {prose && <p className="whitespace-pre-wrap break-words text-[14.5px] text-ink-mut leading-relaxed font-normal">{prose}</p>}
 
         <ArtifactCard files={files} streaming={streaming} t={t} language={language} />
+
+        {/* 10.11.1: dosya başına +eklenen/−silinen satır (OpenCode gibi) */}
+        {!streaming && diffStats && diffStats.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {diffStats.map((d) => (
+              <span key={d.path} className="inline-flex items-center gap-1.5 rounded-lg border border-ink-line/60 bg-ink-panel px-2 py-1 font-mono text-[10px]" title={d.path}>
+                <span className="max-w-[160px] truncate text-ink-mut">{d.path.split('/').pop()}</span>
+                {d.isNew && <span className="text-[9px] font-bold text-brand-500">{language === 'tr' ? 'YENİ' : 'NEW'}</span>}
+                {d.added > 0 && <span className="font-bold text-emerald-600 dark:text-emerald-400">+{d.added}</span>}
+                {d.removed > 0 && <span className="font-bold text-red-600 dark:text-red-400">−{d.removed}</span>}
+              </span>
+            ))}
+          </div>
+        )}
 
         {!streaming && isLast && pendingChanges && (
           <div className="mt-1 flex gap-2">
@@ -889,6 +905,7 @@ export default function ChatPanel() {
                       isLast={i === messages.length - 1}
                       t={t}
                       language={language}
+                      diffStats={m.diffStats}
                     />
                   </div>
                 )}
