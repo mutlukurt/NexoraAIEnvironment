@@ -115,8 +115,10 @@ A small model's weakness isn't intelligence, it's freedom. The less freedom, the
 
 **Sequencing:** ship **9.1+9.2** together (contract + the Tailwind v3/v4 branch — the single highest-impact unblock), then **9.3** (small-model verbatim fidelity), then **9.4** (the trustworthy fail signal), then **9.6** (preview parity, runs parallel), then **9.5** (escalation, cheap because the API path already exists). **The decisive success test:** paste the Gemini portfolio prompt in Fidelity Mode against a LOCAL model — PASS requires (a) scaffold emits no v3 config, installs `tailwindcss ^4` + `@tailwindcss/vite`; (b) "Çalıştır" runs the project's own dev script with ZERO Debug-Engine build failures; (c) `fidelityScore == 1.0` (every Turkish string, Unsplash URL and class string byte-for-byte present, grep-verified); (d) the sandbox renders v4 styling + real images; (e) any 8B miss triggers ONE verifier-gated escalation that then re-passes. Regression guard: the same prompt in normal creative mode leaves the v3 scaffold byte-identical and `test:engine` green.
 
-## Phase 10 — Ecosystem & Discoverability (v1.6.x) — FROM COLLEAGUE TO PLATFORM
+## Phase 10 — Ecosystem & Discoverability (v0.16.x) — FROM COLLEAGUE TO PLATFORM ✅ SHIPPED
 
+> **✅ Shipped (v0.16.0, 2026-07-09).** All 10.1–10.9 delivered + live-tested; MCP client, local serve endpoint, ⌘K palette, checkpoints/rewind, notifications/tray, global search, scheduled tasks, slash-workflows, and the 157-provider hub are all in the app.
+>
 > **Planned (2026-07-09).** Chosen from a 7-agent competitor sweep (real Codex desktop screenshots as ground truth + web research on Codex CLI/cloud, Cursor/Windsurf, Cline/Roo/Continue/Aider/OpenHands, LM Studio/Jan/Ollama/AnythingLLM, and cross-cutting desktop agent-UX). Verdict: NexoraAI's engine, agent-safety, repair-verify and fidelity layers already lead the field (deeper than most rivals); the real remaining gap is **ecosystem interop + discoverability + long-run UX** — all achievable WITHOUT breaking local-first.
 
 **Mission:** NexoraAI out-engineers most competitors on safety/repair/fidelity, but it re-implements every tool by hand, can't be *driven by* other editors, and lacks the keyboard/checkpoint/notification polish that makes minutes-long local runs pleasant and auto-approve genuinely safe. Phase 10 closes that — **every item is local-first ("data never leaves the machine"); nothing here uploads a repo or needs a cloud VM.** Cloud-dependent competitor features are deliberately excluded (see the guard below).
@@ -136,6 +138,28 @@ A small model's weakness isn't intelligence, it's freedom. The less freedom, the
 **Explicitly OUT — local-first guard:** Codex Cloud async fire-and-forget, cloud/background agents that **upload the repo**, cloud-VM PR generation, thread local↔remote handoff, Slack/Linear/GitHub @-mention task triggers, Computer Use (native-app control), cloud image generation, live web-fetch. These break "data never leaves your machine" — NexoraAI's entire reason to exist. Only the **async/queue UX *pattern*** is borrowed as inspiration (already approximated by the local task queue).
 
 **Sequencing & success test:** ship **10.1 + 10.2** first (highest strategic leverage — ecosystem + interop), with **10.9** (the provider hub, its API-layer sibling) pulled up next to them since it's the highest *external* demand; then the daily-use polish in order (10.3 palette → 10.4 checkpoints → 10.5 notifications → 10.6 search → 10.7 schedule → 10.8 workflows). PASS: (a) a local stdio MCP server's tools appear and are callable in a turn, gated by the existing trust tiers; (b) Continue.dev/Cline points at NexoraAI's `127.0.0.1` endpoint and drives the same local model; (c) Ctrl+K runs every major action; (d) every prompt has a one-click rewind (code / chat / both); (e) a finished/failed long run raises an OS notification and the machine doesn't sleep mid-run. Every sub-phase live-tested on the real app before its tick, and `test:engine` stays green.
+
+---
+
+## Phase 11 — The API Unleashed & The Creative Workspace (v0.17.x – v0.18.x) ✅ SHIPPED
+
+> **✅ Shipped (v0.17.0 → v0.18.0, 2026-07-09/10).** Live-testing the finished ecosystem layer with a real cloud API model exposed a deeper truth — the whole pipeline was tuned for a weak 3B and those crutches were *caging capable models*. Phase 11 cut that cord and then turned NexoraAI into a full creative workspace.
+
+- [x] **11.1 The API Unleashed (v0.17).** Full conversation history + depth on the API path; a one-shot **frontier build/edit path** (elite persona, no sectioning, no 2 K caps) for any **strong model — API *or* ≥ 13B GGUF**; **complete removal of the surgical-edit machinery** (forced `SEARCH/REPLACE`, oversized-SEARCH stream cutter, whole-file-rewrite ban) that helped no model and aborted API turns. Plus clean dev-server shutdown, an accessibility UI-scale control, and an **Open Project** entry.
+- [x] **11.2 Vision routing (v0.17.1–.3).** Attaching a reference image no longer forces the local Qwen-VL: on an API model the image goes straight to the API as multimodal; a conservative `isVisionCapableModel` **warns** on text-only models instead of hallucinating; and image→project became a **two-stage flow** (API analyzes the image into a measurable spec → API builds the complete project from it). Local VL downloads a **device-appropriate** size.
+- [x] **11.3 Image generation — any image model, in the chat (v0.18).** Detect image models (`image`-token heuristic + families: z-image, qwen-image, dall-e, flux, gpt-image, imagen, seedream…) and route to the right endpoint — **OpenAI-compatible** `/images/generations` *and* a **native DashScope adapter** for Qwen-Image. In-chat **preview · fullscreen · download · add-to-assets** per image, plus **aspect ratio, 1–4 variations, negative prompt, image-to-image, exact-prompt fidelity**, and a composer hint. Add-to-assets decodes to a **real binary** in `src/assets/` and the Preview resolves the import.
+- [x] **11.4 Full file & shell access from chat (v0.18).** Plain-language file ops — *"convert to WebP with Pillow / delete / rename / copy"* — emit a shell command that runs in the **project folder** through the existing **trust tiers** and syncs the result back into the editor (new `.webp` appears, deleted file disappears). Identical on local and API.
+- [x] **11.5 Workspace polish (v0.18).** **Free scrolling** while generating (stream no longer yanks to the bottom); **project-identity** guarantee (every new build writes a `package.json` → its own clean workspace dir, so file-ops target the right place); **generic, user-selectable local vision model** — any VL GGUF (Qwen3-VL, LLaVA, MiniCPM-V, InternVL…) you drop in the models folder is detected and picked from Settings, no longer hardcoded to Qwen2.5-VL.
+
+---
+
+## Phase 12 — Local Image Generation (planned) — OFFLINE IMAGE GEN, THE FINAL LOCAL-FIRST GAP
+
+> **Planned (2026-07-10, from a 10-agent internet research sweep).** v0.18 shipped image generation on the **API**; the local-first mission demands the **offline** twin. NexoraAI already runs local **LLMs** (node-llama-cpp) and local **vision input** (Qwen-VL) — the one thing it can't do on-device is **generate** images. This phase closes that.
+
+**Headline finding:** `stable-diffusion.cpp` is the "llama.cpp of image generation" — same GGML lineage, loads **GGUF-quantized** SD/SDXL/SD3.5/Flux models, ships an actively-maintained **`sd-server`** binary with an **OpenAI-compatible `/v1/images/generations`** endpoint and prebuilt per-platform releases (Windows CUDA/CPU, macOS Metal/arm64, Linux Vulkan/CPU). It maps almost 1:1 onto NexoraAI's existing pattern: **spawn a vendored C++ server + Hardware-Advisor-driven GGUF download + reuse the already-shipped OpenAI image-gen client code** by pointing the base-URL at `127.0.0.1`.
+
+**Full detailed sub-phase plan, model/VRAM tiers, integration architecture, licensing and packaging → [`ROADMAP-LOCAL-IMAGE-GEN.md`](ROADMAP-LOCAL-IMAGE-GEN.md).**
 
 ---
 
