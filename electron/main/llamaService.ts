@@ -275,6 +275,24 @@ ${UPDATE_MODE_RULES}
   //  - UPDATE turu: cerrahi düzenleme; SEARCH ≤12 satır, hedef yol yalnızca
   //    gerçekten var olan dosyalar.
   const options: PromptOptions = { ...(input.options ?? {}) }
+  // 10.14/10.16 — Frontier persona: bu tur güçlü bir modelle (API VEYA büyük yerel
+  // GGUF) yeni build / iterasyon. currentFiles varsa DÜZENLEME, yoksa YENİ build
+  // personası. Tek yerde hesaplanır: API yolu apiSys olarak, YEREL yol
+  // options.systemOverride olarak kullanır (server motoru tur-başına uygular).
+  const frontierSys = input.frontier
+    ? input.currentFiles && input.currentFiles.length > 0
+      ? frontierEditSystemPrompt(input.options?.answerLang)
+      : frontierBuildSystemPrompt(input.options?.answerLang)
+    : null
+  if (frontierSys) {
+    options.systemOverride = frontierSys // server motoru tur-başına uygular
+    // Worker yedek motoru (node-llama-cpp) tur-başına sistem prompt'u değiştiremez
+    // (oturuma gömülü) → frontier personasını prompt önüne iliştir (chat direktifi
+    // gibi). Büyük modeller zaten serverEngine kullanır; bu sadece emniyet.
+    if (engine === workerEngine) {
+      prompt = `${frontierSys}\n\n=== TASK ===\n${prompt}`
+    }
+  }
   // FAZ 9.3 — fidelity bileşen turu: motor geçmişini yalıt. Aksi hâlde model KV
   // geçmişindeki önceki dosyayı (Navbar) sonraki bileşene klonluyor (Hero=Navbar
   // kopyası canlı bug). Her bileşen dilimlenmiş brief'inden bağımsız üretilir.
@@ -317,10 +335,8 @@ ${UPDATE_MODE_RULES}
       // 10.14: frontier turunda mevcut dosya varsa DÜZENLEME personası (editörü
       // serbest bırakır), yoksa YENİ build personası. pure-API'de smallModel=true
       // olduğundan getFullSystemPrompt COMPACT 3B veriyordu — burada devre dışı.
-      const apiSys = input.frontier
-        ? (input.currentFiles && input.currentFiles.length > 0
-            ? frontierEditSystemPrompt(input.options?.answerLang)
-            : frontierBuildSystemPrompt(input.options?.answerLang))
+      const apiSys = frontierSys
+        ? frontierSys
         : input.options?.purpose
         ? chatSystemPrompt(input.options.answerLang, input.options.purpose)
         : getFullSystemPrompt()

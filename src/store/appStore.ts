@@ -3919,14 +3919,19 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // tetiklenmedi. Sözleşme fidelity ise buildReq zorlanır.
     const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed) || !!turnContract?.fidelity
     forceBuildNext = false
-    // 10.14 "API UNLEASHED": güçlü bir API modeli aktif + YENİ bir build isteği →
-    // frontier modu. NexoraAI'nın tüm 3B kösteklerini (deterministik plan, bölüm-
-    // bölüm üretim, __SLOT__ tokenizasyon, gramer, düşük tavan, COMPACT tek-dosya)
-    // ATLAR: tek seferde çok-dosyalı, üst düzey modern proje. Yerel model
-    // varsayılanı hiç etkilenmez (apiActive=false → tüm bu davranış kapalı).
+    // 10.14/10.16 "API UNLEASHED": GÜÇLÜ bir model (API modeli VEYA büyük yerel
+    // GGUF ≥9GB ≈13B+) + YENİ build isteği → frontier modu. NexoraAI'nın tüm 3B
+    // kösteklerini (deterministik plan, bölüm-bölüm üretim, __SLOT__ tokenizasyon,
+    // gramer, düşük tavan, COMPACT tek-dosya) ATLAR: tek seferde çok-dosyalı, üst
+    // düzey modern proje. KÜÇÜK yerel model (3B, <9GB) frontier ALMAZ — 16K'lık
+    // tek-atış bütün projeyi kaldıramaz, bölümleme+gramer scaffolding'i onun can
+    // simidi. Eşik: modelInfo.sizeBytes ≥ 9e9 (main'deki smallModel çizgisiyle aynı).
     const apiActive = !!useSettingsStore.getState().activeApiModel
+    const mi = get().modelInfo
+    const strongLocal = !!mi && mi.sizeBytes >= 9e9
+    const strongModel = apiActive || strongLocal
     const frontierNewBuild =
-      apiActive &&
+      strongModel &&
       buildReq &&
       allFiles.length === 0 &&
       !opts?.expectFile &&
@@ -4038,14 +4043,13 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Altı bölümün ALTISINI da b
     // preTurnPaths TÜM proje dosyalarını kapsar — bağlama girmeyen bir
     // dosyanın körlemesine baştan yazılması da yasaktır.
     updateTurn = !isPlanTurn && !opts?.expectFile && !isChatTurn && allFiles.length > 0
-    // 10.14 "API UNLEASHED" — İTERASYON: mevcut projede API modeliyle bir değişiklik
-    // (updateTurn) ya da düzeltme (fixFlow) turu da 3B kösteklerinden kurtulur.
-    // pure-API'de smallModel=true → getFullSystemPrompt COMPACT 3B veriyordu +
-    // tavan 4096'ya kısılıyordu; frontier edit personası + 16384 tavan ile editör
-    // serbest kalır (büyük/çok-dosyalı düzenleme, yeni bileşen ekleme). Gizli/iç
-    // turlar (hideUser) HARİÇ — onlar deterministik onarım akışıdır.
+    // 10.14/10.16 "API UNLEASHED" — İTERASYON: mevcut projede GÜÇLÜ modelle (API
+    // veya büyük yerel GGUF) bir değişiklik (updateTurn) ya da düzeltme (fixFlow)
+    // turu frontier edit personası + 16384 tavan alır (büyük/çok-dosyalı düzenleme,
+    // yeni bileşen ekleme). Küçük yerel model bu yola girmez. Gizli/iç turlar
+    // (hideUser) HARİÇ — onlar deterministik onarım akışıdır.
     const frontierEdit =
-      apiActive &&
+      strongModel &&
       allFiles.length > 0 &&
       !isChatTurn &&
       !isPlanTurn &&

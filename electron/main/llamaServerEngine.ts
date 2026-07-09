@@ -639,7 +639,14 @@ export const serverEngine: InferenceEngine = {
     // cevabıyla çelişip küçük modeli saçmalatıyor (canlı-test matrisi).
     // Yalnızca BU isteğin sistemi değişir; oturum geçmişi ve kod turlarının
     // prompt cache öneki aynı kalır.
-    const sysForTurn = options?.purpose ? chatSystemPrompt(options.answerLang, options.purpose) : systemPrompt
+    // 10.16 — systemOverride (frontier build/edit personası) varsa TUR onu kullanır;
+    // yoksa sohbet turu chatSystemPrompt, kod turu oturum prompt'u. Güçlü yerel
+    // modele (≥9GB) API ile AYNI frontier personasını tur-başına verir.
+    const sysForTurn = options?.systemOverride
+      ? options.systemOverride
+      : options?.purpose
+      ? chatSystemPrompt(options.answerLang, options.purpose)
+      : systemPrompt
     // FAZ 9.3 — isolate: geçmişi HİÇ gönderme (fidelity bileşen turu bağımsız).
     const messages: ChatMsg[] = options?.isolate
       ? [{ role: 'system', content: sysForTurn }, { role: 'user', content: promptText }]

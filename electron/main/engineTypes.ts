@@ -52,6 +52,13 @@ export interface PromptOptions {
   /** Sohbet sistem prompt'unun cevap dili. */
   answerLang?: 'tr' | 'en'
   /**
+   * 10.16 — Bu TUR için sistem prompt'unu geçersiz kıl (oturum prompt'u
+   * değişmeden). Frontier build/edit personasını GÜÇLÜ YEREL modele (≥9GB, ≈13B+)
+   * tur-başına vermek için: server motoru bunu sysForTurn olarak kullanır. Boşsa
+   * normal oturum/sohbet prompt'u geçerli.
+   */
+  systemOverride?: string
+  /**
    * Tur motor geçmişine YAZILMAZ (enhance gibi meta turlar). Canlı-test
    * bulgusu: geçmişteki "Output ONLY the brief text" talimatı, brief'in
    * yeniden gönderiminde 3B'yi kod yerine brief'i tekrarlamaya itiyordu.
