@@ -62,6 +62,36 @@ NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B m
 
 v0.17 unleashed *building* — v0.18 makes the workspace **complete**. You can now **generate images inside the chat**, and give the agent **plain-language file & shell commands** (*"convert this to WebP with Pillow and put it in assets"*) that it runs with **full access to the project on disk**. The whole thing was proven end-to-end in a **single session**: build a skeleton with a local model → continue with a cloud API model → generate a logo with an image model → convert it and wire it into the page — no restarts, no copy-paste, everything persists.
 
+> **v0.18.3 — The Universal Agent & a 10-language interface.** The biggest v0.18 patch: NexoraAI becomes *universal* on two fronts — it **does what you say on your computer**, and it **speaks your language**.
+>
+> **🖥️ From chat, the agent actually DOES things — it doesn't explain them.** Ask *"is the Vercel CLI installed?"* and it runs `command -v vercel` and tells you the real answer; *"open Chrome at localhost:3000"* and it launches Chrome. Any model (API **or** local, any provider), any wording, **any language** — the capability is driven by the model's understanding of your **intent**, not a keyword list. And it works by **Check → Understand → Do**: it's given your machine's real facts (your actual localized Desktop is `~/Masaüstü`, not `~/Desktop`), and when it isn't sure it runs a quick check first, reads the real result, then acts. No more "here's how *you* could do it" — it just does it and reports back.
+>
+> **🗣️ It replies in the language you wrote in.** Ask in German, get German; French → French; Turkish → Turkish — the reply language follows *your message*, not the app setting. Live-verified on `qwen-plus` across DE/FR/ES/EN.
+>
+> **🌍 The whole UI now speaks 10 languages — each in its natural direction.** **Settings → General → Appearance** has a 10-language picker; pick one and the entire interface re-renders in it: 🇹🇷 Türkçe · 🇬🇧 English · 🇪🇸 Español · 🇫🇷 Français · 🇩🇪 Deutsch · 🇵🇹 Português · 🇷🇺 Русский · 🇨🇳 中文 · 🇯🇵 日本語 · 🇸🇦 **العربية**. Arabic renders **right-to-left** — the *entire* layout mirrors. (~256 UI strings were translated by **8 parallel localizer subagents**, one per language, then wired through a source-keyed `tt()` layer.)
+>
+> | What was true (≤ v0.18.2) | What v0.18.3 brings |
+> | --- | --- |
+> | Chat *explained* how to check/install/run things | The agent **actually runs it** via the terminal and reports the real result — any model, any provider |
+> | It only acted on certain keyword phrasings | **Intent-driven** — understands what you mean in any wording, any language (Turkish `\b`-boundary bug fixed) |
+> | It guessed paths (`~/Desktop`) and failed | **Check → Understand → Do** with your machine's real facts (`~/Masaüstü`, locale, OS) injected each turn |
+> | Replies were locked to the app's TR/EN setting | Replies **mirror the language of your message** — any language |
+> | UI was Turkish/English only | **10-language UI** with a picker, each in its natural direction — **RTL for Arabic** (full layout mirror) |
+>
+> <div align="center">
+> <img src="docs/screenshots/agent-execute.png" width="88%" alt="qwen-plus running command -v vercel and google-chrome from chat, reporting real results" />
+>
+> *From chat: "is Vercel installed?" → runs the command → real answer. "open Chrome" → launches it. It does, not describes.*
+>
+> <img src="docs/screenshots/i18n-arabic.png" width="88%" alt="The Settings modal fully mirrored right-to-left in Arabic" />
+>
+> *The 10-language UI — Arabic renders the entire interface right-to-left (`dir=rtl`); the whole Settings layout mirrors.*
+>
+> <img src="docs/screenshots/i18n-spanish.png" width="88%" alt="The app interface in Spanish" />
+>
+> *…and left-to-right for the rest — here in Spanish. One picker in Settings → General → Appearance.*
+> </div>
+
 > **v0.18.2 (patch) — Settings UX hardening: appearance moved in, Provider Hub goes master-detail.** Two navigation annoyances, fixed. **(1)** The sidebar had a bulky **"Theme & Language"** box eating vertical space at the bottom — it's gone; theme (Light/Dark) and language (TR/EN) now live in **Settings → General → Appearance**, a clean segmented control at the top of the section. **(2)** The **Provider Hub** listed 157 providers and expanded the selected provider's config as an accordion *at the very bottom of the list* — so configuring OpenRouter or Baseten meant scrolling all the way down. It's now **master-detail**: click a provider and its own focused pane opens **at the top** (with a `‹ All providers` back button) — API key, model id, fetch-models and the model enable/disable list, right there. No scrolling. Both live-verified on the real app.
 >
 > | Annoyance (≤ v0.18.1) | v0.18.2 |
