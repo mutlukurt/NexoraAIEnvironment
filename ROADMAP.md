@@ -155,13 +155,40 @@ A small model's weakness isn't intelligence, it's freedom. The less freedom, the
 
 ---
 
-## Phase 12 — Local Image Generation (planned) — OFFLINE IMAGE GEN, THE FINAL LOCAL-FIRST GAP
+## Phase 12 — Local Image Generation (offline, on-device) — THE FINAL LOCAL-FIRST GAP
 
-> **Planned (2026-07-10, from a 10-agent internet research sweep).** v0.18 shipped image generation on the **API**; the local-first mission demands the **offline** twin. NexoraAI already runs local **LLMs** (node-llama-cpp) and local **vision input** (Qwen-VL) — the one thing it can't do on-device is **generate** images. This phase closes that.
+> **Redesigned 2026-07-10 from a 12-agent research + adversarial-verification sweep.** v0.18 shipped image generation on the **API**; the local-first mission demands the **offline** twin. NexoraAI already runs local **LLMs** (llama-server) and local **vision INPUT** (VL sidecar on 8091) — the one thing it can't do on-device is **generate** images. This phase closes that. **The core was proven end-to-end during research: `sd-server` spawned on the real 4 GB RTX 2050, internet off, no API key → a real 457 KB PNG in ~33 s.** So this is de-risked; the work is careful engineering, not discovery.
 
-**Headline finding:** `stable-diffusion.cpp` is the "llama.cpp of image generation" — same GGML lineage, loads **GGUF-quantized** SD/SDXL/SD3.5/Flux models, ships an actively-maintained **`sd-server`** binary with an **OpenAI-compatible `/v1/images/generations`** endpoint and prebuilt per-platform releases (Windows CUDA/CPU, macOS Metal/arm64, Linux Vulkan/CPU). It maps almost 1:1 onto NexoraAI's existing pattern: **spawn a vendored C++ server + Hardware-Advisor-driven GGUF download + reuse the already-shipped OpenAI image-gen client code** by pointing the base-URL at `127.0.0.1`.
+**Engine decision (made):** **`leejet/stable-diffusion.cpp` `sd-server`** — the "llama.cpp of diffusion." Same GGML/GGUF lineage; a spawnable HTTP server that holds **all weights out-of-process** (satisfies our >4 GB-V8-crash rule by construction, exactly like the 8091 vision sidecar); MIT binary; tiny prebuilt per-OS zips (Linux Vulkan 42.7 MB / Win Vulkan 35.9 MB / macOS Metal 46.9 MB); **no Python, no Node addon.** Its `POST /v1/images/generations` returns `{data:[{b64_json}]}` — the byte-for-byte shape our `generateImageOpenAI()` already POSTs → point the base URL at `127.0.0.1:8092` and **reuse the entire shipped in-chat UX** (preview · fullscreen · download · add-to-assets). Fallback = the **CPU rung of the same binary** on a GPU→CPU spawn ladder (not a different engine). Pin `SD_BIN_TAG=master-769-cc73429`.
 
-**Full detailed sub-phase plan, model/VRAM tiers, integration architecture, licensing and packaging → [`ROADMAP-LOCAL-IMAGE-GEN.md`](ROADMAP-LOCAL-IMAGE-GEN.md).**
+**Model tiers (one binary, quality = a different GGUF gated by the Advisor):**
+
+| Tier | Model | Disk (total) | VRAM @512² | Steps | Measured speed | License | Badge |
+|---|---|---|---|---|---|---|---|
+| **v1 — SHIP FIRST** | **SD 1.5 Q4_0** (1 file, VAE baked in) | **1.57 GB** | ~1.5 GB | 20 | **~33 s** RTX 2050 / minutes CPU | OpenRAIL-M (commercial OK) | 🟢 fits 4 GB |
+| v1 fast | SD 1.5 + LCM/Hyper-SD LoRA | 1.57 GB+ | ~1.5 GB | 2–4 | ~7–10 s GPU (est.) | OpenRAIL-M | 🟢 fits |
+| high (clean license) | Flux.1-schnell Q4_0 (**4-file bundle ~16 GB total**) | ~16 GB | ~7–8 GB | 4 | ~10 s+ (8 GB) | **Apache-2.0** | 🔵 spills |
+| high (scale) | Z-Image-Turbo | ~Q4_0 + encoders | 4 GB via offload | 8 | ~2–3 s (4090) | Apache-2.0 | 🔵 spills |
+
+**👉 Ship/download FIRST: SD 1.5 GGUF Q4_0 (1.57 GB, `second-state/stable-diffusion-v1-5-GGUF`)** — single file, VAE baked in, fits 4 GB, runs on CPU, commercial-safe. **Never default SDXL-Turbo/SD-Turbo (Non-Commercial) or Flux-dev (NC)** — opt-in with terms shown. Advisor must display the **total** multi-file size for Flux (~16 GB, not the 6.77 GB diffusion file alone).
+
+**Integration architecture:** a new **`electron/main/localImageService.ts`** ≈ a corrected clone of `visionService.ts` — `IMAGE_PORT 8092` (add to `AVOID_PORTS`), reuse `downloadFile()` (%-to-chat), the stdout readiness scan (`/listening|HTTP server/i`), the `LD_LIBRARY_PATH=dirname(bin)` spawn env, POSIX group-kill. Exports `ensureLocalImageReady` (resolves a model path **before** spawn), `startImageServer(modelPath)`, `stopImageServer`, `hasLocalImageModel`, `generateImageLocal(prompt,opts)`. A ~10-line local branch at the **very top** of `generateImage()` (before `active()`) routes to it; everything downstream (the `IMAGE_GENERATE` handler, renderer preview/download/assets, `ImageGenOptions`) is untouched.
+
+**Sub-phases (order corrected by the adversarial pass):**
+- **12.1 Model-first spawn** — `ensureLocalImageReady()` guarantees a hand-placed SD1.5 GGUF, THEN `startImageServer(modelPath)` spawns `sd-server -m <gguf> --listen-ip 127.0.0.1 --listen-port 8092`; 8092 → `AVOID_PORTS`; **explicit flat-zip binary path** (sd.cpp zips are flat, not nested like llama — don't clone vision's nested `serverBinaryPath()`); `chmod +x`. *Accept:* internet OFF, `curl …/v1/images/generations` returns `b64_json`.
+- **12.2 🎯 FIRST MILESTONE — real PNG in chat, offline** — local branch in `generateImage()` + the existing `IMAGE_GENERATE` path; widen the renderer `isImageGenModel` gate + add an `activeLocalImageModel` flag. *Accept:* internet OFF + no API key → "a red panda coding" → inline PNG via the shipped UX; add-to-assets writes a real binary to `src/assets/`. **Ship a spinner+elapsed from the FIRST request (33 s is not instant).**
+- **12.3 Per-request control (pulled forward)** — seed + steps + sampler + CFG via the native `/sdcpp/v1/img_gen` family (or `<sd_cpp_extra_args>` embedded in the OpenAI prompt), because the reused OpenAI endpoint alone gives **zero** per-request control and seed is the highest-value knob for the iterate-loop.
+- **12.4 LLM↔SD VRAM handoff** — an explicit mutex on 4 GB: pause/`--offload-to-cpu` the LLM around an image gen, or run SD on CPU while the GPU serves the LLM. Non-optional; an `[IMG]` mid-build would otherwise OOM one server.
+- **12.5 CI vendoring + bundle** — per-job `vendor/sd-bin` (Vulkan Win/Linux, Metal macOS, CPU) mirroring `vendor/node-bin`; **bundle the default Vulkan binary in app resources** (not curl-at-runtime — limits AV/Gatekeeper friction); CUDA (924 MB) on-demand only. Installers grow ~+40 MB/platform.
+- **12.6 Model download + first-run + Advisor tier** — auto-download SD1.5 Q4_0 with %/cancel + SHA-256 pin + refuse `.ckpt/.pt/.pth` (accept only `.safetensors`/`.gguf`); extend the VRAM Advisor with an image tier table (show **total** size); off/local/API toggle.
+- **12.7 Correctness validator** — reject the #1220 silent-gray VAE-OOM output (channel-variance/uniform check on the decoded PNG + stderr scan for `ErrorOutOfDeviceMemory`); **never trust the exit code**; auto-retry lower-res/more-offload.
+- **12.8 `[IMG]` agent directive** — `[IMG] a minimalist fox logo -> src/assets/logo.png [--seed 357925 --ar 1:1]` calls `IMAGE_GENERATE` and writes bytes to `src/assets/` (explicit wiring — NOT free reuse of add-to-assets), trust-gated, post-directive rescan. Deterministic seeds for byte-identical rebuilds (same-machine).
+- **12.9 Spawn ladder on CURRENT flags + advanced controls** — `--backend vulkan`/`--max-vram -1`/`--offload-to-cpu`/`--diffusion-fa`/`--vae-conv-direct` (the cited `--clip-on-cpu`/`--vae-on-cpu` are **deprecated**); TAESD live preview; img2img strength / LoRA / upscale.
+- **12.10 `test:imagelocal` + live verify** — lock binary-URL/routing/flat-zip-path/scan/badges; `test:engine` green; a real offline PNG on the 4 GB card.
+
+**Top risks (with mitigations):** out-of-process/OOM → own process + idle-unload + serialize vs LLM; silent gray corruption → post-gen validator; licensing → Apache/OpenRAIL defaults only, NC opt-in, pass-through notice as a build task; NSFW → tame SD1.5 base, on-device, don't market "uncensored"; weight provenance → SHA-256 pin + `.safetensors`/`.gguf` only; unsigned-binary AV → bundle default binary + ship checksums. **World-first (hedged):** "first agent-first, in-installer, fully-offline image generation via a directive" — Replit is cloud/metered, LM Studio bridges to external SD via MCP; verify vs current Cursor/Windsurf/Antigravity before the README line.
+
+**Full detail, all findings, and the corrected file-touch map → [`ROADMAP-LOCAL-IMAGE-GEN.md`](ROADMAP-LOCAL-IMAGE-GEN.md).**
 
 ---
 

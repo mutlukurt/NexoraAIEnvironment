@@ -1,97 +1,126 @@
-# Phase 12 — Local Image Generation (offline, on-device)
+# Phase 12 — Local Image Generation (offline, on-device) — Detailed Spec
 
-> **Planned 2026-07-10.** Sourced from a 10-agent internet-research sweep. v0.18 shipped image generation on the **API**; this phase ships its **offline twin** so a laptop with no internet and no keys can still generate images — the last missing piece of the local-first mission. NexoraAI already runs local **LLMs** (node-llama-cpp) and local **vision input** (Qwen-VL). The one thing it can't do on-device is **generate** images. This closes it.
-
----
-
-## TL;DR — the decision is made by the research
-
-**Engine: [`leejet/stable-diffusion.cpp`](https://github.com/leejet/stable-diffusion.cpp) — the "llama.cpp of image generation."** Every one of the 7 successful research agents independently converged on it. It is the *same class of artifact* as the `llama-server` NexoraAI already vendors and spawns:
-
-- Same **GGML** lineage; loads **GGUF-quantized** weights (q4_0/q5_0/q8_0 + k-quants) exactly like our LLM engine.
-- Ships **`sd-server`**, an actively-maintained HTTP binary with an **OpenAI-compatible `POST /v1/images/generations`** (and `/v1/images/edits`) endpoint — *the same shape the v0.18 API image-gen client already calls.*
-- Prebuilt **per-platform / per-backend** release zips: Windows CUDA/Vulkan/CPU, macOS arm64 Metal, Linux Vulkan/CPU — the exact backend matrix our `.exe`/`.deb`/`.dmg` CI needs.
-- MIT-licensed binary (safe to bundle).
-
-**The integration is ~80% infrastructure we already own.** Concretely: add a **third spawned server** (`sdService.ts`, a near-clone of `visionService.ts`), have the **Hardware Advisor** download an SD/Flux GGUF by free VRAM (exactly like it downloads coder GGUFs), and **reuse the shipped API image-gen client code** by pointing its base-URL at `http://127.0.0.1:<port>`. A hybrid **off / local / API** toggle drops in next to the existing engine selector.
-
-**Unique positioning (precedent research):** LM Studio, Jan, Ollama, GPT4All do LLMs only; Draw Things, DiffusionBee, Fooocus, InvokeAI, ComfyUI do images only. **No mainstream app ships both first-class local LLM coding *and* local image generation in one installer.** NexoraAI would be the first.
+> Redesigned **2026-07-10** from a **12-agent research + adversarial-verification** sweep (10 research dimensions → lead-architect synthesis → adversarial reviewer). The reviewer **proved the core end-to-end on the real 4 GB RTX 2050**: `sd-server` spawned, internet off, no API key → a real **457 KB PNG in ~33 s**. This spec folds every blocker the reviewer found back into the plan. Source tree is `/home/mutlu/Masaüstü/NexoraAI/` (the app's runtime data dir is `~/NexoraAI/`).
 
 ---
 
-## Model & VRAM tiers (what the Advisor recommends)
+## 1. Engine decision — MADE
 
-The Hardware Advisor already detects free VRAM/RAM and picks a GGUF by fit (🟢 fits / 🔵 spills). Add an **image** tier using these researched numbers:
+**PRIMARY: `leejet/stable-diffusion.cpp` `sd-server`** (pinned `SD_BIN_TAG=master-769-cc73429`).
 
-| Tier | Model | Quant / size | VRAM floor | Speed | Notes |
-| --- | --- | --- | --- | --- | --- |
-| **Entry / CPU-OK** | **SD 1.5** | ~1.5–2.8 GB | any GPU **or** CPU | slow on CPU (~30 s), instant on GPU | tiny, universal; SD-Turbo/LCM = 1–4 steps |
-| **Balanced** | **SDXL / SDXL-Turbo** | ~6–7 GB | 8 GB | ~2.5 s on RTX 3070 | best quality-per-VRAM on 8 GB cards |
-| **Sweet spot** | **Flux.1 [schnell]** *(Apache-2.0, commercial-OK, 4-step)* | Q4_0 ~6.4 GB / Q2_K ~4 GB | **4–6 GB** with `--clip-on-cpu` | fast (4 steps) | needs companion files: `ae.safetensors` (VAE), `clip_l`, `t5xxl` |
-| **Quality** | **Flux.1 [dev]** *(non-commercial)* / **SD3.5** | Q8_0 ~11 GB / Q4_K ~6.5 GB | 8–12 GB | slower | highest fidelity |
+Why it wins:
+- **Diffusion sibling of llama.cpp** — GGML/GGUF lineage, spawnable HTTP server, per-OS prebuilt zips → maps onto our existing `binaryCandidates()` / spawn-ladder / vendored-binary pattern.
+- **Out-of-process by construction** — all weights live in the spawned binary, so the **>4 GB Electron-V8-heap crash rule is satisfied automatically** (same as the 8091 vision sidecar).
+- **`POST /v1/images/generations` → `{data:[{b64_json}]}`** is the byte-for-byte shape `generateImageOpenAI()` (apiEngine.ts) already POSTs → point base URL at `127.0.0.1:8092`, reuse the entire shipped in-chat UX with near-zero new client code.
+- **MIT binary, no Python, no Node/N-API.** Verified: `sd-server` (2.04 MB) + `sd-cli` ship **inside the zip** alongside 34 `.so` files (the "no server binary" GitHub-API summary was wrong).
 
-**Low-VRAM survival flags (validated in research):** `--clip-on-cpu` (offload the ~9.5 GB T5 text encoder to RAM), `--vae-tiling`, `--vae-on-cpu`, `--offload-to-cpu`, `--diffusion-fa` (Flash Attention). These let Flux run on a **4 GB RTX 2050** (the dev's own card) at reduced speed. On a 4 GB card the default recommendation is **SD 1.5 / SDXL-Turbo**; Flux-schnell-Q4 is offered as "🔵 spills to RAM, slower."
+**FALLBACK:** the **CPU rung of the same binary** on a GPU→CPU spawn ladder — *not* a different engine.
 
----
+**Rejected:** ComfyUI / A1111 / Fooocus (bundled Python, ~2× installer), onnxruntime-node (no GPU EP, no server, in-process → heap risk), candle/mistral.rs (no prebuilt server, Rust CI), Draw Things / WebGPU-MLC (single-OS / broken in Electron-Windows).
 
-## Sub-phases (build order)
-
-- [ ] **12.1 `sdService.ts` — spawn + health + lifecycle (the foundation).** New `electron/main/sdService.ts`, a near-clone of `visionService.ts`. **Reuse verbatim:** `downloadFile()` (streamed `.part` rename + %-to-chat), `BIN_ROOT`/`MODELS_DIR`, the `spawn(bin, [...], {env:{LD_LIBRARY_PATH:dirname(bin)}})` pattern, the stdout `listening` readiness scan, and the POSIX group-kill stop (from 7.6). Dedicated port **8092** (add it to `llamaServerEngine`'s `AVOID_PORTS`; vision owns 8091). Model stays warm across requests.
-- [ ] **12.2 Binary acquisition — vendor + first-run backend download.** Fetch prebuilt `sd-server` from `github.com/leejet/stable-diffusion.cpp/releases/<TAG>/`. Ship the **small universal binary** in the installer (win-vulkan 37.6 MB / macOS-arm64-Metal 49 MB / linux-vulkan 44.7 MB, + CPU fallback) — mirror the CI `vendor/` per-job download. **Do NOT bundle CUDA** (362 MB + 563 MB cudart): download it on **first run only when the Advisor detects an NVIDIA GPU**, exactly like GGUF weights today. Backend-select ladder: Vulkan (NVIDIA/AMD/Intel) → CPU fallback; CUDA optional for max NVIDIA speed. *(Note: no Linux-CUDA and no x86-macOS prebuilds — Vulkan/CPU cover Linux, Metal covers macOS arm64.)*
-- [ ] **12.3 Advisor: image-model tier + GGUF download.** Extend the Hardware Advisor catalog with the table above. Same download-by-free-VRAM logic that picks 3B vs 14B for LLMs now picks SD1.5 vs SDXL vs Flux-schnell-Q4 vs Flux-dev-Q8. **Flux needs a bundle** (diffusion model + `ae` VAE + `clip_l` + `t5xxl`) — the downloader fetches all companion files and auto-adds `--clip-on-cpu --vae-tiling` on ≤ 8 GB.
-- [ ] **12.4 Wire the OpenAI endpoint — reuse the shipped client.** Point the **existing v0.18 image-gen code** (`apiEngine.generateImage`, the OpenAI-compatible `/images/generations` path) at `http://127.0.0.1:8092`. Because `sd-server` speaks the same shape, the in-chat **preview / fullscreen / download / add-to-assets**, aspect ratio, count, and negative prompt all work with **zero new UI**. This mirrors how 10.2's "serve engine" already speaks OpenAI locally.
-- [ ] **12.5 Hybrid off / local / API toggle + model detection.** A third state next to the engine selector: image generation runs **local (sd-server)**, **API (cloud image model)**, or **off**. `isImageGenModel` already routes; add "is a local SD/Flux model loaded?" so a local image model is picked like a local LLM. Same trust-tier / opt-in framing ("stays on your machine").
-- [ ] **12.6 Progress & cancel.** `sd-server`'s native async job API (`/sdcpp/v1/img_gen` → poll `/sdcpp/v1/jobs/{id}` → `/cancel`) gives **step progress + partial-image preview** (`--preview tae`, `--preview-interval`) — stream it into the chat like token streaming. Wire Stop to job-cancel.
-- [ ] **12.7 Advanced features (incremental, mostly native flags).** img2img (`--strength` + the existing attach-image UI → `/v1/images/edits`), **inpaint** (`--mask`), **LoRA** (`--lora-model-dir`, `<lora:name:weight>` in prompt), **ControlNet** (`--control-net`, canny/depth for SD1.5), **upscale** (ESRGAN/`--upscale-model`), samplers (`euler_a` default, `dpm++2m`, `lcm`), CFG/seed/steps. Each is a parameter, exposed in the existing `ImageOptions` popover.
+**Binary sizes (this tag):** Linux Vulkan 42.7 MB · Win Vulkan 35.9 MB · macOS Metal 46.9 MB · CPU 22–31 MB · CUDA 345 MB (+537 MB cudart) → **bundle Vulkan/Metal/CPU (~+40 MB/platform); download CUDA on demand only.**
 
 ---
 
-## Integration architecture (concrete)
+## 2. Model tiers — one binary, quality = a different GGUF gated by the Advisor
 
+| Tier | Model | Files / total disk | VRAM @512² | Steps | Measured / est. speed | License | 4 GB |
+|---|---|---|---|---|---|---|---|
+| **v1 — SHIP FIRST** | **SD 1.5 Q4_0** (VAE baked in) | 1 / **1.57 GB** | ~1.5 GB (loads to 1496 MB) | 20 | **~33 s** RTX 2050 Vulkan / minutes CPU | OpenRAIL-M (commercial OK) | 🟢 fits |
+| v1 fast | SD 1.5 + LCM / Hyper-SD15 LoRA | 1 (+MB) / 1.57 GB | ~1.5 GB | 2–4 | ~7–10 s GPU (est.) | OpenRAIL-M | 🟢 fits |
+| mid (opt-in only) | SDXL-Turbo | 1 / ~5 GB | ~8 GB | 1–4 | ~2.5 s (3070) | **Non-Commercial** | 🔵 spills |
+| **high (clean license)** | **Flux.1-schnell Q4_0** | **4 / ~16 GB total** | ~7–8 GB | 4 | ~10 s+ (8 GB) | **Apache-2.0** | 🔵 spills |
+| high (scale) | Z-Image-Turbo | 3 / Q4_0 + ~2.5 GB enc | 4 GB via offload | 8 | ~2–3 s (4090) | Apache-2.0 | 🔵 spills |
+
+- **Ship/download FIRST: SD 1.5 GGUF Q4_0 (1.57 GB, `second-state/stable-diffusion-v1-5-GGUF`)** — single file, VAE baked in, fits 4 GB, runs on CPU, commercial-safe, non-corrupt output (channel variance ~5000, not #1220 gray).
+- Flux is a **4-file bundle** (diffusion + `ae` VAE + `clip_l` + `t5xxl_fp16`) ≈ **16 GB total**, not the 6.77 GB diffusion file alone — the Advisor must show the **total**.
+- **Never default/bundle** SDXL-Turbo/SD-Turbo (`sai-nc-community`, NC), SD3.5 ($1M gate), Flux-dev (NC) — opt-in with terms shown.
+- The bf16-black-image bug is repo-specific (kostakoff); `second-state` ships only Q4_0…f16/f32 → non-issue for the chosen file.
+
+---
+
+## 3. Integration architecture
+
+**New `electron/main/localImageService.ts` = a *corrected* clone of `visionService.ts`:**
+- `IMAGE_PORT = 8092`; add `8092` to `AVOID_PORTS` in `llamaServerEngine.ts` (8091 is vision).
+- Reuse verbatim: `downloadFile()` (%-to-chat + `.part`), stdout readiness scan `/listening|HTTP server/i` (sd-server prints `listening on: http://127.0.0.1:8092` ~4 s after model load; **no `/health`**), `spawn(...{env:{LD_LIBRARY_PATH:dirname(bin)}})`, POSIX group-kill.
+- `pickImageModel` / `scanInstalledImageModels` (regex `sd|sdxl|flux|z-image`, exclude `mmproj`).
+- **Exports:** `ensureLocalImageReady` (resolves a model path **before** spawn), `startImageServer(modelPath)`, `stopImageServer`, `hasLocalImageModel`, `generateImageLocal(prompt,opts):Promise<GenImg[]>`.
+
+**Routing — insert at the VERY TOP of `generateImage()` (apiEngine.ts), before `active()`** (which throws `'Aktif bir görsel modeli yok.'` when there's no cloud image model):
+```ts
+if (localImageService.hasLocalImageModel())
+  return localImageService.generateImageLocal(prompt, opts)   // POSTs to 127.0.0.1:8092
 ```
-electron/main/sdService.ts        ← clone of visionService.ts (spawn sd-server, port 8092)
-  ├─ ensureSdBinary()             ← clone binaryUrl()/ensureBinary() from llamaServerEngine, swap base URL
-  ├─ ensureSdModel(advisorPick)   ← Advisor-driven GGUF + Flux companion download (reuse downloadFile)
-  ├─ startSdServer()              ← spawn(sdBin, ['--diffusion-model', m, '--vae', ae, '--llm'|'--t5xxl', ..,
-  │                                        '--diffusion-fa', '--offload-to-cpu', '--listen-port','8092','-v'])
-  └─ stopSdServer()               ← POSIX group-kill (reuse 7.6)
-
-electron/main/apiEngine.ts        ← generateImage() already speaks /v1/images/generations →
-                                     point base-URL at 127.0.0.1:8092 for the local path (ZERO new client)
-
-Hardware Advisor                  ← + image-model tier (SD1.5 / SDXL / Flux-schnell-Q4 / Flux-dev-Q8) by free VRAM
-Settings / composer               ← off | local | API image-gen toggle (reuse existing ImageOptions UI)
-CI build.yml                      ← each job also downloads the matching sd.cpp release zip into vendor/sd-bin
-```
-
-**Reuse ledger (what we do NOT rewrite):** the whole in-chat image UI (preview/fullscreen/download/add-to-assets, aspect/count/negative — all shipped in v0.18), the OpenAI image request/response client (`apiEngine`), the spawned-C++-server + health-scan + group-kill pattern (`visionService`/`llamaServerEngine`), the streamed GGUF downloader with %-progress, the Hardware Advisor VRAM detection + fit badges, the trust-tier/opt-in framing, and the per-platform CI vendor-download step.
+Add a distinct `activeLocalImageModel` flag; **widen the renderer `isImageGenModel` gate** (appStore.ts) so a local model enters the image path. Everything downstream is untouched: the `IMAGE_GENERATE` handler (index.ts) already decodes `b64`→`~/NexoraAI/cache/generated` + builds `data:` URLs; the renderer already does preview/fullscreen/download(`IMAGE_SAVE_AS`)/add-to-assets; `ImageGenOptions` already carries aspect/count/negativePrompt/promptExtend/referenceImageDataUrl.
 
 ---
 
-## Licensing & distribution (from research — the 3 gated agents' topic, filled from the others)
+## 4. BLOCKERS the adversarial pass caught (fold in BEFORE building)
 
-- **`sd-server` binary:** MIT — safe to bundle/redistribute.
-- **Models:** SD 1.5 / 2 → CreativeML OpenRAIL-M; SDXL → SDXL license; SD3.5 → Stability AI Community License; **Flux.1 [schnell] → Apache-2.0 (fully commercial)**; **Flux.1 [dev] → non-commercial** (label it clearly, don't imply commercial use). Most weights are auto-downloadable from Hugging Face; **some repos are gated** and need an HF token / click-through — for those, prompt the user to accept + paste a token (like a BYO-key), never auto-fetch silently. Default recommendation leans on the **Apache-2.0 Flux-schnell + OpenRAIL SD1.5** so out-of-the-box use is unencumbered.
-- **Safety:** local SD has no built-in filter; add an opt-in note. Keep it clearly user-initiated.
+- **B1 — sd-server needs `-m` at launch; it exits without a model.** `./sd-server` with no `-m` → `error: the following arguments are required: model_path/diffusion_model` and quits. The server is **bound to ONE model at launch** (unlike the vision sidecar's start-then-load). ⇒ `ensureLocalImageReady()` must resolve/download the model **before** spawn; treat the process as **per-model** (restart to switch model or change baked params). Kill the "spawn then ready" mental model.
+- **B2 — the reused OpenAI endpoint gives ZERO per-request steps/seed/sampler/CFG.** It accepts only `prompt / n / size / output_format / output_compression`; steps/seed/sampler/cfg are **launch-time CLI flags** (returned PNG metadata showed `Steps:20, CFG:7.0, Seed:42` baked in). ⇒ ship seed+steps via the native `/sdcpp/v1/img_gen` body OR the `<sd_cpp_extra_args>{"sample_params":{"sample_steps":4}}</sd_cpp_extra_args>` prompt-embedded hack — **pulled forward to 12.3**, not deferred, because seed is the highest-value knob for the iterate-loop.
+- **B3 — the sd.cpp zip is FLAT** (binaries + `.so`s at root, no top folder); vision's `serverBinaryPath()` builds a **nested** `join(BIN_ROOT,'sd-'+TAG,name)` → `existsSync()` fails. ⇒ write an explicit **flat** `sdServerPath()` (binary directly in `extractDir`), set `LD_LIBRARY_PATH` to that dir, `chmod +x` after extract. Use `unzip`/`tar -xf` (zip on **all** platforms), not `tar xzf`.
+
+## 5. HIGH-severity corrections
+- **H1 — speed is ~7× slower than the research estimate:** SD1.5 512²/20 steps = **~33 s** on the RTX 2050 (not "3–5 s"); LCM@4 steps ≈ 7–10 s; CPU = minutes. ⇒ **spinner+elapsed from the FIRST request** (12.2), not deferred to progress work.
+- **H2 — cited flags are deprecated:** `--clip-on-cpu` / `--vae-on-cpu` are deprecated → use `--backend te=cpu` / `vae=cpu`, `--offload-to-cpu`, `--max-vram -1` (neg = auto-detect free VRAM), `--diffusion-fa`, `--vae-conv-direct`. Rewrite the 4 GB spawn ladder on these.
+- **H3 — LLM↔SD VRAM concurrency is the real 4 GB killer:** SD alone loads ~1496 MB; a 14B coder + SD cannot co-reside on 4 GB. ⇒ explicit **mutex/handoff in 12.4** (pause/offload the LLM around an image gen, or run SD on CPU while GPU serves the LLM). An `[IMG]` mid-build would otherwise OOM one server.
+- **H4 — `generateImage` routing must short-circuit before `active()`** (which throws with no cloud image model) and the renderer `isImageGenModel` gate must be widened, else a local model never enters the image path.
+
+## 6. MEDIUM
+- **M1 — licensing is a build task:** OpenRAIL-M is **pass-through** → surface license + Attachment-A use-restrictions on first SD1.5 download (modal + ToS). Mark SDXL-Turbo/SD-Turbo NC, opt-in, **never Advisor-default**. Advisor shows **total** Flux size (~16 GB).
+- **M2 — `[IMG]` decode is NOT free reuse:** the decode-to-disk lives in the `IMAGE_GENERATE` handler + `IMAGE_SAVE_AS` (main), not in `executeDirectives` (renderer). `[IMG]` must explicitly call `IMAGE_GENERATE` then write bytes to `src/assets/` via the artifacts store + post-directive rescan.
+- **M3 — unsigned fetched binary doubles AV/Gatekeeper surface** (llama.cpp Defender-Wacatac precedent) → **bundle the default Vulkan/Metal binary in app resources** (not curl-at-first-run); ship checksums + a Defender note; CUDA on-demand only.
 
 ---
 
-## Sequencing & success test
+## 7. Sub-phases (final order)
 
-**Order:** 12.1 spawn/lifecycle → 12.2 binary vendor → 12.3 Advisor model download → **12.4 wire OpenAI endpoint (this is the "it works" milestone — reuses all v0.18 UI)** → 12.5 hybrid toggle → 12.6 progress/cancel → 12.7 advanced features (as demand dictates).
-
-**PASS when:** on a machine with **no internet after setup and no API key**, selecting a local image model and typing *"a red panda coding at a desk"* produces an image **inline in the chat** (preview/fullscreen/download/add-to-assets all working), generated by a spawned `sd-server` on `127.0.0.1`, with the model chosen by the Hardware Advisor for the detected VRAM — and **nothing left the machine**. Live-tested on the real app (incl. the dev's 4 GB RTX 2050 → SD1.5/SDXL-Turbo path), `test:engine` green, a new `test:imagelocal` locking the model-detection + endpoint routing.
-
-**Explicitly reused, not reinvented:** this is the offline mirror of the shipped API image gen — same in-chat experience, engine swapped for a local spawned binary. That symmetry is the whole point.
+- **12.1 Model-first spawn** — `ensureLocalImageReady()` → `startImageServer(modelPath)` spawns `sd-server -m <sd15> --listen-ip 127.0.0.1 --listen-port 8092 -v`; 8092→`AVOID_PORTS`; explicit flat-zip path; `chmod +x`. *Accept:* internet OFF, `curl` returns `b64_json`. *Files:* `localImageService.ts` (new), `llamaServerEngine.ts`.
+- **12.2 🎯 FIRST MILESTONE — real PNG in chat, offline** — local branch atop `generateImage()` + widen `isImageGenModel` + `activeLocalImageModel`; spinner+elapsed. *Accept:* internet OFF + no API key → "a red panda coding" → inline PNG via shipped UX; add-to-assets writes `src/assets/`. *Files:* `apiEngine.ts`, `appStore.ts`, `imageModels.ts`.
+- **12.3 Per-request control** — seed/steps/sampler/cfg via native `/sdcpp/v1/img_gen` or `<sd_cpp_extra_args>`. *Files:* `localImageService.ts`, `imageModels.ts`.
+- **12.4 LLM↔SD VRAM handoff** — mutex/offload. *Files:* `llamaServerEngine.ts`, `localImageService.ts`.
+- **12.5 CI vendoring + bundle** — `vendor/sd-bin` per job; bundle Vulkan/Metal in resources; CUDA on-demand. *Files:* `build.yml`, `localImageService.ts`.
+- **12.6 Model download + first-run + Advisor tier** — SD1.5 Q4_0 auto-download %/cancel + SHA-256 pin + `.ckpt/.pt` refusal; Advisor image tier (total size); off/local/API toggle. *Files:* `localImageService.ts`, `advisor.ts`, settings store + UI.
+- **12.7 Correctness validator** — reject #1220 gray (channel-variance >50 = good) + stderr `ErrorOutOfDeviceMemory`; never trust exit code; auto-retry lower-res/more-offload. *Files:* `localImageService.ts`.
+- **12.8 `[IMG]` directive** — `[IMG] … -> src/assets/logo.png [--seed … --ar 1:1]` → `IMAGE_GENERATE` → write `src/assets/`; trust-gated; rescan; deterministic seeds (same-machine). *Files:* `agentActions.ts`, `prompts.ts`, `appStore.ts`.
+- **12.9 Current-flag spawn ladder + advanced** — `--backend`/`--max-vram -1`/`--offload-to-cpu`/`--diffusion-fa`/`--vae-conv-direct`; TAESD live preview; img2img strength/LoRA/upscale. *Files:* `localImageService.ts`, `imageModels.ts`.
+- **12.10 `test:imagelocal` + live verify** — lock URL/routing/flat-path/scan/badges; `test:engine` green; real offline PNG on 4 GB. *Files:* `tests/`, `package.json`.
 
 ---
 
-## Sources (from the research agents)
+## 8. First milestone to build & test in a loop
 
-- `github.com/leejet/stable-diffusion.cpp` — engine, `sd-server`, CLI flags, prebuilt releases (tag `master-769-cc73429`, 2026-07-08), OpenAI/A1111/native endpoints.
-- stable-diffusion.cpp Flux docs — GGUF quant sizes, `--clip-on-cpu` 4–6 GB VRAM guidance.
-- `huggingface.co/city96` & `leejet` — Flux/SD GGUF quantizations.
-- black-forest-labs — Flux.1 [schnell] Apache-2.0 vs [dev] non-commercial.
-- Precedent sweep — LM Studio (added diffusion mode), Jan (image understanding), Draw Things, DiffusionBee, Fooocus, InvokeAI, ComfyUI Desktop, Amuse: the "both LLM + image in one app" gap.
+Ship **12.1 + 12.2 as one loop**: (1) hand-drop `sd15-q4_0.gguf` into `~/NexoraAI/models/`; (2) clone `visionService.ts`→`localImageService.ts` with the **flat-zip path fix**, spawn `sd-server -m <sd15> --listen-ip 127.0.0.1 --listen-port 8092 -v`, scan stdout, add 8092 to `AVOID_PORTS`; (3) `hasLocalImageModel()` branch atop `generateImage()`, `generateImageLocal()` POSTs to `127.0.0.1:8092/v1/images/generations`; (4) widen `isImageGenModel`. **PASS = internet OFF + no API key → "a red panda coding" → inline PNG in chat via existing preview/fullscreen/download/add-to-assets, real binary in `src/assets/`.** Then loop: see PNG → tweak → regenerate → continue, on the 4 GB RTX 2050 (Vulkan) with CPU fallback.
 
-*(3 of 10 research agents — models catalog, hardware-tier deep-dive, licensing deep-dive — hit the structured-output retry cap and returned no report; their topics were reconstructed from the 7 that succeeded, which covered the same ground. Re-run those 3 for even finer model/VRAM/license tables before implementation if desired.)*
+**File-touch map (absolute):** `electron/main/localImageService.ts` (new) · `electron/main/apiEngine.ts` · `electron/main/visionService.ts` (clone source — fix flat path) · `electron/main/llamaServerEngine.ts` · `electron/main/index.ts` · `electron/shared/imageModels.ts` · `electron/shared/advisor.ts` · `src/lib/agentActions.ts` · `electron/shared/prompts.ts` · `src/store/appStore.ts` · `.github/workflows/build.yml`.
+
+---
+
+## 9. Hardware & Advisor — recovered dimension (verified/triangulated numbers)
+
+*(This is the 10th research dimension, re-run after it errored; it refines the tiers above.)*
+
+**v1 proof, refined — use a TURBO/low-step model for a "seconds" experience, not SD1.5 @20 steps (~33 s):**
+- Ship-first proven-to-work base = **SD 1.5 Q4_0** (33 s @20 steps, verified). But for the *loop* UX, launch with **1–4 steps + Euler + CFG≈1.0** (SD-Turbo checkpoint, or SD1.5 with low steps) → **seconds** on the 4 GB card AND on CPU (1-step turbo ≈ 1.7–7.8 s CPU with TAESD). Steps/sampler/CFG are **launch flags** (per B2), so a fixed fast preset is set at spawn.
+- **Default `--diffusion-fa` (flash attention) everywhere** — frees ~600 MB (Flux 768²) to ~1400 MB (SD2 768²), *no quality loss*, also faster.
+
+**Vulkan caveat (the dev box is Vulkan):** sd.cpp's Vulkan backend is functional but **notably slower than CUDA**, occasionally pathological (issue #1114: ~100 s/iter Vulkan vs ~60 s CPU; FLUX.2-klein 25 s sd.cpp/Vulkan vs 5 s ComfyUI). ⇒ **ship a CUDA build for NVIDIA when we can** (download-on-demand, like the 924 MB CUDA note); on Vulkan keep to SD1.5/Turbo and expect single-digit-to-teens seconds, not sub-second.
+
+**Advisor image tiers (mirror the LLM 🟢 fits / 🔵 spills), gate Flux on RAM too:**
+
+| Detected VRAM | 🟢 default | 🔵 stretch | note |
+|---|---|---|---|
+| CPU-only | SD-Turbo/LCM 512² 1–4 steps + TAESD | SD1.5 20-step | seconds (turbo) / minutes (full) |
+| < 4 GB | SD1.5 / SD-Turbo 512² | Flux-schnell q2_k (`te=cpu`, **RAM ≥ 16 GB**) | |
+| **4–6 GB (RTX 2050)** | **SD1.5 GPU 512²** | Flux-schnell q2_k/q3_k (`te=cpu`) | SD1.5 6–15 s; Flux q2_k 1–3 min |
+| 8 GB | SDXL-Turbo / Flux-schnell **q4_k** (`--lowvram`) | Flux-dev q4_k | Flux-schnell 40–90 s |
+| 12 GB | Flux **q5_k/q8_0** | Flux-dev q8_0 | 55–90 s |
+| 16 GB+ | Flux **q8_0 / dev** | Flux.2 | 30–65 s |
+
+- **Gate Flux on system RAM, not just VRAM** — CPU-offload of the T5 encoder (~3–5 GB) + weights needs **16–32 GB RAM**; a 4 GB GPU with 8 GB RAM must **not** be offered Flux. This is the one extra input vs the LLM advisor.
+- **Quant rule:** quantize *big* models to fit (Flux q2_k/q3_k are genuinely usable — large DiTs tolerate it), run *small* models at high precision (never q2_k an SD1.5 — it already fits 4 GB at fp16/q8). Q4_K is the mainstream quality floor; Q8_0 only at 12 GB+.
+- **Flag naming:** the critique verified against the live `--help` that `--clip-on-cpu`/`--vae-on-cpu` are **deprecated** → use `--backend te=cpu` / `vae=cpu`, plus `--offload-to-cpu`, `--max-vram -1` (neg = auto-detect), `--vae-tiling`, `--vae-conv-direct`.
+
+**Latency hiding:** load times NVMe ~3–8 s (SD1.5) → ~10–20 s (Flux+T5); spinning disk 30–40 s; warm mmap ~1.1 s. ⇒ (1) **keep `sd-server` resident** across requests (load once) + **idle-TTL** to release a 12 GB model; (2) **warm up on model-select**, not first prompt; (3) **`--taesd` latent preview** → blurry per-step preview so the wait feels alive (pairs with 4-step turbo = 4 frames); (4) real per-step progress counter is mandatory at Flux's 1–3 min on 4 GB.
