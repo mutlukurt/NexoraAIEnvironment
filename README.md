@@ -62,6 +62,24 @@ NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B m
 
 v0.17 unleashed *building* — v0.18 makes the workspace **complete**. You can now **generate images inside the chat**, and give the agent **plain-language file & shell commands** (*"convert this to WebP with Pillow and put it in assets"*) that it runs with **full access to the project on disk**. The whole thing was proven end-to-end in a **single session**: build a skeleton with a local model → continue with a cloud API model → generate a logo with an image model → convert it and wire it into the page — no restarts, no copy-paste, everything persists.
 
+> **v0.18.2 (patch) — Settings UX hardening: appearance moved in, Provider Hub goes master-detail.** Two navigation annoyances, fixed. **(1)** The sidebar had a bulky **"Theme & Language"** box eating vertical space at the bottom — it's gone; theme (Light/Dark) and language (TR/EN) now live in **Settings → General → Appearance**, a clean segmented control at the top of the section. **(2)** The **Provider Hub** listed 157 providers and expanded the selected provider's config as an accordion *at the very bottom of the list* — so configuring OpenRouter or Baseten meant scrolling all the way down. It's now **master-detail**: click a provider and its own focused pane opens **at the top** (with a `‹ All providers` back button) — API key, model id, fetch-models and the model enable/disable list, right there. No scrolling. Both live-verified on the real app.
+>
+> | Annoyance (≤ v0.18.1) | v0.18.2 |
+> | --- | --- |
+> | Sidebar "Theme & Language" box wasted vertical space | Removed → **Settings → General → Appearance** (Theme + Language segmented controls) |
+> | Picking a provider expanded config **at the bottom** of the 157-item list → scroll to the floor | **Master-detail**: click → focused config pane opens **at the top**, `‹ All providers` to return |
+> | List and detail stacked together (long, noisy) | Detail **replaces** the grid/search; active provider stays selected on return |
+>
+> <div align="center">
+> <img src="docs/screenshots/settings-appearance.png" width="80%" alt="Settings → General → Appearance: Theme (Light/Dark) and Language (TR/EN) segmented controls, moved out of the sidebar" />
+>
+> *Theme & Language, moved from the sidebar into Settings → General → Appearance.*
+>
+> <img src="docs/screenshots/provhub-detail.png" width="80%" alt="Provider Hub master-detail: clicking OpenRouter opens its own config pane at the top with a back button" />
+>
+> *Provider Hub, master-detail: click a provider → its config opens at the top, no scrolling.*
+> </div>
+
 > **v0.18.1 (patch) — Settings is now a two-pane workspace, and the local vision model is yours to pick.** Settings had grown into one long scroll with everything piled together. It's now a **two-pane layout** (like Claude/ChatGPT): a **left category nav** — General · Providers · Models · Trust & Permissions · Prompt & Rules · Knowledge · Tools · Commands · Engine — and a **right content pane** that shows only the selected category. Click between them; each opens clean, always starting on **General**. Alongside it, **local vision (VL) model selection was un-hardcoded**: the app no longer assumes Qwen — it **scans every installed VL GGUF** (any main-model + `mmproj` pair — Qwen3-VL, LLaVA, whatever you have) and lets you **pick which one** analyzes reference images from the new **Models** section, picking the largest that fits your RAM by default. *(Both live-verified on the real app; the local-first default is untouched.)*
 >
 > <div align="center"><img src="docs/screenshots/settings-2pane.png" width="80%" alt="The redesigned two-pane Settings — a left category nav and a right content pane showing the General section" /></div>
