@@ -7,7 +7,7 @@
  * etiketli. Katalog çevrimdışı gömülü — listeyi göstermek ağ istemez.
  */
 import { useEffect, useState } from 'react'
-import { Search, KeyRound, Check, Trash2, Download, Cpu, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { Search, KeyRound, Check, Trash2, Download, Cpu, ShieldCheck, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react'
 import { PROVIDERS, findProvider, dataDestinationNote } from '@shared/providers'
 import { useSettingsStore } from '@/store/settingsStore'
 import { fuzzyFilter } from '@/lib/fuzzy'
@@ -24,6 +24,10 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
 
   const [query, setQuery] = useState('')
   const [showAll, setShowAll] = useState(false)
+  // Master-detail: sağlayıcıya tıklayınca liste yerine o sağlayıcının ayrı
+  // yapılandırma haznesi açılır (akordeon-en-altta yerine). detailOpen yalnız
+  // UI durumu — aktif sağlayıcıyı (store.provider) deaktive etmez.
+  const [detailOpen, setDetailOpen] = useState(false)
   const [configured, setConfigured] = useState<string[]>([])
   const [encrypted, setEncrypted] = useState(true)
   const [keyInput, setKeyInput] = useState('')
@@ -50,7 +54,9 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
     setKeyInput('')
     setModels([])
     setFetchErr('')
+    setDetailOpen(true)
   }
+  const backToList = () => setDetailOpen(false)
 
   const saveKey = async () => {
     if (!sel || !keyInput.trim()) return
@@ -117,7 +123,9 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
         ))}
       </div>
 
-      {/* Arama + liste */}
+      {/* LİSTE görünümü — bir sağlayıcının detayı açık DEĞİLKEN: ara + grid */}
+      {!(detailOpen && sel) && (
+      <>
       <div className="mt-3 flex items-center gap-2 rounded-lg border border-ink-line bg-ink-card px-2.5 py-1.5">
         <Search className="h-3.5 w-3.5 shrink-0 text-ink-dim" />
         <input
@@ -146,6 +154,7 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
               </span>
               {p.local && <Cpu className="h-3 w-3 shrink-0 text-emerald-500" />}
               {conf && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-dim" />
             </button>
           )
         })}
@@ -155,13 +164,24 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
           {showAll ? (tr ? 'daha az göster' : 'show less') : (tr ? `daha fazla göster (${filtered.length - 12})` : `show more (${filtered.length - 12})`)}
         </button>
       )}
+      </>
+      )}
 
-      {/* Seçili sağlayıcı yapılandırması */}
-      {sel && (
-        <div className="mt-3 rounded-lg border border-brand-500/30 bg-brand-500/5 p-3">
+      {/* DETAY görünümü — sağlayıcıya tıklayınca liste yerine bu hazne açılır
+          (Ayarlar'ın sol-menü→içerik akışı gibi; en-alta kaydırma derdi biter) */}
+      {detailOpen && sel && (
+        <div className="mt-3">
+          <button
+            onClick={backToList}
+            className="mb-2 flex items-center gap-1 text-[11px] font-bold text-brand-600 transition hover:underline dark:text-brand-300"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> {tr ? 'Tüm sağlayıcılar' : 'All providers'}
+          </button>
+          <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 p-3">
           <div className="flex items-center gap-2">
-            <span className="text-[12px] font-bold text-ink-text">{sel.name}</span>
-            <span className="text-[10px] font-semibold text-ink-dim">· {dataDestinationNote(sel, language)}</span>
+            <span className="text-[13px] font-bold text-ink-text">{sel.name}</span>
+            {hasKey && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
+            <span className="ml-auto text-[10px] font-semibold text-ink-dim">{dataDestinationNote(sel, language)}</span>
           </div>
 
           {needsBaseUrl && (
@@ -240,6 +260,7 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
             )
           })()}
           {sel.docs && <p className="mt-1.5 font-mono text-[9px] text-ink-dim">{sel.docs}</p>}
+          </div>
         </div>
       )}
     </div>
