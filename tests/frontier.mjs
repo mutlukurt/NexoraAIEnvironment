@@ -49,7 +49,10 @@ const ok = (c, l) => { if (c) { pass++; console.log('✓', l) } else { fail++; f
   ok(/framer-motion/i.test(tr) && /lucide-react/i.test(tr), 'prompt: izinli modern kütüphaneler adlandırılmış')
   ok(/three\.js|gsap/i.test(tr), 'prompt: desteklenmeyen kütüphaneler (three/gsap) yasaklanmış')
   ok(/never.*monolith|multi-file — never a single/i.test(tr), 'prompt: monolitik App.tsx YASAK')
-  ok(/TÜRKÇE|Türkçe/i.test(tr) && /English/i.test(en), 'prompt: dil satırı tr/en ayrışıyor')
+  // v0.18.3: kopya dili artık KULLANICININ DİLİNE uyar (dil-bağımsız); uygulama
+  // ayarı yalnız belirsizken yedek → tr yedeği Turkish, en yedeği English.
+  ok(/SAME language the user/i.test(tr) && /never default to turkish/i.test(tr), 'prompt: kopya dili kullanıcının diline uyar (İngilizce dahil, Türkçe-yedeğe düşme)')
+  ok(/use Turkish/i.test(tr) && /use English/i.test(en), 'prompt: yedek dil tr/en ayrışıyor')
   ok(/scroll-reveal|parallax|micro-interaction/i.test(tr), 'prompt: modern hareket (parallax/scroll-reveal) barı var')
   rmSync(work, { recursive: true, force: true })
 }

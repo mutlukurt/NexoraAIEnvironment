@@ -484,10 +484,12 @@ export function familyNote(family?: ModelFamily): string {
  * turları bu SADE persona ile gider; kod turları normal prompt'ta kalır.
  */
 export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' = 'chat'): string {
+  // Cevap dili = KULLANICININ MESAJININ DİLİ (uygulama ayarı DEĞİL). Kullanıcı
+  // Almanca sorduysa Almanca, Fransızca sorduysa Fransızca cevap ver. Uygulama
+  // dili yalnız BELİRSİZ durumda yedek. (Kullanıcı: hangi dilde sorarsam o dilde.)
+  const fallbackLang = lang === 'en' ? 'English' : 'Turkish'
   const langLine =
-    lang === 'en'
-      ? 'Answer in English.'
-      : 'Answer in natural, fluent TURKISH (Türkçe).'
+    `IMPORTANT — LANGUAGE: Detect the language of the USER'S OWN latest message and reply ENTIRELY in that SAME language. Do NOT use any app/UI language setting to pick the language — read it from their message. English message → answer in English. German → German. French → French. Spanish → Spanish. Turkish → Turkish. Arabic → Arabic. And so on for every language. NEVER default to Turkish (or any other language) for a message written in a different language — an English question gets an English answer, not Turkish. Only if the message has NO detectable human language at all (e.g. only code, numbers or symbols) may you fall back to ${fallbackLang}.`
   if (purpose === 'prose') {
     // Brief/özet gibi yazım görevleri: görevin tarifi kullanıcı mesajında,
     // persona yalnızca "düz metin yaz, kod yazma" çerçevesini kurar.
@@ -516,9 +518,7 @@ Use the FULL conversation so far: the earlier messages are real context — reme
  */
 export function frontierBuildSystemPrompt(lang?: 'tr' | 'en'): string {
   const langLine =
-    lang === 'tr'
-      ? 'Tüm kullanıcıya görünen metinleri (başlıklar, açıklamalar, buton yazıları) akıcı TÜRKÇE yaz.'
-      : 'Write all user-facing copy in English.'
+    `Write ALL user-facing copy (headings, descriptions, button labels) in the SAME language the user wrote their request in — detect it from their message, not from any app setting. English request → English copy, Turkish → Turkish, German → German, French → French, etc. NEVER default to Turkish for a non-Turkish request. Only if the request has no detectable language may you use ${lang === 'tr' ? 'Turkish' : 'English'}.`
   return `You are an ELITE senior frontend engineer and product designer working inside NexoraAI. A powerful, top-tier model is driving this build — so deliver work at the level of an award-winning design studio, NOT a basic starter template. Use the full strength of your abilities.
 
 Build a COMPLETE, production-quality, modern React + TypeScript + Tailwind CSS single-page app from the user's request. This is a NEW project — there are no existing files; you create the whole thing.
@@ -560,9 +560,7 @@ ${langLine}`
  */
 export function frontierEditSystemPrompt(lang?: 'tr' | 'en'): string {
   const langLine =
-    lang === 'tr'
-      ? 'Kullanıcıya görünen tüm metinleri akıcı TÜRKÇE yaz.'
-      : 'Write all user-facing copy in English.'
+    `Write ALL user-facing copy in the SAME language the user wrote their request in (detect from their message, not any app setting): English→English, Turkish→Turkish, German→German, etc. NEVER default to Turkish for a non-Turkish request; only use ${lang === 'tr' ? 'Turkish' : 'English'} if the request has no detectable language. Keep the project's existing copy language unless the user asks to change it.`
   return `You are an ELITE senior frontend engineer working inside NexoraAI on an EXISTING modern React + TypeScript + Tailwind CSS project. The current project files are given in the user message. A powerful, top-tier model is driving this edit — work at an award-winning studio level, use your full ability.
 
 Apply the user's requested change with taste and precision:

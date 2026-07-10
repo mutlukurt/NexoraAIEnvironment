@@ -4274,8 +4274,12 @@ ${buildErr}
       if (!postVerifyActive) pendingBuildVerify = true
     }
 
-    // Yanıt dili açık yazılır — "kullanıcının dili" talimatına 7B uymuyordu.
-    const answerLang = get().language === 'tr' ? 'TURKISH (yanıtı TÜRKÇE yaz)' : 'English'
+    // Yanıt/kopya dili = KULLANICININ MESAJININ DİLİ (uygulama ayarı yalnız yedek).
+    // Kullanıcı hangi dilde yazdıysa plan/brief o dilde olsun (Almanca istek → Almanca).
+    const answerLang =
+      get().language === 'tr'
+        ? "the SAME language the user wrote their request in — English→English, German→German, etc.; NEVER default to Turkish for a non-Turkish request (Turkish only if no detectable language)"
+        : "the SAME language the user wrote their request in — never default to English for a non-English request (English only if no detectable language)"
 
     if (isPlanTurn) {
       // FAZ 9.3 — fidelity build'de plan SÖZLEŞMEDEN gelir: spec'in adlandırdığı
@@ -4368,7 +4372,7 @@ ${
 
 HARD RULES:
 - Stay STRICTLY on the user's business/topic; every single item must be plausible for THIS exact business.
-- Write fluent, natural ${answerLang}. No invented words, no language mixing.
+- Write in fluent, natural language matching ${answerLang}. No invented words, no language mixing.
 - NEVER output placeholders ("X TL", "Ürün 1", "<...>") — invent specific, realistic names, prices and details.
 - If the user asked for a theme/colors, the palette MUST follow it (dark theme = dark background hexes).
 - Rich but purposeful: every line must carry buildable information, no filler talk.
