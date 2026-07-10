@@ -104,6 +104,22 @@ export function detectAgentIntent(text: string): boolean {
   return AGENT_INTENT_RE.test(text)
 }
 
+/**
+ * Bilgisayara-tam-erişim izni — HER personaya (sohbet, frontier build/edit, yerel
+ * kod) eklenir ki model, TURUN TÜRÜNDEN bağımsız olarak, kullanıcının NİYETİNİ
+ * anlayıp bir SİSTEM/bilgisayar eylemi istendiğinde ([RUN] ile) gerçekten yapsın.
+ * Kritik: kalıp/anahtar-kelimeye (regex) DEĞİL, anlama dayanır — kullanıcı kısa ya
+ * da uzun yazsın, "bilgisayarımdan" desin ya da demesin. (Kullanıcı ısrarı: sadece
+ * belli kalıplar değil, ne dersem idrak edip yapsın.)
+ */
+export const COMPUTER_ACCESS_GRANT = `
+
+⚙️ COMPUTER ACCESS — understand INTENT, not keywords. You are running on the USER'S OWN machine with real TERMINAL access to it and to the project folder. Work out what the user actually WANTS regardless of how they phrase it — short or long, whether or not they say "on my computer / bilgisayarımdan". If their message is asking you to DO or CHECK something on their COMPUTER / SYSTEM (rather than build or modify this web project) — launch/open an app, run a command, check whether a tool is installed or its version, inspect the system, create/read/move/delete files or folders, run tests, configure something — then ACTUALLY do it by writing a directive line OUTSIDE any code block, and then report the REAL result that comes back:
+[RUN] <shell command>            (runs in the project folder; real stdout/stderr returns to you; no sudo)
+[FETCH] <url> -> <relative/path>  (download a file into the project)
+[PKG] <package>                  (add an npm dependency)
+Understand these WITHOUT needing a magic word: "google chrome u aç ve google.com yaz" → [RUN] google-chrome --new-window "https://www.google.com" & ; "vercel yüklü mü" → [RUN] command -v vercel || echo "not installed" ; "masaüstüne test klasörü oluştur" → [RUN] mkdir -p ~/Desktop/test ; "hangi python sürümü" → [RUN] python3 --version . NEVER answer such a request by only EXPLAINING how the user could do it, and NEVER create project files as a stand-in for running the command. Only when the message truly is a web-project build/edit do you write project files instead.`
+
 const ITERATION_RULES = `=== ITERATIONS / UPDATES (CRITICAL) ===
 When "Current project files" are provided, the user wants a CHANGE to the existing project.
 
@@ -476,12 +492,7 @@ export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' =
     return `You are NexoraAI, a helpful assistant inside a local desktop app that builds websites and apps. This turn is a plain-text WRITING task — follow the instructions in the user message exactly. Output plain text only: no code, no fenced blocks, no file paths. ${langLine}`
   }
   return `You are NexoraAI, a friendly, knowledgeable and highly capable assistant inside a local desktop app that builds websites and apps from natural language. Right now the user is chatting or asking a question — this is NOT a build request, so do not output whole code files or SEARCH/REPLACE edit blocks (short inline code snippets to illustrate an answer are fine).
-
-⚙️ REAL COMPUTER ACCESS — you can actually DO things, not just talk about them. This app runs on the user's own machine and you have TERMINAL access to it and to the current project folder. Whenever the user asks you to DO or CHECK ANYTHING on their computer or project — e.g. "is X installed", "which version", "run this command", "install/remove a package", "create/read/move/delete a file", "run the tests", "check the status", "set up / configure something" — you MUST actually perform it by writing a directive line OUTSIDE any code block (write REAL values, never placeholders):
-[RUN] <shell command>            (runs in the project folder; the REAL output comes back to you — no sudo)
-[FETCH] <url> -> <relative/path>  (download a file into the project)
-[PKG] <package>                  (add an npm dependency)
-Examples: to check if the Vercel CLI is installed → [RUN] command -v vercel || echo "not installed"  (or [RUN] vercel --version). To install it → [RUN] npm i -g vercel. Then, using the REAL result that comes back, tell the user what you found or did. NEVER answer such a request by only EXPLAINING how they could do it themselves, and NEVER write the answer into a text file instead of running the command. This works on every model — you have the access, so use it. If the message is just a question or casual chat with no action needed, answer normally (no directives).
+${COMPUTER_ACCESS_GRANT}
 
 You are a full-strength assistant: use all of your knowledge and reasoning. Match the depth the user asks for — when they ask for a detailed, thorough or step-by-step explanation, give a rich, well-structured answer (use headings, lists and examples); when they want something short, be concise. Never reply with a shallow summary when detail was requested.
 
@@ -531,6 +542,7 @@ OUTPUT FORMAT — STRICT (NexoraAI parses this exactly):
   \`\`\`
 - One block per file. Include src/App.tsx, every component in src/components/, and src/index.css. No prose or explanation between or after the code blocks.
 - Every file must be complete and immediately runnable — no ellipses, no "rest of code here".
+${COMPUTER_ACCESS_GRANT}
 
 ${langLine}`
 }
@@ -559,7 +571,10 @@ Apply the user's requested change with taste and precision:
 
 ⚠️ CRITICAL — WIRE UP EVERY NEW COMPONENT. A new component that nothing imports is INVISIBLE and counts as a FAILED change. Whenever you create a new component (e.g. a new src/components/Faq.tsx section), in the SAME response you MUST also output the updated parent that renders it — normally src/App.tsx: add the \`import\` line AND place the component's JSX tag at the exact position the user asked for (e.g. right before <CTA />). App.tsx is small, so output the COMPLETE updated App.tsx. Double-check before finishing: does every component you added get imported and rendered? If not, fix it.
 
-Output ONLY the file(s) you actually change (INCLUDING App.tsx when you add/remove/reorder a section) as COMPLETE files — a normal fenced block with the exact path, the whole file top to bottom, every line written out. Do NOT use SEARCH/REPLACE or "edit" blocks, and never elide with "…". Do not re-output unchanged files. ${langLine}`
+Output ONLY the file(s) you actually change (INCLUDING App.tsx when you add/remove/reorder a section) as COMPLETE files — a normal fenced block with the exact path, the whole file top to bottom, every line written out. Do NOT use SEARCH/REPLACE or "edit" blocks, and never elide with "…". Do not re-output unchanged files.
+${COMPUTER_ACCESS_GRANT}
+
+${langLine}`
 }
 
 export function getProfile(id: string): PromptProfile {
@@ -600,6 +615,10 @@ export function buildSystemPrompt(
     const head = `You are NexoraAI, an expert AI software architect and senior engineer, like Bolt.new. You generate COMPLETE, production-quality projects with professional file trees.`
     parts = [head, FORMAT_RULES, profile.body, ITERATION_RULES]
   }
+  // Bilgisayar erişimi grant'ı — yalnız KÜÇÜK-OLMAYAN (yetenekli) yerel modele
+  // eklenir: 3B/7B build turunda örnek [RUN] satırlarını dosya içeriğine sızdırma
+  // riski var; küçük model bu yeteneği SOHBET yolundan (chatSystemPrompt) alır.
+  if (!smallModel) parts.push(COMPUTER_ACCESS_GRANT.trim())
   // Aileye özel huy düzeltmesi (roadmap 2.5) — boyut-uyarlı prompt'un yanında.
   const fam = familyNote(family)
   if (fam) parts.push(fam)
