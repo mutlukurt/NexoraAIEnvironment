@@ -15,7 +15,7 @@
  */
 import { spawn, type ChildProcess } from 'child_process'
 import { homedir } from 'os'
-import { join, dirname } from 'path'
+import { join, dirname, basename } from 'path'
 import { mkdir, rename, rm } from 'fs/promises'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { localImageSize, type ImageGenOptions } from '../shared/imageModels'
@@ -67,6 +67,67 @@ export function hasLocalImageModel(): boolean {
 /** Katalog + her modelin YÜKLÜ mü durumu (Ayarlar'daki indirici bunu gösterir). */
 export function imageCatalogStatus(): Array<ImageCatalogEntry & { installed: boolean }> {
   return IMAGE_CATALOG.map((e) => ({ ...e, installed: existsSync(join(MODELS_DIR, e.file)) }))
+}
+
+export interface ImageSearchResult {
+  id: string
+  downloads?: number
+  likes?: number
+  files: Array<{ file: string; rfilename: string; url: string }>
+}
+
+/**
+ * HuggingFace'te YEREL görsel-üretim modeli ARA (GGUF bulur gibi ÖZGÜRCE). Sadece
+ * katalogdaki 3 model değil — dünyadaki her text-to-image modelini bulup indirir.
+ * pipeline_tag=text-to-image filtresi + tek-dosya (.gguf/.safetensors) uzantısı.
+ */
+export async function searchImageModels(query: string): Promise<ImageSearchResult[]> {
+  const q = query.trim()
+  if (!q) return []
+  const url = `https://huggingface.co/api/models?search=${encodeURIComponent(q)}&filter=text-to-image&full=true&limit=40`
+  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new Error(`HuggingFace arama başarısız: ${res.status}`)
+  const data = (await res.json()) as Array<{
+    id: string
+    downloads?: number
+    likes?: number
+    siblings?: Array<{ rfilename: string }>
+  }>
+  return data
+    .map((m) => {
+      const files = (m.siblings ?? [])
+        .map((s) => s.rfilename)
+        .filter(
+          (f) =>
+            /\.(gguf|safetensors)$/i.test(f) &&
+            // yardımcı/parça bileşenleri gizle: tek-dosya TAM model istiyoruz.
+            // diffusers-format PARÇA dosyaları (unet/vae/encoder) tek başına çalışmaz —
+            // yalnız TAM tek-dosya checkpoint (SD1.5/SDXL/turbo .safetensors/.gguf).
+            !/mmproj|[-_.]vae\b|text[-_]?encoder|control[-_]?net|\blora\b|ip[-_]?adapter|diffusion_pytorch_model|\/(vae|text_encoder|tokenizer|scheduler|unet|transformer)\//i.test(f)
+        )
+      return {
+        id: m.id,
+        downloads: m.downloads,
+        likes: m.likes,
+        files: files.map((f) => ({ file: basename(f), rfilename: f, url: `https://huggingface.co/${m.id}/resolve/main/${encodeURI(f)}` }))
+      }
+    })
+    .filter((r) => r.files.length > 0)
+    .sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0))
+}
+
+/** Arama sonucundan (ya da herhangi bir URL'den) bir görsel modelini indir. */
+export async function downloadImageUrl(url: string, file: string, onStatus: ImageStatusCallback): Promise<{ ok: boolean; error?: string }> {
+  const safe = basename(file).replace(/[^a-zA-Z0-9._-]+/g, '-')
+  if (!/\.(gguf|safetensors)$/i.test(safe)) return { ok: false, error: 'Yalnız .gguf / .safetensors modeli.' }
+  const dest = join(MODELS_DIR, safe)
+  if (existsSync(dest)) return { ok: true }
+  try {
+    await downloadFile(url, dest, onStatus, safe)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
 }
 
 /** Katalogdaki bir modeli indir (GGUF'ları tarayıcıdan indirmek gibi, tek tık). */

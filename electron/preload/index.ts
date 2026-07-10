@@ -146,6 +146,12 @@ export interface NexoraApi {
       vramGb: number
     }>
     downloadModel: (id: string) => Promise<{ ok: boolean; error?: string }>
+    searchModels: (query: string) => Promise<{
+      ok: boolean
+      results?: Array<{ id: string; downloads?: number; likes?: number; files: Array<{ file: string; rfilename: string; url: string }> }>
+      error?: string
+    }>
+    downloadUrl: (url: string, file: string) => Promise<{ ok: boolean; error?: string }>
     onDlStatus: (cb: (data: { msg: string }) => void) => () => void
     saveAs: (input: { dataUrl: string; name: string }) => Promise<{ ok: boolean; savedPath?: string; error?: string }>
     onStatus: (cb: (event: { msg: string }) => void) => () => void
@@ -372,6 +378,8 @@ const api: NexoraApi = {
     },
     listModels: () => ipcRenderer.invoke(IPC.IMAGE_MODELS_LIST),
     downloadModel: (id: string) => ipcRenderer.invoke(IPC.IMAGE_MODEL_DOWNLOAD, id),
+    searchModels: (query: string) => ipcRenderer.invoke(IPC.IMAGE_MODEL_SEARCH, query),
+    downloadUrl: (url: string, file: string) => ipcRenderer.invoke(IPC.IMAGE_MODEL_DOWNLOAD_URL, { url, file }),
     onDlStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)
       ipcRenderer.on(IPC.IMAGE_DL_STATUS, handler as never)

@@ -579,6 +579,22 @@ function registerIpc(): void {
     return li.downloadCatalogModel(id, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
   })
 
+  // HuggingFace'te ÖZGÜRCE görsel-üretim modeli ara (GGUF bulur gibi).
+  ipcMain.handle(IPC.IMAGE_MODEL_SEARCH, async (_e, query: string) => {
+    try {
+      const li = await import('./localImageService')
+      return { ok: true, results: await li.searchImageModels(query) }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // Arama sonucundan (URL) bir görsel modelini indir.
+  ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD_URL, async (_e, input: { url: string; file: string }) => {
+    const li = await import('./localImageService')
+    return li.downloadImageUrl(input.url, input.file, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
+  })
+
   ipcMain.handle(IPC.ADVISOR_DETECT, async () => {
     return detectHardware()
   })

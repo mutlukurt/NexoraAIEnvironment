@@ -203,6 +203,8 @@ export const IPC = {
   // Faz 13 — yerel görsel-üretim modeli kataloğu + tek-tık indirme.
   IMAGE_MODELS_LIST: 'image:models-list',
   IMAGE_MODEL_DOWNLOAD: 'image:model-download',
+  IMAGE_MODEL_SEARCH: 'image:model-search',
+  IMAGE_MODEL_DOWNLOAD_URL: 'image:model-download-url',
   IMAGE_DL_STATUS: 'image:dl-status',
   ADVISOR_DETECT: 'advisor:detect',
   ADVISOR_PLAN: 'advisor:plan',

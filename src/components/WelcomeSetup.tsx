@@ -281,6 +281,9 @@ export default function WelcomeSetup() {
                     {t.setupVisionTitle} — {plan.vision.label}
                   </p>
                   <p className="mt-0.5 text-[11px] font-medium text-ink-dim">{plan.vision.note}</p>
+                  <p className="mt-1 text-[10px] font-medium text-ink-dim">
+                    {tt(language, 'Device-picked by default — but you can choose any VL model (or enable offline image generation) in Settings → Models.')}
+                  </p>
                 </div>
               </div>
             </>
