@@ -7,6 +7,7 @@
  * seçilirse aynı projede bir daha sorulmaz (localStorage, proje bazlı).
  */
 import { useAppStore } from '@/store/appStore'
+import { tt } from '@/lib/i18n'
 import { translations } from '@/lib/translations'
 import { Terminal, Download, ShieldAlert, Plug } from 'lucide-react'
 
@@ -59,7 +60,7 @@ export default function PermissionModal() {
                   <p className="break-all font-mono text-xs font-semibold text-ink-text">{item.text}</p>
                   {item.reason && (
                     <p className="mt-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                      {language === 'tr' ? 'neden soruluyor: ' : 'why asking: '}{item.reason}
+                      {tt(language, "why asking: ")}{item.reason}
                     </p>
                   )}
                 </div>

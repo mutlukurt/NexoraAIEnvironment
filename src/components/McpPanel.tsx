@@ -7,10 +7,11 @@
  * katmanından ([RUN] ile aynı izin akışı) geçer. YEREL-ÖNCE: yalnız stdio.
  */
 import { useEffect, useState } from 'react'
+import type { Lang } from '@/lib/i18n'
 import { Plug, Plus, Trash2, RefreshCw, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import type { McpServerInfo, McpServerConfigInput } from '@shared/ipc'
 
-export default function McpPanel({ language }: { language: 'tr' | 'en' }) {
+export default function McpPanel({ language }: { language: Lang }) {
   const tr = language === 'tr'
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [cfgs, setCfgs] = useState<McpServerConfigInput[]>([])

@@ -7,11 +7,12 @@
  * YEREL-ÖNCE: yalnız localhost'a bağlanır, varsayılan kapalı.
  */
 import { useEffect, useState } from 'react'
+import type { Lang } from '@/lib/i18n'
 import { Radio, Copy, Check } from 'lucide-react'
 import { useSettingsStore } from '@/store/settingsStore'
 import type { ServeStatusIpc } from '@shared/ipc'
 
-export default function ServePanel({ language }: { language: 'tr' | 'en' }) {
+export default function ServePanel({ language }: { language: Lang }) {
   const tr = language === 'tr'
   const serveEnabled = useSettingsStore((s) => s.serveEnabled)
   const servePort = useSettingsStore((s) => s.servePort)

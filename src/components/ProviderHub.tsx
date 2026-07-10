@@ -7,12 +7,13 @@
  * etiketli. Katalog çevrimdışı gömülü — listeyi göstermek ağ istemez.
  */
 import { useEffect, useState } from 'react'
+import type { Lang } from '@/lib/i18n'
 import { Search, KeyRound, Check, Trash2, Download, Cpu, ShieldCheck, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react'
 import { PROVIDERS, findProvider, dataDestinationNote } from '@shared/providers'
 import { useSettingsStore } from '@/store/settingsStore'
 import { fuzzyFilter } from '@/lib/fuzzy'
 
-export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
+export default function ProviderHub({ language }: { language: Lang }) {
   const tr = language === 'tr'
   const provider = useSettingsStore((s) => s.provider)
   const providerModel = useSettingsStore((s) => s.providerModel)
@@ -181,7 +182,7 @@ export default function ProviderHub({ language }: { language: 'tr' | 'en' }) {
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold text-ink-text">{sel.name}</span>
             {hasKey && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
-            <span className="ml-auto text-[10px] font-semibold text-ink-dim">{dataDestinationNote(sel, language)}</span>
+            <span className="ml-auto text-[10px] font-semibold text-ink-dim">{dataDestinationNote(sel, language === 'tr' ? 'tr' : 'en')}</span>
           </div>
 
           {needsBaseUrl && (

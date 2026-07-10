@@ -18,6 +18,7 @@ import { composeCommentBlock, type SteerComment } from '@/lib/steerComments'
 import { decideCommand } from '@shared/trust'
 import { makeTask, nextRunnable, transition, clearFinished, deactivateTasks, type QueuedTask } from '@/lib/taskQueue'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
+import { applyLangDir, ALL_LANGS, type Lang } from '@/lib/i18n'
 import { useSettingsStore } from './settingsStore'
 import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
@@ -173,8 +174,8 @@ interface AppState {
   applyArtifacts: (messageId?: string) => void
   activeTab: 'chat' | 'code'
   setActiveTab: (v: 'chat' | 'code') => void
-  language: 'tr' | 'en'
-  setLanguage: (lang: 'tr' | 'en') => void
+  language: Lang
+  setLanguage: (lang: Lang) => void
   theme: 'dark' | 'light'
   setTheme: (v: 'dark' | 'light') => void
 
@@ -2728,9 +2729,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   activeTab: 'chat',
   setActiveTab: (activeTab) => set({ activeTab }),
-  language: (localStorage.getItem('nexora:lang') as 'tr' | 'en') || 'tr',
+  language: ((): Lang => {
+    const saved = localStorage.getItem('nexora:lang') as Lang | null
+    const lang: Lang = saved && ALL_LANGS.includes(saved) ? saved : 'tr'
+    applyLangDir(lang) // açılışta <html dir/lang> ayarla (RTL diller sağdan-sola)
+    return lang
+  })(),
   setLanguage: (language) => {
     localStorage.setItem('nexora:lang', language)
+    applyLangDir(language) // dil değişince yön + <html lang> güncelle
     set({ language })
   },
   theme: themeInitial(),

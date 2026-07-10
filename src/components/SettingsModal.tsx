@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { tt, LANGS, type Lang } from '@/lib/i18n'
 import { useSettingsStore, UI_SCALE_PRESETS, UI_SCALE_MIN, UI_SCALE_MAX, clampUiScale } from '@/store/settingsStore'
 import { useAppStore } from '@/store/appStore'
 import { X, Plus, Trash2, TerminalSquare, Minus, ZoomIn, Palette, Sun, Moon } from 'lucide-react'
@@ -134,15 +135,15 @@ export default function SettingsModal() {
           <nav className="w-48 shrink-0 space-y-0.5 overflow-y-auto border-r border-ink-line bg-ink-card/40 p-2.5">
             {(
               [
-                ['general', language === 'tr' ? 'Genel' : 'General'],
-                ['providers', language === 'tr' ? 'Sağlayıcılar' : 'Providers'],
-                ['models', language === 'tr' ? 'Modeller' : 'Models'],
-                ['permissions', language === 'tr' ? 'Güven & İzinler' : 'Trust & Permissions'],
-                ['prompt', language === 'tr' ? 'Prompt & Kurallar' : 'Prompt & Rules'],
-                ['knowledge', language === 'tr' ? 'Bilgi Tabanı' : 'Knowledge'],
-                ['tools', language === 'tr' ? 'Araçlar' : 'Tools'],
-                ['commands', language === 'tr' ? 'Komutlar' : 'Commands'],
-                ['engine', language === 'tr' ? 'Motor Karnesi' : 'Engine']
+                ['general', tt(language, "General")],
+                ['providers', tt(language, "Providers")],
+                ['models', tt(language, "Models")],
+                ['permissions', tt(language, "Trust & Permissions")],
+                ['prompt', tt(language, "Prompt & Rules")],
+                ['knowledge', tt(language, "Knowledge")],
+                ['tools', tt(language, "Tools")],
+                ['commands', tt(language, "Commands")],
+                ['engine', tt(language, "Engine")]
               ] as const
             ).map(([id, label]) => (
               <button
@@ -167,11 +168,11 @@ export default function SettingsModal() {
             <div className="flex items-center gap-2">
               <Palette className="h-4 w-4 text-brand-500" />
               <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-                {language === 'tr' ? 'Görünüm' : 'Appearance'}
+                {tt(language, "Appearance")}
               </span>
             </div>
             <div className="mt-3 flex items-center justify-between gap-3">
-              <span className="text-[13px] font-semibold text-ink-mut">{language === 'tr' ? 'Tema' : 'Theme'}</span>
+              <span className="text-[13px] font-semibold text-ink-mut">{tt(language, "Theme")}</span>
               <div className="flex gap-0.5 rounded-lg bg-ink-hi/70 p-0.5 text-[12px] font-bold select-none">
                 <button
                   onClick={() => setTheme('light')}
@@ -180,7 +181,7 @@ export default function SettingsModal() {
                     (theme === 'light' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
                   }
                 >
-                  <Sun className="h-3.5 w-3.5" /> {language === 'tr' ? 'Açık' : 'Light'}
+                  <Sun className="h-3.5 w-3.5" /> {tt(language, "Light")}
                 </button>
                 <button
                   onClick={() => setTheme('dark')}
@@ -189,32 +190,23 @@ export default function SettingsModal() {
                     (theme === 'dark' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
                   }
                 >
-                  <Moon className="h-3.5 w-3.5" /> {language === 'tr' ? 'Koyu' : 'Dark'}
+                  <Moon className="h-3.5 w-3.5" /> {tt(language, "Dark")}
                 </button>
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between gap-3">
-              <span className="text-[13px] font-semibold text-ink-mut">{language === 'tr' ? 'Dil' : 'Language'}</span>
-              <div className="flex gap-0.5 rounded-lg bg-ink-hi/70 p-0.5 text-[12px] font-bold select-none">
-                <button
-                  onClick={() => setLanguage('tr')}
-                  className={
-                    'rounded-md px-3 py-1 transition ' +
-                    (language === 'tr' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
-                  }
-                >
-                  TR
-                </button>
-                <button
-                  onClick={() => setLanguage('en')}
-                  className={
-                    'rounded-md px-3 py-1 transition ' +
-                    (language === 'en' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
-                  }
-                >
-                  EN
-                </button>
-              </div>
+              <span className="text-[13px] font-semibold text-ink-mut">{tt(language, "Language")}</span>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as Lang)}
+                className="rounded-lg border border-ink-line bg-ink-card px-2.5 py-1.5 text-[13px] font-semibold text-ink-text focus:border-brand-500 focus:outline-none"
+              >
+                {LANGS.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.flag} {l.native}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -224,22 +216,20 @@ export default function SettingsModal() {
             <div className="flex items-center gap-2">
               <ZoomIn className="h-4 w-4 text-brand-500" />
               <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-                {language === 'tr' ? 'Arayüz Boyutu' : 'Interface Size'}
+                {tt(language, "Interface Size")}
               </span>
               <span className="ml-auto rounded-md bg-brand-500/15 px-2 py-0.5 text-[12px] font-bold text-brand-600 dark:text-brand-300 tabular-nums">
                 %{Math.round(uiScale * 100)}
               </span>
             </div>
             <span className="mt-1 block text-[12px] font-medium leading-normal text-ink-dim">
-              {language === 'tr'
-                ? 'Yazılar ve tüm arayüz (sidebar, sohbet, sekmeler) küçük geliyorsa büyüt. Kısayol: Ctrl ile + / − / 0.'
-                : 'Enlarge if text and the whole UI (sidebar, chat, tabs) feel too small. Shortcut: Ctrl with + / − / 0.'}
+              {tt(language, "Enlarge if text and the whole UI (sidebar, chat, tabs) feel too small. Shortcut: Ctrl with + / − / 0.")}
             </span>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setUiScale(clampUiScale(uiScale - 0.1))}
                 disabled={uiScale <= UI_SCALE_MIN + 0.001}
-                title={language === 'tr' ? 'Küçült (Ctrl −)' : 'Smaller (Ctrl −)'}
+                title={tt(language, "Smaller (Ctrl −)")}
                 className="grid h-9 w-9 place-items-center rounded-lg border border-ink-line bg-ink-card text-ink-mut hover:bg-ink-hi disabled:opacity-40 transition"
               >
                 <Minus className="h-4 w-4" />
@@ -261,7 +251,7 @@ export default function SettingsModal() {
               <button
                 onClick={() => setUiScale(clampUiScale(uiScale + 0.1))}
                 disabled={uiScale >= UI_SCALE_MAX - 0.001}
-                title={language === 'tr' ? 'Büyüt (Ctrl +)' : 'Larger (Ctrl +)'}
+                title={tt(language, "Larger (Ctrl +)")}
                 className="grid h-9 w-9 place-items-center rounded-lg border border-ink-line bg-ink-card text-ink-mut hover:bg-ink-hi disabled:opacity-40 transition"
               >
                 <Plus className="h-4 w-4" />
@@ -275,7 +265,7 @@ export default function SettingsModal() {
           {section === 'providers' && apiMode === 'fix' && (
             <label className="flex cursor-pointer items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 px-4 py-2.5 shadow-sm">
               <span className="text-[12px] font-semibold text-ink-mut">
-                {language === 'tr' ? 'API\'ye göndermeden önce sor ("düzelt api" ile onayla)' : 'Ask before sending to the API (confirm with "fix api")'}
+                {tt(language, "Ask before sending to the API (confirm with \"fix api\")")}
               </span>
               <input type="checkbox" checked={apiAsk} onChange={(e) => setApi({ apiAsk: e.target.checked })} className="h-4 w-4 accent-brand-500" />
             </label>
@@ -284,19 +274,17 @@ export default function SettingsModal() {
           {/* 7.5 İki katmanlı güven: sandbox hükümleri + onay politikası */}
           <div className={(section === 'permissions' ? '' : 'hidden ') + 'rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-              {language === 'tr' ? 'Güven ve İzinler' : 'Trust & Permissions'}
+              {tt(language, "Trust & Permissions")}
             </span>
             <span className="mt-1 block text-[11px] font-medium leading-normal text-ink-dim">
-              {language === 'tr'
-                ? 'Ajanın komut çalıştırma yetkisi. Koşulsuz yasaklar (kök yolu silme, sudo, boru-ile-kabuk) HİÇBİR kipte çalışmaz.'
-                : 'What the agent may execute. Hard denies (root-path deletion, sudo, pipe-to-shell) never run in ANY tier.'}
+              {tt(language, "What the agent may execute. Hard denies (root-path deletion, sudo, pipe-to-shell) never run in ANY tier.")}
             </span>
             <div className="mt-3 flex flex-col gap-1.5">
               {(
                 [
-                  ['read', language === 'tr' ? 'Salt Okunur' : 'Read Only', language === 'tr' ? 'hiçbir komut/indirme çalışmaz — ajan yalnız önerir' : 'no command/download runs — the agent only proposes'],
-                  ['auto', language === 'tr' ? 'Otomatik (önerilen)' : 'Auto (recommended)', language === 'tr' ? 'çalışma alanı içi güvenli komutlar serbest; sınırda olan her şey sorulur' : 'safe in-workspace commands run free; everything at the boundary asks'],
-                  ['full', language === 'tr' ? 'Tam Erişim' : 'Full Access', language === 'tr' ? 'sınırdakiler de onaysız koşar — koşulsuz yasaklar yine çalışmaz' : 'boundary items run unasked — hard denies still never run']
+                  ['read', tt(language, "Read Only"), tt(language, "no command/download runs — the agent only proposes")],
+                  ['auto', tt(language, "Auto (recommended)"), tt(language, "safe in-workspace commands run free; everything at the boundary asks")],
+                  ['full', tt(language, "Full Access"), tt(language, "boundary items run unasked — hard denies still never run")]
                 ] as const
               ).map(([id, label, desc]) => (
                 <label
@@ -328,7 +316,7 @@ export default function SettingsModal() {
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
-                  {language === 'tr' ? 'İzin listesi (satır başına önek)' : 'Allow list (one prefix per line)'}
+                  {tt(language, "Allow list (one prefix per line)")}
                 </span>
                 <textarea
                   rows={3}
@@ -340,7 +328,7 @@ export default function SettingsModal() {
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
-                  {language === 'tr' ? 'Yasak listesi (her kipte engel)' : 'Deny list (blocks in every tier)'}
+                  {tt(language, "Deny list (blocks in every tier)")}
                 </span>
                 <textarea
                   rows={3}
@@ -356,17 +344,15 @@ export default function SettingsModal() {
           {/* Motor Karnesi (6.7): GERÇEK kullanımdan bul/onar/doğrula oranları */}
           <div className={(section === 'engine' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-              {language === 'tr' ? 'Motor Karnesi' : 'Engine Scorecard'}
+              {tt(language, "Engine Scorecard")}
             </span>
             <span className="mt-1 block text-[11px] font-medium leading-normal text-ink-dim">
-              {language === 'tr'
-                ? 'Debug Engine\'in bu cihazdaki gerçek saha performansı (onarım telemetrisinden).'
-                : "The Debug Engine's real field performance on this device (from repair telemetry)."}
+              {tt(language, "The Debug Engine's real field performance on this device (from repair telemetry).")}
             </span>
             {stats && stats.totalEvents > 0 ? (
               <div className="mt-3 space-y-1.5 text-[11px] font-medium text-ink-mut">
                 <p>
-                  {language === 'tr' ? 'Toplam onarım olayı' : 'Total repair events'}: <b className="text-ink-text">{stats.totalEvents}</b>
+                  {tt(language, "Total repair events")}: <b className="text-ink-text">{stats.totalEvents}</b>
                 </p>
                 {(() => {
                   const hit = (stats.layers['kat0'] ?? 0) + (stats.layers['scan-kat0'] ?? 0)
@@ -378,9 +364,9 @@ export default function SettingsModal() {
                   const pct = (a: number, b: number) => (a + b > 0 ? Math.round((a / (a + b)) * 100) + '%' : '—')
                   return (
                     <>
-                      <p>{language === 'tr' ? 'Modelsiz onarım isabeti (Kat 0)' : 'Model-free repair hit rate (rung 0)'}: <b className="text-ink-text">{pct(hit, miss)}</b> ({hit}/{hit + miss})</p>
-                      <p>{language === 'tr' ? 'Repro doğrulama oranı' : 'Repro verification rate'}: <b className="text-ink-text">{pct(rv, rf)}</b> ({rv}✓ {rf}✗)</p>
-                      <p>{language === 'tr' ? 'Davranış testi geçme' : 'Behavior test pass'}: <b className="text-ink-text">{pct(bp, bf)}</b></p>
+                      <p>{tt(language, "Model-free repair hit rate (rung 0)")}: <b className="text-ink-text">{pct(hit, miss)}</b> ({hit}/{hit + miss})</p>
+                      <p>{tt(language, "Repro verification rate")}: <b className="text-ink-text">{pct(rv, rf)}</b> ({rv}✓ {rf}✗)</p>
+                      <p>{tt(language, "Behavior test pass")}: <b className="text-ink-text">{pct(bp, bf)}</b></p>
                     </>
                   )
                 })()}
@@ -397,7 +383,7 @@ export default function SettingsModal() {
               </div>
             ) : (
               <p className="mt-3 text-[11px] font-medium text-ink-dim">
-                {language === 'tr' ? 'Henüz telemetri yok — motor çalıştıkça burası dolacak.' : 'No telemetry yet — this fills as the engine works.'}
+                {tt(language, "No telemetry yet — this fills as the engine works.")}
               </p>
             )}
           </div>
@@ -406,12 +392,10 @@ export default function SettingsModal() {
           <div className={(section === 'models' ? '' : 'hidden ') + 'flex items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <div className="flex flex-col pr-4">
               <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-                {language === 'tr' ? 'GPU Hızlandırması (Deneysel)' : 'GPU Acceleration (Experimental)'}
+                {tt(language, "GPU Acceleration (Experimental)")}
               </span>
               <span className="text-[11px] font-medium text-ink-dim leading-normal mt-1">
-                {language === 'tr'
-                  ? 'Model işlemlerinde ekran kartını (CUDA/Vulkan) kullanır. Eğer uygulama açılırken çöküyorsa veya hata alıyorsanız kapalı tutun.'
-                  : 'Uses graphics card (CUDA/Vulkan) for model operations. Keep disabled if you experience app crashes or errors during load.'}
+                {tt(language, "Uses graphics card (CUDA/Vulkan) for model operations. Keep disabled if you experience app crashes or errors during load.")}
               </span>
             </div>
             <button
@@ -438,20 +422,16 @@ export default function SettingsModal() {
             <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm -mt-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-                  {language === 'tr' ? 'GPU Katmanları' : 'GPU Layers'}
+                  {tt(language, "GPU Layers")}
                 </span>
                 <span className="rounded-lg bg-ink-hi px-2 py-0.5 text-[11px] font-bold text-ink-mut">
                   {gpuLayers === 0
-                    ? language === 'tr'
-                      ? 'Otomatik'
-                      : 'Auto'
+                    ? tt(language, "Auto")
                     : gpuLayers}
                 </span>
               </div>
               <p className="mt-1 text-[11px] font-medium text-ink-dim leading-normal">
-                {language === 'tr'
-                  ? 'Modelin kaç katmanı ekran kartına yüklensin? Otomatik: boş VRAM ölçülür, sığan kadar katman GPU’ya verilir — küçük kartlarda bile kısmi hızlanma sağlar. Yeni model yüklemesinde geçerli olur.'
-                  : 'How many model layers to offload to the GPU. Auto measures free VRAM and offloads as many layers as fit — partial speedup even on small cards. Takes effect on the next model load.'}
+                {tt(language, "How many model layers to offload to the GPU. Auto measures free VRAM and offloads as many layers as fit — partial speedup even on small cards. Takes effect on the next model load.")}
               </p>
               <input
                 type="range"
@@ -464,7 +444,7 @@ export default function SettingsModal() {
                 aria-label="GPU layers"
               />
               <div className="mt-1 flex justify-between text-[10px] font-bold text-ink-dim">
-                <span>{language === 'tr' ? 'Otomatik' : 'Auto'}</span>
+                <span>{tt(language, "Auto")}</span>
                 <span>64</span>
               </div>
             </div>
@@ -475,12 +455,10 @@ export default function SettingsModal() {
               görsel analizi için seçebilir; oto = RAM'e sığan en büyük yüklü VL. */}
           <div className={section === 'models' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
-              {language === 'tr' ? 'Yerel Görsel Modeli (analiz)' : 'Local Vision Model (analysis)'}
+              {tt(language, "Local Vision Model (analysis)")}
             </label>
             <p className="mb-3 text-xs font-medium text-ink-dim leading-relaxed">
-              {language === 'tr'
-                ? 'İliştirilen görselleri YEREL olarak analiz eden model (yalnız yerel modelde; API modelinde görsel doğrudan API’ye gider). Qwen’e sabit değil — indirdiğin herhangi bir VL GGUF (model + mmproj) burada çıkar. Oto: RAM’e sığan en büyük yüklü model.'
-                : "The model that analyzes attached images LOCALLY (local-model only; on an API model the image goes straight to the API). Not fixed to Qwen — any VL GGUF you download (model + mmproj) shows up here. Auto: the largest installed model that fits RAM."}
+              {tt(language, "The model that analyzes attached images LOCALLY (local-model only; on an API model the image goes straight to the API). Not fixed to Qwen — any VL GGUF you download (model + mmproj) shows up here. Auto: the largest installed model that fits RAM.")}
             </p>
             <select
               value={visionModelPath ?? ''}
@@ -488,7 +466,7 @@ export default function SettingsModal() {
               className="w-full rounded-xl border border-ink-line bg-ink-card px-3.5 py-2.5 text-sm text-ink-text focus:bg-ink-hi focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition"
             >
               <option value="">
-                {language === 'tr' ? 'Otomatik (RAM’e sığan en büyük)' : 'Auto (largest that fits RAM)'}
+                {tt(language, "Auto (largest that fits RAM)")}
               </option>
               {visionModels.map((v) => (
                 <option key={v.model} value={v.model}>
@@ -498,9 +476,7 @@ export default function SettingsModal() {
             </select>
             {visionModels.length === 0 && (
               <p className="mt-2 text-[11px] font-medium text-ink-dim">
-                {language === 'tr'
-                  ? 'Yüklü görsel modeli bulunamadı. İlk görsel analizinde cihazına uygun bir Qwen-VL otomatik iner; ya da models klasörüne kendi VL GGUF’unu (model + mmproj) koy.'
-                  : 'No installed vision model found. A device-appropriate Qwen-VL downloads on first image analysis; or drop your own VL GGUF (model + mmproj) into the models folder.'}
+                {tt(language, "No installed vision model found. A device-appropriate Qwen-VL downloads on first image analysis; or drop your own VL GGUF (model + mmproj) into the models folder.")}
               </p>
             )}
           </div>
@@ -542,19 +518,17 @@ export default function SettingsModal() {
           {/* 7.8: global kurallar — hiyerarşinin üst katmanı (AGENTS.md keşif kuralı) */}
           <div className={section === 'prompt' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">
-              {language === 'tr' ? 'Global Kurallar' : 'Global Rules'}{' '}
+              {tt(language, "Global Rules")}{' '}
               <span className="normal-case font-mono text-[10px] text-ink-dim">(~/NexoraAI/KURALLAR.md)</span>
             </label>
             <p className="mb-3 text-xs font-medium text-ink-dim leading-relaxed">
-              {language === 'tr'
-                ? 'HER projede geçerli tercihler. Proje kuralıyla çelişirse yakın olan (proje) kazanır.'
-                : 'Preferences that apply to EVERY project. On conflict the nearer (project) rule wins.'}
+              {tt(language, "Preferences that apply to EVERY project. On conflict the nearer (project) rule wins.")}
             </p>
             <textarea
               value={globalRules}
               onChange={(e) => setGlobalRules(e.target.value)}
               rows={4}
-              placeholder={language === 'tr' ? 'ör. Her zaman Türkçe yorum satırları; erişilebilirlik etiketlerini atlama' : 'e.g. Always Turkish comments; never skip a11y labels'}
+              placeholder={tt(language, "e.g. Always Turkish comments; never skip a11y labels")}
               className="w-full resize-none rounded-xl border border-ink-line bg-ink-card px-3.5 py-3 font-mono text-xs text-ink-text placeholder-ink-dim focus:bg-ink-hi focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition"
             />
           </div>
@@ -562,17 +536,15 @@ export default function SettingsModal() {
           {/* 7.8: proje bilgi tabanı — motorun KANITLA öğrendikleri */}
           <div className={(section === 'knowledge' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-              {language === 'tr' ? 'Proje Bilgi Tabanı' : 'Project Knowledge Base'}{' '}
+              {tt(language, "Project Knowledge Base")}{' '}
               <span className="normal-case font-mono text-[10px] text-ink-dim">({projectName}/knowledge/)</span>
             </span>
             <p className="mt-1 text-[11px] font-medium leading-normal text-ink-dim">
-              {language === 'tr'
-                ? 'Motor bu projede kanıtla öğrendiklerini buraya yazar (onarım kalıpları, doğrulanmış düzeltmeler, senin inceleme yorumların) ve her turun başına özetler. Yanlışlanan madde otomatik emekli olur; istediğini elle de silebilirsin.'
-                : 'The engine records what it PROVED here (repair patterns, verified fixes, your review comments) and summarizes them into every turn. Refuted items retire automatically; delete any by hand.'}
+              {tt(language, "The engine records what it PROVED here (repair patterns, verified fixes, your review comments) and summarizes them into every turn. Refuted items retire automatically; delete any by hand.")}
             </p>
             {knowledge.length === 0 ? (
               <p className="mt-3 text-[11px] font-semibold text-ink-dim">
-                {language === 'tr' ? 'Henüz madde yok — motor onardıkça ve sen yorumladıkça dolacak.' : 'No items yet — fills as the engine repairs and you comment.'}
+                {tt(language, "No items yet — fills as the engine repairs and you comment.")}
               </p>
             ) : (
               <div className="mt-3 flex flex-col gap-1.5">
@@ -598,7 +570,7 @@ export default function SettingsModal() {
                       onClick={() => {
                         void window.nexora.knowledge?.remove({ projectName, file: k.file }).then(() => refreshKnowledge(projectName))
                       }}
-                      title={language === 'tr' ? 'Maddeyi sil' : 'Delete item'}
+                      title={tt(language, "Delete item")}
                       className="shrink-0 rounded p-1 text-ink-dim transition hover:bg-red-500/10 hover:text-red-500"
                     >
                       <X className="h-3 w-3" />
@@ -621,17 +593,17 @@ export default function SettingsModal() {
           {/* 10.5: sistem tümleşiği — bildirim + uyku engelleyici (Genel altında) */}
           <div className={(section === 'general' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
             <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-              {language === 'tr' ? 'Sistem' : 'System'}
+              {tt(language, "System")}
             </span>
             <label className="mt-3 flex cursor-pointer items-center justify-between gap-3">
               <span className="text-[12px] font-semibold text-ink-mut">
-                {language === 'tr' ? 'Uzun koşu bitince bildir (pencere arka plandaysa)' : 'Notify when a long run finishes (if backgrounded)'}
+                {tt(language, "Notify when a long run finishes (if backgrounded)")}
               </span>
               <input type="checkbox" checked={notifyOnDone} onChange={(e) => setSystem({ notifyOnDone: e.target.checked })} className="h-4 w-4 accent-brand-500" />
             </label>
             <label className="mt-2 flex cursor-pointer items-center justify-between gap-3">
               <span className="text-[12px] font-semibold text-ink-mut">
-                {language === 'tr' ? 'Koşarken makinenin uyumasını engelle' : 'Keep the machine awake during runs'}
+                {tt(language, "Keep the machine awake during runs")}
               </span>
               <input type="checkbox" checked={keepAwakeOnRun} onChange={(e) => setSystem({ keepAwakeOnRun: e.target.checked })} className="h-4 w-4 accent-brand-500" />
             </label>

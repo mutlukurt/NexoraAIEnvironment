@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { tt, localeOf, type Lang } from '@/lib/i18n'
 import type { ChatMessage } from '@shared/ipc'
 import { useAppStore } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
@@ -37,7 +38,7 @@ function FileIcon({ path }: { path: string }) {
 }
 
 /** Tek üretilmiş görsel kartı: her zaman görünür araç çubuğu (tam ekran/indir/assets). */
-function ImageCard({ img, onFull, language }: { img: { dataUrl: string; name: string }; onFull: () => void; language: 'tr' | 'en' }) {
+function ImageCard({ img, onFull, language }: { img: { dataUrl: string; name: string }; onFull: () => void; language: Lang }) {
   const [added, setAdded] = useState(false)
   const [saved, setSaved] = useState(false)
   const tr = language === 'tr'
@@ -97,7 +98,7 @@ function ImageMessage({
 }: {
   images: Array<{ dataUrl: string; name: string }>
   prompt?: string
-  language: 'tr' | 'en'
+  language: Lang
 }) {
   const [fullIdx, setFullIdx] = useState<number | null>(null)
   const tr = language === 'tr'
@@ -186,7 +187,7 @@ function FileRow({ path, done, edited, editLive, onOpen, t }: { path: string; do
 }
 
 /** Bolt-style artifact card: file list + progress. The code itself never renders here. */
-function ArtifactCard({ files, streaming, t, language }: { files: { path: string; complete: boolean; edited?: boolean; editLive?: { blocks: number; phase: 'search' | 'replace' } }[]; streaming?: boolean; t: any; language: string }) {
+function ArtifactCard({ files, streaming, t, language }: { files: { path: string; complete: boolean; edited?: boolean; editLive?: { blocks: number; phase: 'search' | 'replace' } }[]; streaming?: boolean; t: any; language: Lang }) {
   const openFile = (path: string) => {
     const s = useArtifactsStore.getState()
     if (s.files[path]) {
@@ -215,7 +216,7 @@ function ArtifactCard({ files, streaming, t, language }: { files: { path: string
           </span>
         ) : (
           <span className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-            ✓ {files.length} {t.filesCount} {language === 'tr' ? 'hazır' : 'ready'}
+            ✓ {files.length} {t.filesCount} {tt(language, "ready")}
           </span>
         )}
       </div>
@@ -320,7 +321,7 @@ function AssistantMessage({
   streaming?: boolean
   isLast: boolean
   t: any
-  language: string
+  language: Lang
   diffStats?: Array<{ path: string; added: number; removed: number; isNew: boolean }>
 }) {
   const acceptChanges = useArtifactsStore((s) => s.acceptChanges)
@@ -381,7 +382,7 @@ function AssistantMessage({
             {diffStats.map((d) => (
               <span key={d.path} className="inline-flex items-center gap-1.5 rounded-lg border border-ink-line/60 bg-ink-panel px-2 py-1 font-mono text-[10px]" title={d.path}>
                 <span className="max-w-[160px] truncate text-ink-mut">{d.path.split('/').pop()}</span>
-                {d.isNew && <span className="text-[9px] font-bold text-brand-500">{language === 'tr' ? 'YENİ' : 'NEW'}</span>}
+                {d.isNew && <span className="text-[9px] font-bold text-brand-500">{tt(language, "NEW")}</span>}
                 {d.added > 0 && <span className="font-bold text-emerald-600 dark:text-emerald-400">+{d.added}</span>}
                 {d.removed > 0 && <span className="font-bold text-red-600 dark:text-red-400">−{d.removed}</span>}
               </span>
@@ -440,13 +441,13 @@ function AssistantMessage({
 }
 
 /** 8.6: kısa göreli süre — "45sn", "4dk", "2sa". */
-function relTime(ms: number, lang: 'tr' | 'en'): string {
+function relTime(ms: number, lang: Lang): string {
   const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return s + (lang === 'tr' ? 'sn' : 's')
+  if (s < 60) return s + (tt(lang, "s"))
   const m = Math.round(s / 60)
-  if (m < 60) return m + (lang === 'tr' ? 'dk' : 'm')
+  if (m < 60) return m + (tt(lang, "m"))
   const h = Math.round(m / 60)
-  return h + (lang === 'tr' ? 'sa' : 'h')
+  return h + (tt(lang, "h"))
 }
 
 export default function ChatPanel() {
@@ -466,7 +467,7 @@ export default function ChatPanel() {
 
   const profileLabel = useAppStore((s) => s.profileLabel)
   const language = useAppStore((s) => s.language)
-  const imgPlaceholder = language === 'tr' ? 'Bir görsel tarif et…' : 'Describe an image…'
+  const imgPlaceholder = tt(language, "Describe an image…")
   const pendingImage = useAppStore((s) => s.pendingImage)
   const attachImage = useAppStore((s) => s.attachImage)
   const clearImage = useAppStore((s) => s.clearImage)
@@ -688,19 +689,19 @@ export default function ChatPanel() {
                     : 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300')
                 }
               >
-                📥 {language === 'tr' ? 'Görevler' : 'Tasks'} ({queuedTasks.filter((x) => x.state === 'queued' || x.state === 'running').length}/{queuedTasks.length})
+                📥 {tt(language, "Tasks")} ({queuedTasks.filter((x) => x.state === 'queued' || x.state === 'running').length}/{queuedTasks.length})
               </button>
               {inboxOpen && (
                 <div className="absolute right-0 top-8 z-40 flex max-h-96 w-96 flex-col overflow-hidden rounded-2xl border border-ink-line bg-ink-card shadow-2xl">
                   <div className="flex-1 overflow-y-auto p-2">
                     {queuedTasks.map((task) => {
                       const meta =
-                        task.state === 'queued' ? { chip: language === 'tr' ? 'sırada' : 'queued', cls: 'bg-ink-hi text-ink-mut' }
-                        : task.state === 'running' ? { chip: language === 'tr' ? 'koşuyor' : 'running', cls: 'bg-brand-500/15 text-brand-700 dark:text-brand-300' }
+                        task.state === 'queued' ? { chip: tt(language, "queued"), cls: 'bg-ink-hi text-ink-mut' }
+                        : task.state === 'running' ? { chip: tt(language, "running"), cls: 'bg-brand-500/15 text-brand-700 dark:text-brand-300' }
                         : task.state === 'verified' ? { chip: '✓ verified', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' }
-                        : task.state === 'needs-review' ? { chip: language === 'tr' ? '⚠ incele' : '⚠ review', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
-                        : task.state === 'failed' ? { chip: language === 'tr' ? 'başarısız' : 'failed', cls: 'bg-red-500/10 text-red-600 dark:text-red-400' }
-                        : { chip: language === 'tr' ? 'iptal' : 'cancelled', cls: 'bg-ink-hi text-ink-dim' }
+                        : task.state === 'needs-review' ? { chip: tt(language, "⚠ review"), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' }
+                        : task.state === 'failed' ? { chip: tt(language, "failed"), cls: 'bg-red-500/10 text-red-600 dark:text-red-400' }
+                        : { chip: tt(language, "cancelled"), cls: 'bg-ink-hi text-ink-dim' }
                       return (
                         <div key={task.id} className="mb-1.5 rounded-xl border border-ink-line/70 bg-ink-panel px-3 py-2">
                           <div className="flex items-center gap-2">
@@ -716,7 +717,7 @@ export default function ChatPanel() {
                           <div className="mt-1.5 flex items-center gap-1.5">
                             {task.state === 'queued' && (
                               <button onClick={() => cancelTask(task.id)} className="rounded border border-ink-line px-2 py-0.5 text-[10px] font-bold text-ink-dim hover:bg-ink-hi">
-                                {language === 'tr' ? 'İptal' : 'Cancel'}
+                                {tt(language, "Cancel")}
                               </button>
                             )}
                             {(task.state === 'verified' || task.state === 'needs-review') && (
@@ -732,7 +733,7 @@ export default function ChatPanel() {
                                   }}
                                   className="rounded border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300 hover:bg-brand-500/20"
                                 >
-                                  ⇄ {language === 'tr' ? 'İncele' : 'Review'}
+                                  ⇄ {tt(language, "Review")}
                                 </button>
                                 <button
                                   onClick={() => {
@@ -749,9 +750,9 @@ export default function ChatPanel() {
                             <span className="ml-auto text-[9px] font-semibold text-ink-dim">
                               {/* 8.6: göreli süre canlı güncellenir (inbox açıkken saniyede bir tik) */}
                               {task.state === 'queued'
-                                ? (language === 'tr' ? 'sırada ' : 'queued ') + relTime(nowTs - task.createdAt, language)
+                                ? (tt(language, "queued ")) + relTime(nowTs - task.createdAt, language)
                                 : task.state === 'running'
-                                  ? (language === 'tr' ? 'koşuyor ' : 'running ') + relTime(nowTs - (task.startedAt ?? task.createdAt), language)
+                                  ? (tt(language, "running ")) + relTime(nowTs - (task.startedAt ?? task.createdAt), language)
                                   : task.finishedAt && task.startedAt
                                     ? ((task.finishedAt - task.startedAt) / 1000).toFixed(0) + 's'
                                     : ''}
@@ -765,7 +766,7 @@ export default function ChatPanel() {
                     onClick={clearFinishedTasks}
                     className="border-t border-ink-line px-3 py-2 text-[10px] font-bold text-ink-dim transition hover:bg-ink-hi"
                   >
-                    {language === 'tr' ? 'Bitmişleri temizle' : 'Clear finished'}
+                    {tt(language, "Clear finished")}
                   </button>
                 </div>
               )}
@@ -817,7 +818,7 @@ export default function ChatPanel() {
                     <button
                       onClick={() => void attachImage()}
                       disabled={!hasModel}
-                      title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
+                      title={tt(language, "Attach reference image")}
                       className={
                         'shrink-0 rounded-lg p-1.5 transition disabled:opacity-40 ' +
                         (pendingImage ? 'text-brand-700 dark:text-brand-300 bg-brand-500/15' : 'text-ink-dim hover:text-ink-mut hover:bg-ink-hi')
@@ -903,44 +904,36 @@ export default function ChatPanel() {
                 {[
                   {
                     title: 'Modern Landing Page',
-                    desc: language === 'tr' ? 'Temiz animasyonlar ve Tailwind ile modern landing page.' : 'Modern landing page with clean animations and Tailwind.',
+                    desc: tt(language, "Modern landing page with clean animations and Tailwind."),
                     prompt: 'React and Tailwind CSS'
                   },
                   {
                     title: 'Veri Dashboard',
-                    desc: language === 'tr' ? 'Kartlar, grafikler ve filtrelerle temiz yönetim paneli.' : 'Clean management dashboard with cards, charts, and filters.',
+                    desc: tt(language, "Clean management dashboard with cards, charts, and filters."),
                     prompt: 'Dashboard interface'
                   },
                   {
                     title: 'Kişisel Portfolyo',
-                    desc: language === 'tr' ? 'CV ve projelerini sergileyen estetik web sitesi.' : 'Aesthetic portfolio showcasing CV and projects.',
+                    desc: tt(language, "Aesthetic portfolio showcasing CV and projects."),
                     prompt: 'Portfolio page'
                   },
                   {
                     title: 'Giriş Ekranı (Login)',
-                    desc: language === 'tr' ? 'Animasyonlu ve doğrulamalı modern giriş arayüzü.' : 'Modern login page with animations and form validation.',
+                    desc: tt(language, "Modern login page with animations and form validation."),
                     prompt: 'Login screen'
                   }
                 ].map((item) => {
                   const getPromptText = () => {
                     if (item.title === 'Modern Landing Page') {
-                      return language === 'tr'
-                        ? 'React ve Tailwind CSS kullanarak modern, minimalist ve karanlık mod destekli bir teknoloji landing page tasarla. Harika animasyonlar ve responsive tasarım olsun.'
-                        : 'Design a modern, minimalist technology landing page with light/dark support using React and Tailwind CSS. Add nice animations and responsive design.'
+                      return tt(language, "Design a modern, minimalist technology landing page with light/dark support using React and Tailwind CSS. Add nice animations and responsive design.")
                     }
                     if (item.title === 'Veri Dashboard') {
-                      return language === 'tr'
-                        ? 'Güzel kartlar, filtre kontrolleri ve mock veri içeren temiz bir veri yönetim paneli (dashboard) arayüzü tasarla.'
-                        : 'Design a clean data management dashboard interface with cards, filters, and mock data.'
+                      return tt(language, "Design a clean data management dashboard interface with cards, filters, and mock data.")
                     }
                     if (item.title === 'Kişisel Portfolyo') {
-                      return language === 'tr'
-                        ? 'Çalışmalarımı, yeteneklerimi ve iletişim formunu içeren şık ve modern bir kişisel portfolyo sayfası tasarla.'
-                        : 'Design a sleek personal portfolio page showcasing works, skills, and a contact form.'
+                      return tt(language, "Design a sleek personal portfolio page showcasing works, skills, and a contact form.")
                     }
-                    return language === 'tr'
-                      ? 'Sosyal medya girişleri ve form doğrulaması bulunan, cam morumsu (glassmorphism) efektli şık bir Login ekranı tasarla.'
-                      : 'Design a sleek login screen with social auth integration and input validation utilizing a glassmorphism style.'
+                    return tt(language, "Design a sleek login screen with social auth integration and input validation utilizing a glassmorphism style.")
                   }
                   const cardIcon =
                     item.title === 'Modern Landing Page' ? (
@@ -1006,7 +999,7 @@ export default function ChatPanel() {
                         <span className="block truncate text-xs font-bold text-ink-text">{sess.title}</span>
                         <span className="mt-0.5 block text-[10px] font-medium text-ink-dim">
                           {sess.fileCount} {t.filesCount} ·{' '}
-                          {new Date(sess.updatedAt).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', {
+                          {new Date(sess.updatedAt).toLocaleDateString(localeOf(language), {
                             day: 'numeric',
                             month: 'short'
                           })}
@@ -1081,13 +1074,13 @@ export default function ChatPanel() {
             <div key={i} className="mx-auto flex w-full max-w-3xl items-center gap-2 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-2">
               <span className="shrink-0 text-sm">🧠</span>
               <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink-text" title={mem}>
-                {language === 'tr' ? 'Bunu hatırla? ' : 'Remember this? '}<span className="font-normal text-ink-mut">{mem}</span>
+                {tt(language, "Remember this? ")}<span className="font-normal text-ink-mut">{mem}</span>
               </span>
               <button onClick={() => void approveMemory(mem)} className="shrink-0 rounded-lg bg-violet-600 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-violet-500">
-                {language === 'tr' ? 'Onayla' : 'Approve'}
+                {tt(language, "Approve")}
               </button>
               <button onClick={() => dismissMemory(mem)} className="shrink-0 rounded-lg border border-ink-line px-2 py-1 text-[11px] font-bold text-ink-mut transition hover:bg-ink-hi">
-                {language === 'tr' ? 'Yoksay' : 'Dismiss'}
+                {tt(language, "Dismiss")}
               </button>
             </div>
           ))}
@@ -1103,7 +1096,7 @@ export default function ChatPanel() {
           {pendingComments.length > 0 && (
             <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2">
               <span className="shrink-0 text-xs font-bold text-brand-700 dark:text-brand-300">
-                💬 {pendingComments.length} {language === 'tr' ? 'yorum sırada' : 'comment(s) queued'}
+                💬 {pendingComments.length} {tt(language, "comment(s) queued")}
               </span>
               <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-brand-600/80 dark:text-brand-400/80">
                 {pendingComments
@@ -1113,7 +1106,7 @@ export default function ChatPanel() {
               </span>
               {sending ? (
                 <span className="shrink-0 text-[10px] font-semibold text-brand-600 dark:text-brand-400">
-                  {language === 'tr' ? 'sonraki tura iliştirilecek' : 'attaches to the next turn'}
+                  {tt(language, "attaches to the next turn")}
                 </span>
               ) : (
                 <>
@@ -1121,11 +1114,11 @@ export default function ChatPanel() {
                     onClick={() => void applySteerComments()}
                     className="shrink-0 rounded-lg bg-brand-600 px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-brand-500"
                   >
-                    {language === 'tr' ? 'Şimdi uygula' : 'Apply now'}
+                    {tt(language, "Apply now")}
                   </button>
                   <button
                     onClick={clearSteerComments}
-                    title={language === 'tr' ? 'Yorumları sil' : 'Discard comments'}
+                    title={tt(language, "Discard comments")}
                     className="shrink-0 rounded-lg border border-ink-line px-2 py-1 text-[10px] font-bold text-ink-dim transition hover:bg-ink-hi"
                   >
                     ✕
@@ -1157,7 +1150,7 @@ export default function ChatPanel() {
               <ImagePlus className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{pendingImage.name}</span>
               <span className="shrink-0 text-[10px] font-semibold text-brand-600 dark:text-brand-400">
-                {language === 'tr' ? 'mesajla birlikte analiz edilecek' : 'will be analyzed with your message'}
+                {tt(language, "will be analyzed with your message")}
               </span>
               <button onClick={clearImage} className="shrink-0 text-brand-600 dark:text-brand-400 hover:text-brand-200 transition">
                 <X className="h-4 w-4" />
@@ -1181,9 +1174,7 @@ export default function ChatPanel() {
               onKeyDown={(e) => onKeyDown(e, text)}
               placeholder={
                 sending
-                  ? language === 'tr'
-                    ? 'tur koşuyor — Enter yazdığını GÖREV olarak kuyruğa ekler'
-                    : 'turn running — Enter queues your text as a TASK'
+                  ? tt(language, "turn running — Enter queues your text as a TASK")
                   : isImageModel
                     ? imgPlaceholder
                     : t.inputPlaceholder
@@ -1193,7 +1184,7 @@ export default function ChatPanel() {
             <div className="mt-2 flex items-center gap-2">
               <button
                 onClick={() => void attachImage()}
-                title={language === 'tr' ? 'Referans görsel ekle' : 'Attach reference image'}
+                title={tt(language, "Attach reference image")}
                 className={
                   'shrink-0 rounded-lg p-1.5 transition ' +
                   (pendingImage ? 'text-brand-700 dark:text-brand-300 bg-brand-500/15' : 'text-ink-dim hover:text-ink-mut hover:bg-ink-hi')

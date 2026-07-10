@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { tt } from '@/lib/i18n'
 import { useHfStore, type DownloadState } from '@/store/hfStore'
 import { useAppStore, fmtBytes } from '@/store/appStore'
 import { X, Heart, Check, ArrowRight } from 'lucide-react'
@@ -98,7 +99,7 @@ export default function ModelBrowser() {
           <div className="flex flex-col gap-2.5">
             {results.length === 0 && !searching && (
               <p className="py-8 text-center text-xs text-ink-dim font-medium">
-                {language === 'tr' ? 'Arama yapın' : 'Search for models'}
+                {tt(language, "Search for models")}
               </p>
             )}
             {results.map((m) => {
@@ -114,7 +115,7 @@ export default function ModelBrowser() {
                       <p className="text-[11px] font-medium text-ink-dim flex items-center gap-1.5 flex-wrap">
                         <span>{m.ggufFiles.length} gguf</span>
                         <span>·</span>
-                        <span>{m.downloads?.toLocaleString() ?? 0} {language === 'tr' ? 'indirme' : 'downloads'}</span>
+                        <span>{m.downloads?.toLocaleString() ?? 0} {tt(language, "downloads")}</span>
                         {m.likes ? (
                           <>
                             <span>·</span>
@@ -187,7 +188,7 @@ export default function ModelBrowser() {
           <div className="flex flex-col gap-2">
             {localModels.length === 0 ? (
               <p className="py-4 text-center text-xs text-ink-dim font-medium bg-ink-card/50 rounded-xl border border-dashed border-ink-line">
-                {language === 'tr' ? 'Henüz indirilen model yok' : 'No downloaded models yet'}
+                {tt(language, "No downloaded models yet")}
               </p>
             ) : (
               localModels.map((lm) => (

@@ -8,6 +8,7 @@
  * geçilir. "nexora:openSetup" olayı ile oturum içinde tekrar açılabilir.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { tt } from '@/lib/i18n'
 import { buildPlan, type AdvisorPlan, type HardwareInfo, type SpeedGrade } from '@shared/advisor'
 import { useHfStore, type DownloadState } from '@/store/hfStore'
 import { useAppStore, fmtBytes } from '@/store/appStore'
@@ -57,8 +58,10 @@ export default function WelcomeSetup() {
   const loadModelPath = useAppStore((s) => s.loadModelPath)
   const language = useAppStore((s) => s.language)
   const t = translations[language]
-  const speedText = SPEED_TEXT[language] ?? SPEED_TEXT.tr
-  const fitText = FIT_TEXT[language] ?? FIT_TEXT.tr
+  // Donanım danışmanı etiketleri şimdilik tr/en; diğer diller İngilizce'ye düşer.
+  const l2: 'tr' | 'en' = language === 'tr' ? 'tr' : 'en'
+  const speedText = SPEED_TEXT[l2]
+  const fitText = FIT_TEXT[l2]
 
   const close = useCallback(() => setOpen(false), [])
 
@@ -215,7 +218,7 @@ export default function WelcomeSetup() {
                           {bench[c.file] && (
                             <span
                               className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300"
-                              title={language === 'tr' ? 'Bu cihazda ölçüldü (Mini-test)' : 'Measured on this device (Mini-benchmark)'}
+                              title={tt(language, "Measured on this device (Mini-benchmark)")}
                             >
                               {bench[c.file].tokPerSec} tok/s · {bench[c.file].compileOk ? '✓' : '✗'} · {bench[c.file].score}/100
                             </span>

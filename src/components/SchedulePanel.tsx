@@ -6,10 +6,11 @@
  * açıkken (yerel-önce).
  */
 import { useState } from 'react'
+import type { Lang } from '@/lib/i18n'
 import { Clock, Plus, Trash2 } from 'lucide-react'
 import { useScheduleStore } from '@/store/scheduleStore'
 
-export default function SchedulePanel({ language }: { language: 'tr' | 'en' }) {
+export default function SchedulePanel({ language }: { language: Lang }) {
   const tr = language === 'tr'
   const tasks = useScheduleStore((s) => s.tasks)
   const add = useScheduleStore((s) => s.add)

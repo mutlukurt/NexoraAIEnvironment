@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { tt, type Lang } from '@/lib/i18n'
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useAppStore } from '@/store/appStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -15,7 +16,7 @@ import { getProjectName } from '@/lib/agentActions'
  * Bağlı (içe aktarılmış) klasörlerde ve git'siz sistemlerde liste boş döner —
  * bileşen bunu dürüstçe söyler.
  */
-function HistoryTimeline({ language }: { language: 'tr' | 'en' }) {
+function HistoryTimeline({ language }: { language: Lang }) {
   const [entries, setEntries] = useState<Array<{ hash: string; subject: string; time: number }>>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -142,11 +143,11 @@ export default function ArtifactsPanel() {
   // localhost + tarayıcı). Sandbox iframe'in kısıtlarıyla boğuşmak yerine
   // kullanıcı gerçek çıktıya bakar.
   const tabs: { id: 'code' | 'tree' | 'history' | 'engine' | 'docs' | 'term'; label: string }[] = [
-    { id: 'code', label: language === 'tr' ? 'Kod' : 'Code' },
-    { id: 'tree', label: language === 'tr' ? 'Ağaç' : 'Tree' },
-    { id: 'history', label: language === 'tr' ? 'Geçmiş' : 'History' },
-    { id: 'engine', label: language === 'tr' ? 'Motor' : 'Engine' },
-    { id: 'docs', label: language === 'tr' ? 'Belgeler' : 'Docs' },
+    { id: 'code', label: tt(language, "Code") },
+    { id: 'tree', label: tt(language, "Tree") },
+    { id: 'history', label: tt(language, "History") },
+    { id: 'engine', label: tt(language, "Engine") },
+    { id: 'docs', label: tt(language, "Docs") },
     { id: 'term', label: 'Terminal' }
   ]
 
@@ -159,7 +160,7 @@ export default function ArtifactsPanel() {
     if (res.ok && res.count != null) {
       setExportMsg(language === 'tr' ? `${res.count} dosya → ${res.dir}` : `${res.count} files → ${res.dir}`)
     } else {
-      setExportMsg(res.error ?? (language === 'tr' ? 'Dışa aktarma hatası' : 'Export error'))
+      setExportMsg(res.error ?? (tt(language, "Export error")))
     }
     setTimeout(() => setExportMsg(null), 8000)
   }
@@ -229,7 +230,7 @@ export default function ArtifactsPanel() {
       setScanBusy(false)
     }
     // Rapor chat'e düşer — kullanıcı sohbet sekmesinde görür.
-    setExportMsg(language === 'tr' ? 'Tarama raporu sohbete eklendi' : 'Scan report added to chat')
+    setExportMsg(tt(language, "Scan report added to chat"))
     setTimeout(() => setExportMsg(null), 5000)
   }
 
@@ -238,7 +239,7 @@ export default function ArtifactsPanel() {
       useAppStore.getState().cancelBehaviorReview() // 8.3: bekleyen davranış testini iptal et
       await window.nexora.agent.devStop()
       setDevUrl(null)
-      setExportMsg(language === 'tr' ? 'Dev sunucusu durduruldu' : 'Dev server stopped')
+      setExportMsg(tt(language, "Dev server stopped"))
       setTimeout(() => setExportMsg(null), 4000)
       return
     }
@@ -246,7 +247,7 @@ export default function ArtifactsPanel() {
     // Debug Engine (5.2): Çalıştır'dan önce sessiz tarama — deterministik
     // sınıflar localhost'a hiç ulaşmadan onarılır (temizse mesaj yok).
     try { await useAppStore.getState().runProjectScan({ quiet: true }) } catch { /* tarama Run'ı engellemez */ }
-    setExportMsg(language === 'tr' ? 'Proje hazırlanıyor (npm install + dev sunucusu)…' : 'Preparing project (npm install + dev server)…')
+    setExportMsg(tt(language, "Preparing project (npm install + dev server)…"))
     // 6.6 canlı bulgusu (repro-failed'ın yakaladığı gerçek bug): `files` bu
     // handler'ın render kapanışından gelir — az önceki taramanın onardığı
     // içerik onda YOKTUR; bayat kopya diske sync'lenip "onarıldı ama disk
@@ -257,7 +258,7 @@ export default function ArtifactsPanel() {
     setDevBusy(false)
     if (res.ok && res.url) {
       setDevUrl(res.url)
-      setExportMsg((language === 'tr' ? 'Çalışıyor: ' : 'Running: ') + res.url)
+      setExportMsg((tt(language, "Running: ")) + res.url)
       // Görsel öz-denetim (roadmap 3.3): sayfa ayağa kalktıktan sonra uygulama
       // kendi çıktısına bakar; kusur görürse gizli düzelt turu başlatır.
       setTimeout(() => void useAppStore.getState().runVisualReview(res.url!), 4000)
@@ -267,7 +268,7 @@ export default function ArtifactsPanel() {
       // ölmez — bekler, loglar, motor boşalınca koşar (ya da sınırda raporlar).
       useAppStore.getState().scheduleBehaviorReview(res.url!)
     } else {
-      setExportMsg(res.error ?? (language === 'tr' ? 'Başlatılamadı' : 'Failed to start'))
+      setExportMsg(res.error ?? (tt(language, "Failed to start")))
     }
     setTimeout(() => setExportMsg(null), 10000)
   }
@@ -341,8 +342,8 @@ export default function ArtifactsPanel() {
                 onClick={() => setWatchOn((v) => !v)}
                 title={
                   watchOn
-                    ? (watchInfo?.top || (language === 'tr' ? 'Canlı tarama açık — bulgu yok' : 'Live scan on — no findings'))
-                    : language === 'tr' ? 'Canlı tarama: sen yazarken arka planda tara (dosya değiştirmez)' : 'Live scan: scan in the background as you type (never edits files)'
+                    ? (watchInfo?.top || (tt(language, "Live scan on — no findings")))
+                    : tt(language, "Live scan: scan in the background as you type (never edits files)")
                 }
                 className={
                   'ml-1 rounded-xl border px-3 py-2 text-xs font-bold transition shadow-sm flex items-center gap-1.5 ' +
@@ -359,14 +360,14 @@ export default function ArtifactsPanel() {
                     ? watchInfo && watchInfo.count > 0
                       ? `${watchInfo.count}`
                       : '✓'
-                    : language === 'tr' ? 'Canlı' : 'Live'}
+                    : tt(language, "Live")}
                 </span>
               </button>
               {/* Debug Engine (roadmap 5.2): çalıştırmadan tara + modelsiz onar */}
               <button
                 onClick={() => void handleScan()}
                 disabled={scanBusy}
-                title={language === 'tr' ? 'Projeyi çalıştırmadan tara: hatalı kodu bul, bulunanı modelsiz onar' : 'Scan without running: find faulty code, repair deterministically'}
+                title={tt(language, "Scan without running: find faulty code, repair deterministically")}
                 className="ml-1 rounded-xl border border-ink-line bg-ink-card px-4 py-2 text-xs font-bold text-ink-mut transition shadow-sm hover:border-brand-500/60 hover:text-ink-text disabled:opacity-50 flex items-center gap-1.5"
               >
                 {scanBusy ? (
@@ -374,12 +375,12 @@ export default function ArtifactsPanel() {
                 ) : (
                   <ScanSearch className="h-4 w-4" />
                 )}
-                <span>{language === 'tr' ? 'Tara' : 'Scan'}</span>
+                <span>{tt(language, "Scan")}</span>
               </button>
               <button
                 onClick={() => void handleDev()}
                 disabled={devBusy}
-                title={devUrl ? (language === 'tr' ? 'Dev sunucusunu durdur' : 'Stop dev server') : (language === 'tr' ? 'Projeyi localhost\'ta çalıştır' : 'Run project on localhost')}
+                title={devUrl ? (tt(language, "Stop dev server")) : (tt(language, "Run project on localhost"))}
                 className={
                   'ml-1 rounded-xl px-4 py-2 text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 ' +
                   (devUrl
@@ -394,7 +395,7 @@ export default function ArtifactsPanel() {
                 ) : (
                   <Play className="h-4 w-4" />
                 )}
-                <span>{devUrl ? (language === 'tr' ? 'Durdur' : 'Stop') : (language === 'tr' ? 'Çalıştır' : 'Run')}</span>
+                <span>{devUrl ? (tt(language, "Stop")) : (tt(language, "Run"))}</span>
               </button>
               <button
                 onClick={() => void handleExport()}
@@ -488,13 +489,13 @@ export default function ArtifactsPanel() {
             <input
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
-              placeholder={language === 'tr' ? 'Dosyalarda ara…' : 'Search files…'}
+              placeholder={tt(language, "Search files…")}
               className="m-2 rounded-lg border border-ink-line/70 bg-ink-panel px-2 py-1.5 text-xs text-ink-text outline-none placeholder:text-ink-dim focus:border-brand-500"
             />
             {searchQ.trim().length >= 2 ? (
               <div className="flex-1 overflow-y-auto px-1 pb-2">
                 {searchHits.length === 0 && (
-                  <p className="px-2 pt-1 text-[11px] text-ink-dim">{language === 'tr' ? 'Eşleşme yok' : 'No matches'}</p>
+                  <p className="px-2 pt-1 text-[11px] text-ink-dim">{tt(language, "No matches")}</p>
                 )}
                 {searchHits.map((h) => (
                   <button
@@ -558,7 +559,7 @@ const ENGINE_LAYER_META: Record<string, { emoji: string; step: string; stepEn: s
   'priors-applied': { emoji: '🧠', step: 'Öğren', stepEn: 'Learn' }
 }
 
-function EngineTimeline({ language }: { language: 'tr' | 'en' }) {
+function EngineTimeline({ language }: { language: Lang }) {
   const events = useAppStore((s) => s.engineEvents)
   const tr = language === 'tr'
   return (
@@ -714,7 +715,7 @@ function MarkdownLite({ text, onComment }: { text: string; onComment?: (section:
  * (kullanıcı yazmış olsa bile — yanlışlıkla `rm -rf /` koruması), Salt
  * Okunur kipte terminal de yalnız izler.
  */
-function TerminalView({ language }: { language: 'tr' | 'en' }) {
+function TerminalView({ language }: { language: Lang }) {
   const tr = language === 'tr'
   const entries = useTermStore((s) => s.entries)
   const [cmd, setCmd] = useState('')
@@ -826,7 +827,7 @@ function TerminalView({ language }: { language: 'tr' | 'en' }) {
   )
 }
 
-function ArtifactDocsView({ language }: { language: 'tr' | 'en' }) {
+function ArtifactDocsView({ language }: { language: Lang }) {
   const tr = language === 'tr'
   const sessionId = useAppStore((s) => s.currentSessionId)
   const addSteerComment = useAppStore((s) => s.addSteerComment)

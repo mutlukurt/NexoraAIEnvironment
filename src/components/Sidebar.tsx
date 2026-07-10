@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { tt, localeOf } from '@/lib/i18n'
 import { useAppStore, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command } from 'lucide-react'
@@ -25,7 +26,7 @@ export default function Sidebar() {
   // 10.11.2: oturumları türe göre ayır — proje oturumları projelerin altında,
   // sohbet oturumları ayrı listede. Eski oturumlarda çıkarım (dosya varsa proje).
   const { chats: chatSessions, projects: projectSessions } = splitSessions(sessions)
-  const byProject = groupByProject(projectSessions, language === 'tr' ? 'proje' : 'project')
+  const byProject = groupByProject(projectSessions, tt(language, "project"))
   // Proje listesi: klasörler (useProjectsList) ∪ oturumu olan projeler.
   const folderByName = new Map(projects.map((p) => [p.name, p]))
   const projectNames = [...new Set([...projects.map((p) => p.name), ...byProject.keys()])]
@@ -57,9 +58,9 @@ export default function Sidebar() {
           <MessageSquare className={'h-4 w-4 shrink-0 ' + (active ? 'text-brand-600 dark:text-brand-400' : 'text-ink-dim')} />
         )}
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-xs font-bold text-ink-text">{sess.title || (language === 'tr' ? 'Adsız' : 'Untitled')}</p>
+          <p className="truncate text-xs font-bold text-ink-text">{sess.title || (tt(language, "Untitled"))}</p>
           <p className="text-[10px] font-medium text-ink-dim">
-            {new Date(sess.updatedAt).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            {new Date(sess.updatedAt).toLocaleDateString(localeOf(language), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             {project ? ` · ${sess.fileCount} ${t.filesCount}` : ''}
           </p>
         </div>
@@ -160,7 +161,7 @@ export default function Sidebar() {
             (Eski PROJELER başlığındaki küçük '+' yerine belirgin giriş.) */}
         <button onClick={() => void importFolder()} className={navBtn(false)}>
           <FolderOpen className="h-4 w-4" />
-          <span>{language === 'tr' ? 'Proje Aç' : 'Open Project'}</span>
+          <span>{tt(language, "Open Project")}</span>
         </button>
       </nav>
 
@@ -179,7 +180,7 @@ export default function Sidebar() {
             >
               <ChevronDown className={'h-3 w-3 shrink-0 transition ' + (projClosed ? '-rotate-90' : '')} />
               <span className="truncate text-[10px] font-extrabold uppercase tracking-wider">
-                {language === 'tr' ? 'Projeler' : 'Projects'}
+                {tt(language, "Projects")}
               </span>
             </button>
           </div>
@@ -187,7 +188,7 @@ export default function Sidebar() {
             <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pb-1">
               {projectNames.length === 0 ? (
                 <p className="px-2 py-3 text-center text-[11px] font-medium text-ink-dim">
-                  {language === 'tr' ? 'Henüz proje yok' : 'No projects yet'}
+                  {tt(language, "No projects yet")}
                 </p>
               ) : (
                 projectNames.map((name) => {
@@ -202,14 +203,14 @@ export default function Sidebar() {
                           <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                           <span className="truncate text-xs font-bold text-ink-text">{name}</span>
                           {folder?.linked && (
-                            <span className="shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">{language === 'tr' ? 'bagli' : 'linked'}</span>
+                            <span className="shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">{tt(language, "linked")}</span>
                           )}
                           {sess.length > 0 && <span className="ml-auto shrink-0 text-[9px] font-bold text-ink-dim">{sess.length}</span>}
                         </button>
                         {folder && (
                           <button
                             onClick={() => void newProjectSession(folder.dir, name)}
-                            title={language === 'tr' ? 'Bu projede yeni oturum' : 'New session in this project'}
+                            title={tt(language, "New session in this project")}
                             className="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-ink-dim opacity-0 transition hover:bg-brand-500/10 hover:text-brand-600 group-hover:opacity-100 dark:hover:text-brand-300"
                           >
                             <Plus className="h-3.5 w-3.5" />
@@ -219,7 +220,7 @@ export default function Sidebar() {
                       {open && (
                         <div className="ml-3 mt-1 flex flex-col gap-1 border-l border-ink-line/50 pb-1 pl-2">
                           {sess.length === 0 ? (
-                            <p className="px-1 py-1 text-[10px] font-medium text-ink-dim">{language === 'tr' ? 'Oturum yok' : 'No sessions'}</p>
+                            <p className="px-1 py-1 text-[10px] font-medium text-ink-dim">{tt(language, "No sessions")}</p>
                           ) : (
                             sess.map((s) => sessionCard(s, true))
                           )}
@@ -228,7 +229,7 @@ export default function Sidebar() {
                               onClick={() => void newProjectSession(folder.dir, name)}
                               className="flex items-center gap-1.5 rounded-lg border border-dashed border-ink-line px-2.5 py-1.5 text-[11px] font-bold text-ink-mut transition hover:border-brand-500/50 hover:text-brand-600 dark:hover:text-brand-300"
                             >
-                              <Plus className="h-3.5 w-3.5" /> {language === 'tr' ? 'Yeni oturum' : 'New session'}
+                              <Plus className="h-3.5 w-3.5" /> {tt(language, "New session")}
                             </button>
                           )}
                         </div>
@@ -245,7 +246,7 @@ export default function Sidebar() {
         {!projClosed && !chatClosed && (
           <div
             onMouseDown={onDragStart}
-            title={language === 'tr' ? 'Sürükle: bölümleri boyutlandır' : 'Drag to resize'}
+            title={tt(language, "Drag to resize")}
             className="group relative mx-4 my-0.5 flex h-2.5 shrink-0 cursor-row-resize items-center"
           >
             <div className="h-px w-full bg-ink-line transition group-hover:bg-brand-500/50" />
@@ -283,7 +284,7 @@ export default function Sidebar() {
           className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-bold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
         >
           <Command className="h-4 w-4" />
-          <span className="flex-1 text-left">{language === 'tr' ? 'Komut paleti' : 'Command palette'}</span>
+          <span className="flex-1 text-left">{tt(language, "Command palette")}</span>
           <kbd className="rounded border border-ink-line px-1.5 py-0.5 font-mono text-[10px] text-ink-dim">⌘K</kbd>
         </button>
         <button

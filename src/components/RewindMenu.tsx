@@ -6,10 +6,11 @@
  * güvenli kılar — motor bir şeyi bozduysa tek tıkla geri dön.
  */
 import { useEffect, useRef, useState } from 'react'
+import type { Lang } from '@/lib/i18n'
 import { RotateCcw, Code2, MessageSquare, Layers } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 
-export default function RewindMenu({ messageId, language }: { messageId: string; language: 'tr' | 'en' }) {
+export default function RewindMenu({ messageId, language }: { messageId: string; language: Lang }) {
   const checkpoints = useAppStore((s) => s.checkpoints)
   const rewindTo = useAppStore((s) => s.rewindTo)
   const busy = useAppStore((s) => s.sending || s.generating)
