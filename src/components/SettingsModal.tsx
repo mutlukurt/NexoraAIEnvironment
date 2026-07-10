@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSettingsStore, UI_SCALE_PRESETS, UI_SCALE_MIN, UI_SCALE_MAX, clampUiScale } from '@/store/settingsStore'
 import { useAppStore } from '@/store/appStore'
-import { X, Plus, Trash2, TerminalSquare, Minus, ZoomIn } from 'lucide-react'
+import { X, Plus, Trash2, TerminalSquare, Minus, ZoomIn, Palette, Sun, Moon } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 import McpPanel from './McpPanel'
@@ -49,6 +49,9 @@ export default function SettingsModal() {
   const setUiScale = useSettingsStore((s) => s.setUiScale)
 
   const language = useAppStore((s) => s.language)
+  const setLanguage = useAppStore((s) => s.setLanguage)
+  const theme = useAppStore((s) => s.theme)
+  const setTheme = useAppStore((s) => s.setTheme)
   const t = translations[language]
 
   const [text, setText] = useState(customPrompt)
@@ -158,7 +161,64 @@ export default function SettingsModal() {
           </nav>
 
           <div className="flex flex-1 flex-col gap-5 overflow-y-auto bg-ink-card px-5 py-5">
-          {/* Arayüz Boyutu (erişilebilirlik) — EN ÜSTTE: fontlar/kısımlar küçük
+          {/* Görünüm: Tema + Dil — sidebar'dan buraya taşındı (orada gereksiz yer
+              kaplıyordu). Segmentli kontrol: Açık/Koyu ve TR/EN. */}
+          <div className={(section === 'general' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
+            <div className="flex items-center gap-2">
+              <Palette className="h-4 w-4 text-brand-500" />
+              <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+                {language === 'tr' ? 'Görünüm' : 'Appearance'}
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="text-[13px] font-semibold text-ink-mut">{language === 'tr' ? 'Tema' : 'Theme'}</span>
+              <div className="flex gap-0.5 rounded-lg bg-ink-hi/70 p-0.5 text-[12px] font-bold select-none">
+                <button
+                  onClick={() => setTheme('light')}
+                  className={
+                    'flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ' +
+                    (theme === 'light' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
+                  }
+                >
+                  <Sun className="h-3.5 w-3.5" /> {language === 'tr' ? 'Açık' : 'Light'}
+                </button>
+                <button
+                  onClick={() => setTheme('dark')}
+                  className={
+                    'flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ' +
+                    (theme === 'dark' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
+                  }
+                >
+                  <Moon className="h-3.5 w-3.5" /> {language === 'tr' ? 'Koyu' : 'Dark'}
+                </button>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="text-[13px] font-semibold text-ink-mut">{language === 'tr' ? 'Dil' : 'Language'}</span>
+              <div className="flex gap-0.5 rounded-lg bg-ink-hi/70 p-0.5 text-[12px] font-bold select-none">
+                <button
+                  onClick={() => setLanguage('tr')}
+                  className={
+                    'rounded-md px-3 py-1 transition ' +
+                    (language === 'tr' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
+                  }
+                >
+                  TR
+                </button>
+                <button
+                  onClick={() => setLanguage('en')}
+                  className={
+                    'rounded-md px-3 py-1 transition ' +
+                    (language === 'en' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')
+                  }
+                >
+                  EN
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Arayüz Boyutu (erişilebilirlik) — fontlar/kısımlar küçük
               geliyordu, tek tıkla büyüt. setZoomFactor tüm pencereyi ölçekler. */}
           <div className={(section === 'general' ? '' : 'hidden ') + 'rounded-xl border border-brand-500/40 bg-brand-500/5 p-4 shadow-sm'}>
             <div className="flex items-center gap-2">

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useAppStore, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
-import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, Sun, Moon, Palette, ChevronUp, ChevronDown, Command } from 'lucide-react'
+import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { splitSessions, groupByProject } from '@/lib/sessionGroups'
 import logoImg from '@/assets/logo.png'
@@ -76,12 +76,6 @@ export default function Sidebar() {
       </div>
     )
   }
-  const setLanguage = useAppStore((s) => s.setLanguage)
-  const theme = useAppStore((s) => s.theme)
-  const setTheme = useAppStore((s) => s.setTheme)
-
-  const [profileOpen, setProfileOpen] = useState(false)
-
   // Projeler ↔ Sohbetler: katlanabilir + aralarındaki çizgiden yeniden
   // boyutlandırılabilir. Tercih localStorage'da kalıcı.
   const readNum = (k: string, def: number): number => {
@@ -299,58 +293,6 @@ export default function Sidebar() {
           <Settings className="h-4 w-4" />
           <span>{t.settings}</span>
         </button>
-
-        <div className="relative">
-          {profileOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setProfileOpen(false)} />
-              <div className="absolute bottom-full left-0 z-50 mb-2 w-full rounded-2xl border border-ink-line bg-ink-card p-2 shadow-2xl">
-                <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5">
-                  <span className="text-xs font-bold text-ink-mut">{language === 'tr' ? 'Tema' : 'Theme'}</span>
-                  <button
-                    onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                    className="flex items-center gap-1.5 rounded-lg bg-ink-hi/80 px-2 py-1 text-[11px] font-bold text-ink-mut transition hover:text-ink-text"
-                  >
-                    {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-                    <span>{theme === 'dark' ? t.themeLight : t.themeDark}</span>
-                  </button>
-                </div>
-                <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5">
-                  <span className="text-xs font-bold text-ink-mut">{language === 'tr' ? 'Dil' : 'Language'}</span>
-                  <div className="flex gap-0.5 rounded-lg bg-ink-hi/80 p-0.5 text-[10px] font-bold select-none">
-                    <button
-                      onClick={() => setLanguage('tr')}
-                      className={`rounded-md px-2 py-0.5 transition ${language === 'tr' ? 'bg-ink-line text-ink-text' : 'text-ink-dim hover:text-ink-mut'}`}
-                    >
-                      TR
-                    </button>
-                    <button
-                      onClick={() => setLanguage('en')}
-                      className={`rounded-md px-2 py-0.5 transition ${language === 'en' ? 'bg-ink-line text-ink-text' : 'text-ink-dim hover:text-ink-mut'}`}
-                    >
-                      EN
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-          <button
-            onClick={() => setProfileOpen((v) => !v)}
-            className="flex w-full items-center gap-2.5 rounded-xl border border-ink-line bg-ink-card/60 px-3 py-2 text-left transition hover:bg-ink-hi/40"
-          >
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-700 dark:text-brand-300">
-              <Palette className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-xs font-bold text-ink-text">{language === 'tr' ? 'Tema & Dil' : 'Theme & Language'}</span>
-              <span className="block truncate text-[10px] font-bold text-ink-dim">
-                {(theme === 'dark' ? (language === 'tr' ? 'Koyu' : 'Dark') : language === 'tr' ? 'Açık' : 'Light')} · {language.toUpperCase()}
-              </span>
-            </div>
-            <ChevronUp className={'h-4 w-4 shrink-0 text-ink-dim transition ' + (profileOpen ? '' : 'rotate-180')} />
-          </button>
-        </div>
       </div>
     </aside>
   )
