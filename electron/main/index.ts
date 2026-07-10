@@ -496,6 +496,8 @@ function registerIpc(): void {
         negativePrompt?: string
         promptExtend?: boolean
         referenceImagePath?: string
+        preferLocal?: boolean
+        localModelPath?: string
       }
     ) => {
       try {
@@ -514,7 +516,9 @@ function registerIpc(): void {
           n: input.count,
           negativePrompt: input.negativePrompt,
           promptExtend: input.promptExtend,
-          referenceImageDataUrl
+          referenceImageDataUrl,
+          preferLocal: input.preferLocal,
+          localModelPath: input.localModelPath
         })
         const slug =
           input.prompt.toLowerCase().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gorsel'

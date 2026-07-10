@@ -4,7 +4,7 @@ import { useAppStore, fmtBytes } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { findProvider } from '@shared/providers'
-import { ChevronUp, Cpu, FolderOpen, Database, RefreshCw, Check, Zap, Gauge, AlertTriangle, Cloud, Plug } from 'lucide-react'
+import { ChevronUp, Cpu, FolderOpen, Database, RefreshCw, Check, Zap, Gauge, AlertTriangle, Cloud, Plug, Image as ImageIcon } from 'lucide-react'
 
 /**
  * Composer'a gömülü model seçici (Antigravity tarzı): yüklü modelin adını
@@ -34,6 +34,13 @@ export default function ModelSelect() {
   const activeApiModel = useSettingsStore((s) => s.activeApiModel)
   const switchToApiModel = useAppStore((s) => s.switchToApiModel)
   const switchToLocalModel = useAppStore((s) => s.switchToLocalModel)
+  // Faz 13 — yerel görsel üretimi: aynı seçiciden özgürce geçiş.
+  const localImageEnabled = useSettingsStore((s) => s.localImageEnabled)
+  const setLocalImageEnabled = useSettingsStore((s) => s.setLocalImageEnabled)
+  const activeLocalImageModel = useSettingsStore((s) => s.activeLocalImageModel)
+  const setActiveLocalImageModel = useSettingsStore((s) => s.setActiveLocalImageModel)
+  const setBrowserMode = useHfStore((s) => s.setBrowserMode)
+  const [imageModels, setImageModels] = useState<Array<{ label: string; model: string; sizeGb: number }>>([])
   const apiEntries = Object.entries(enabledModels)
     .flatMap(([pid, models]) => (models ?? []).map((m) => ({ pid, provider: findProvider(pid)?.name ?? pid, model: m })))
 
@@ -87,21 +94,34 @@ export default function ModelSelect() {
   }, [init])
 
   useEffect(() => {
-    if (open) void refreshLocal()
+    if (open) {
+      void refreshLocal()
+      void window.nexora.images
+        .listModels?.()
+        .then((r: { installed: Array<{ label: string; model: string; sizeGb: number }> }) => setImageModels(r.installed ?? []))
+        .catch(() => undefined)
+    }
   }, [open, refreshLocal])
 
   const shortName = modelInfo ? modelInfo.name.split('/').pop() : null
   const activePath = modelInfo?.path
+  const activeImgLabel = imageModels.find((m) => m.model === activeLocalImageModel)?.label ?? imageModels[0]?.label ?? null
+  // Görsel-üretim GGUF'ları LLM listesinde GÖSTERİLMEZ (LLM gibi yüklenemezler);
+  // onlar "Yerel görsel üretimi" bölümünde ayrı listelenir.
+  const imgPaths = new Set(imageModels.map((m) => m.model))
+  const textModels = localModels.filter((lm) => !imgPaths.has(lm.path))
 
   const label = modelLoading
     ? modelLoadProgress?.stage === 'context'
       ? tr ? 'Hazırlanıyor…' : 'Preparing…'
       : `%${Math.round((modelLoadProgress?.progress ?? 0) * 100)}`
-    : activeApiModel
-      ? activeApiModel.label
-      : shortName
-        ? shortName.replace(/\.gguf$/i, '')
-        : tr ? 'Model seç' : 'Select model'
+    : localImageEnabled
+      ? '🎨 ' + (activeImgLabel ?? (tr ? 'Yerel görsel' : 'Local image'))
+      : activeApiModel
+        ? activeApiModel.label
+        : shortName
+          ? shortName.replace(/\.gguf$/i, '')
+          : tr ? 'Model seç' : 'Select model'
 
   return (
     <div className="relative shrink-0">
@@ -138,7 +158,7 @@ export default function ModelSelect() {
           >
             <div className="flex items-center justify-between border-b border-ink-line px-3 py-2">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-ink-dim">
-                {tr ? 'İndirilmiş modeller' : 'Downloaded models'} ({localModels.length})
+                {tr ? 'İndirilmiş modeller' : 'Downloaded models'} ({textModels.length})
               </span>
               <button
                 onClick={() => void refreshLocal()}
@@ -157,17 +177,18 @@ export default function ModelSelect() {
             )}
 
             <div className="flex-1 overflow-y-auto p-1.5">
-              {localModels.length === 0 ? (
+              {textModels.length === 0 ? (
                 <p className="px-3 py-6 text-center text-xs font-medium text-ink-dim">
                   {tr ? 'Henüz indirilen model yok' : 'No downloaded models yet'}
                 </p>
               ) : (
-                localModels.map((lm) => {
-                  const active = lm.path === activePath && !activeApiModel
+                textModels.map((lm) => {
+                  const active = lm.path === activePath && !activeApiModel && !localImageEnabled
                   return (
                     <button
                       key={lm.path}
                       onClick={() => {
+                        setLocalImageEnabled(false)
                         if (activeApiModel) void switchToLocalModel()
                         if (lm.path !== activePath) void loadModelPath(lm.path)
                         setOpen(false)
@@ -195,11 +216,12 @@ export default function ModelSelect() {
                     {tr ? 'API modelleri' : 'API models'}
                   </p>
                   {apiEntries.map((e) => {
-                    const on = activeApiModel?.provider === e.pid && activeApiModel?.model === e.model
+                    const on = activeApiModel?.provider === e.pid && activeApiModel?.model === e.model && !localImageEnabled
                     return (
                       <button
                         key={e.pid + ':' + e.model}
                         onClick={() => {
+                          setLocalImageEnabled(false)
                           if (!on) void switchToApiModel(e.pid, e.model, e.model)
                           setOpen(false)
                         }}
@@ -214,6 +236,39 @@ export default function ModelSelect() {
                           <p className="text-[10px] font-semibold text-ink-dim">{e.provider}</p>
                         </div>
                         {on && <Check className="h-4 w-4 shrink-0 text-violet-500" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Faz 13 — Yerel Görsel Üretimi (offline): aynı seçiciden özgürce geçiş. */}
+              {imageModels.length > 0 && (
+                <div className="mt-1.5 border-t border-ink-line pt-1.5">
+                  <p className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-ink-dim">
+                    {tr ? 'Yerel görsel üretimi' : 'Local image generation'}
+                  </p>
+                  {imageModels.map((im) => {
+                    const on = localImageEnabled && (activeLocalImageModel ? activeLocalImageModel === im.model : imageModels[0]?.model === im.model)
+                    return (
+                      <button
+                        key={im.model}
+                        onClick={() => {
+                          setActiveLocalImageModel(im.model)
+                          setLocalImageEnabled(true)
+                          setOpen(false)
+                        }}
+                        className={
+                          'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ' +
+                          (on ? 'bg-pink-500/15' : 'hover:bg-ink-hi/60')
+                        }
+                      >
+                        <ImageIcon className={'h-4 w-4 shrink-0 ' + (on ? 'text-pink-500' : 'text-ink-dim')} />
+                        <div className="min-w-0 flex-1 leading-tight">
+                          <p className="truncate text-xs font-bold text-ink-text">{im.label}</p>
+                          <p className="text-[10px] font-semibold text-ink-dim">{im.sizeGb.toFixed(1)} GB · {tr ? 'offline görsel' : 'offline image'}</p>
+                        </div>
+                        {on && <Check className="h-4 w-4 shrink-0 text-pink-500" />}
                       </button>
                     )
                   })}
@@ -259,6 +314,7 @@ export default function ModelSelect() {
               </button>
               <button
                 onClick={() => {
+                  setBrowserMode('text')
                   setModalOpen(true)
                   setOpen(false)
                 }}
@@ -266,6 +322,17 @@ export default function ModelSelect() {
               >
                 <Database className="h-4 w-4 shrink-0 text-ink-dim" />
                 <span>{tr ? 'Model Tarayıcı (indir)…' : 'Model browser (download)…'}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setBrowserMode('image')
+                  setModalOpen(true)
+                  setOpen(false)
+                }}
+                className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-ink-mut transition hover:bg-ink-hi/60 hover:text-ink-text"
+              >
+                <ImageIcon className="h-4 w-4 shrink-0 text-pink-500/70" />
+                <span>{tr ? 'Görsel modeli indir…' : 'Download image model…'}</span>
               </button>
               {modelInfo && (
                 <button

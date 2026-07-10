@@ -21,9 +21,12 @@ interface HfState {
   loadingLocal: boolean
   downloads: Record<string, DownloadState>
   modalOpen: boolean
+  /** Faz 13 — Model Tarayıcı kipi: metin (GGUF LLM) mi görsel-üretim modeli mi. */
+  browserMode: 'text' | 'image'
 
   init: () => void
   setModalOpen: (v: boolean) => void
+  setBrowserMode: (m: 'text' | 'image') => void
   search: (q: string) => Promise<void>
   refreshLocal: () => Promise<void>
   changeDir: () => Promise<void>
@@ -53,6 +56,7 @@ export const useHfStore = create<HfState>((set, get) => ({
   loadingLocal: false,
   downloads: {},
   modalOpen: false,
+  browserMode: 'text',
 
   init: () => {
     if (get().dir) return
@@ -97,6 +101,7 @@ export const useHfStore = create<HfState>((set, get) => ({
   },
 
   setModalOpen: (v) => set({ modalOpen: v }),
+  setBrowserMode: (m) => set({ browserMode: m }),
 
   search: async (q: string) => {
     set({ searching: true, searchError: null })

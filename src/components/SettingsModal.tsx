@@ -9,7 +9,6 @@ import McpPanel from './McpPanel'
 import ServePanel from './ServePanel'
 import SchedulePanel from './SchedulePanel'
 import ProviderHub from './ProviderHub'
-import LocalImagePanel from './LocalImagePanel'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -481,9 +480,6 @@ export default function SettingsModal() {
               </p>
             )}
           </div>
-
-          {/* Faz 13 — YEREL (offline) görsel ÜRETİMİ: aç/kapat + cihaza uygun model indir. */}
-          {section === 'models' && <LocalImagePanel language={language} />}
 
           <div className={section === 'prompt' ? '' : 'hidden'}>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-ink-mut">

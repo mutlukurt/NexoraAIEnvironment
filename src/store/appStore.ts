@@ -3811,7 +3811,10 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
               negativePrompt: st.imageNegative.trim() || undefined,
               // "Birebir sadık" açıksa prompt_extend KAPALI (detaylı promptu koru).
               promptExtend: st.imagePromptExact ? false : undefined,
-              referenceImagePath: ref?.path
+              referenceImagePath: ref?.path,
+              // Faz 13 — özgür geçiş: yerel görsel üretimi açıksa offline motora, seçili modelle.
+              preferLocal: localImgOn,
+              localModelPath: useSettingsStore.getState().activeLocalImageModel ?? undefined
             })
             unsub()
             if (!res.ok || !res.images || res.images.length === 0) {

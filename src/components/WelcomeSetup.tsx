@@ -282,7 +282,7 @@ export default function WelcomeSetup() {
                   </p>
                   <p className="mt-0.5 text-[11px] font-medium text-ink-dim">{plan.vision.note}</p>
                   <p className="mt-1 text-[10px] font-medium text-ink-dim">
-                    {tt(language, 'Device-picked by default — but you can choose any VL model (or enable offline image generation) in Settings → Models.')}
+                    {tt(language, 'Device-picked by default — but you can choose any VL model in Settings → Models, and search / download an offline image-generation model from the model picker on the chat screen.')}
                   </p>
                 </div>
               </div>

@@ -369,7 +369,16 @@ const api: NexoraApi = {
     }
   },
   images: {
-    generate: (input: { prompt: string }) => ipcRenderer.invoke(IPC.IMAGE_GENERATE, input),
+    generate: (input: {
+      prompt: string
+      aspect?: string
+      count?: number
+      negativePrompt?: string
+      promptExtend?: boolean
+      referenceImagePath?: string
+      preferLocal?: boolean
+      localModelPath?: string
+    }) => ipcRenderer.invoke(IPC.IMAGE_GENERATE, input),
     saveAs: (input: { dataUrl: string; name: string }) => ipcRenderer.invoke(IPC.IMAGE_SAVE_AS, input),
     onStatus: (cb) => {
       const handler = (_e: unknown, data: { msg: string }) => cb(data)

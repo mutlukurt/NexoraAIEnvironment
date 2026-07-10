@@ -438,18 +438,27 @@ type GenOpts = {
   negativePrompt?: string
   promptExtend?: boolean
   referenceImageDataUrl?: string
+  /** Faz 13 — kullanıcı sohbet-seçicide yerel görsel üretimini açıkça seçti mi. */
+  preferLocal?: boolean
+  /** Faz 13 — seçili yerel görsel modelinin yolu (özgür geçiş). */
+  localModelPath?: string
 }
 
 /** Aktif API modeliyle görsel üret — sağlayıcıya göre doğru adaptöre yönlendirir.
  *  Dönen: bir veya daha çok görsel (varyasyon). */
 export async function generateImage(prompt: string, opts?: GenOpts): Promise<GenImg[]> {
   const o = opts ?? {}
-  // Faz 13 — YEREL görsel modeli varsa offline üret (API'ye gitme). H4: active()
-  // "Aktif bir görsel modeli yok" fırlattığından ÖNCE, en üstte kısa devre.
+  // Faz 13 — özgür geçiş: kullanıcı sohbet-seçicide YEREL görsel üretimini
+  // açıkça seçtiyse (preferLocal) offline üret; seçili modelin yolu localModelPath.
+  // H4: active() "Aktif bir görsel modeli yok" fırlattığından ÖNCE kısa devre.
   const localImg = await import('./localImageService')
-  if (localImg.hasLocalImageModel()) return localImg.generateImageLocal(prompt, o)
+  if (o.preferLocal && localImg.hasLocalImageModel()) return localImg.generateImageLocal(prompt, o)
   const c = active()
-  if (!c.model) throw new Error('Aktif bir görsel modeli yok.')
+  // API görsel modeli seçili değilse ama yerel model varsa ona düş (geri uyumluluk).
+  if (!c.model) {
+    if (localImg.hasLocalImageModel()) return localImg.generateImageLocal(prompt, o)
+    throw new Error('Aktif bir görsel modeli yok.')
+  }
   const base = c.baseUrl.replace(/\/+$/, '')
   if (/dashscope|aliyuncs/i.test(base)) return generateImageDashscope(c, base, prompt, o)
   return generateImageOpenAI(c, base, prompt, o)

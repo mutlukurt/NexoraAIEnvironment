@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { tt } from '@/lib/i18n'
 import { useHfStore, type DownloadState } from '@/store/hfStore'
 import { useAppStore, fmtBytes } from '@/store/appStore'
-import { X, Heart, Check, ArrowRight } from 'lucide-react'
+import { X, Heart, Check, ArrowRight, Type, ImageIcon } from 'lucide-react'
 import { translations } from '@/lib/translations'
+import LocalImagePanel from './LocalImagePanel'
 
 function pct(d: DownloadState): number {
   if (d.total <= 0) return 0
@@ -13,6 +14,8 @@ function pct(d: DownloadState): number {
 export default function ModelBrowser() {
   const open = useHfStore((s) => s.modalOpen)
   const setModalOpen = useHfStore((s) => s.setModalOpen)
+  const browserMode = useHfStore((s) => s.browserMode)
+  const setBrowserMode = useHfStore((s) => s.setBrowserMode)
   const init = useHfStore((s) => s.init)
   const dir = useHfStore((s) => s.dir)
   const results = useHfStore((s) => s.results)
@@ -53,22 +56,44 @@ export default function ModelBrowser() {
         <header className="flex items-center justify-between border-b border-ink-line px-5 py-3.5 bg-ink-card/50">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-ink-text">{t.modelBrowser}</span>
-            <span className="rounded-lg bg-ink-hi/60 px-2 py-0.5 text-[10px] font-bold text-ink-mut">HuggingFace</span>
-            <button
-              onClick={() => {
-                setModalOpen(false)
-                window.dispatchEvent(new Event('nexora:openSetup'))
-              }}
-              className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300 hover:bg-brand-500/20 transition"
-            >
-              {t.deviceAdvice}
-            </button>
+            {/* Faz 13 — Metin (LLM GGUF) ↔ Görsel-üretim modeli kipi */}
+            <div className="flex gap-0.5 rounded-lg bg-ink-hi/70 p-0.5 text-[11px] font-bold select-none">
+              <button
+                onClick={() => setBrowserMode('text')}
+                className={'flex items-center gap-1 rounded-md px-2 py-0.5 transition ' + (browserMode === 'text' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')}
+              >
+                <Type className="h-3 w-3" /> {tt(language, 'Text')}
+              </button>
+              <button
+                onClick={() => setBrowserMode('image')}
+                className={'flex items-center gap-1 rounded-md px-2 py-0.5 transition ' + (browserMode === 'image' ? 'bg-ink-card text-ink-text shadow-sm' : 'text-ink-dim hover:text-ink-mut')}
+              >
+                <ImageIcon className="h-3 w-3" /> {tt(language, 'Image')}
+              </button>
+            </div>
+            {browserMode === 'text' && (
+              <button
+                onClick={() => {
+                  setModalOpen(false)
+                  window.dispatchEvent(new Event('nexora:openSetup'))
+                }}
+                className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-0.5 text-[10px] font-bold text-brand-700 dark:text-brand-300 hover:bg-brand-500/20 transition"
+              >
+                {t.deviceAdvice}
+              </button>
+            )}
           </div>
           <button onClick={() => setModalOpen(false)} className="rounded-lg p-2 text-ink-dim hover:bg-ink-hi hover:text-ink-mut transition">
             <X className="h-4 w-4" />
           </button>
         </header>
 
+        {browserMode === 'image' ? (
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <LocalImagePanel language={language} />
+          </div>
+        ) : (
+        <>
         <div className="border-b border-ink-line px-5 py-4">
           <div className="flex gap-2">
             <input
@@ -213,6 +238,8 @@ export default function ModelBrowser() {
             )}
           </div>
         </div>
+        </>
+        )}
 
         <footer className="flex items-center justify-between border-t border-ink-line px-5 py-3.5 bg-ink-card/50">
           <div className="min-w-0 flex-1">

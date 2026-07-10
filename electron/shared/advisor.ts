@@ -193,15 +193,15 @@ export function buildPlan(hw: HardwareInfo, CODERS: Record<string, CoderDef> = E
   const visionFor = (ram: number): { label: string; note: string } =>
     ram >= 28
       ? {
-          label: ram >= 48 ? 'Qwen2.5-VL-32B (otomatik)' : 'Qwen2.5-VL-7B (otomatik)',
-          note: 'Görsel eklediğinizde en iyi sığan göz otomatik seçilir; ilk kullanımda indirilir.'
+          label: ram >= 48 ? 'Qwen2.5-VL-32B (varsayılan)' : 'Qwen2.5-VL-7B (varsayılan)',
+          note: 'Görsel eklediğinizde en iyi sığan göz varsayılan seçilir; ilk kullanımda indirilir. İstediğiniz VL modelini Ayarlar → Modeller\'den seçebilirsiniz.'
         }
       : ram >= 12
         ? {
-            label: 'Qwen2.5-VL-7B / 3B (otomatik)',
-            note: '7B kodlayıcıyla çalışırken gözler 7B; büyük kodlayıcılar RAM doldurduğunda gözler 3B olur.'
+            label: 'Qwen2.5-VL-7B / 3B (varsayılan)',
+            note: 'Varsayılan cihazınıza göre 7B/3B; istediğiniz VL modelini Ayarlar → Modeller\'den seçebilirsiniz.'
           }
-        : { label: 'Qwen2.5-VL-3B (otomatik)', note: 'Görsel eklediğinizde otomatik indirilip kullanılır.' }
+        : { label: 'Qwen2.5-VL-3B (varsayılan)', note: 'Varsayılan; istediğiniz VL modelini Ayarlar → Modeller\'den seçebilirsiniz.' }
 
   // --- AYRI GPU: öneri VRAM'e göre (hızlı = VRAM'e tam sığan en kaliteli) ---
   if (vram >= 2) {

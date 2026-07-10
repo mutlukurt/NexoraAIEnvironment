@@ -334,11 +334,12 @@ export function stopImageServer(): void {
  */
 export async function generateImageLocal(
   prompt: string,
-  opts?: ImageGenOptions & { signal?: AbortSignal; onStatus?: (s: string) => void; n?: number; negativePrompt?: string }
+  opts?: ImageGenOptions & { signal?: AbortSignal; onStatus?: (s: string) => void; n?: number; negativePrompt?: string; localModelPath?: string }
 ): Promise<GenImg[]> {
   const o = opts ?? {}
   const onStatus = o.onStatus ?? (() => undefined)
-  const ready = await ensureLocalImageReady(onStatus)
+  // Kullanıcı sohbet-seçicide belirli bir yerel görsel modelini seçtiyse onu kullan.
+  const ready = await ensureLocalImageReady(onStatus, o.localModelPath)
   if (!ready.ok || !ready.model) throw new Error(ready.error ?? 'Yerel görsel motoru hazır değil.')
   const started = await startImageServer(ready.model, onStatus)
   if (!started.ok) throw new Error(started.error ?? 'Görsel sunucusu başlatılamadı.')
