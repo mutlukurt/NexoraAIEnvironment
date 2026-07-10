@@ -10,8 +10,11 @@
  * Bu modül profil seçimi, model-boyutuna uyarlı sistem prompt'u ve UPDATE
  * modu sarmalayıcısından sorumludur; motorlar yalnızca "yükle/üret" bilir.
  */
-import { basename } from 'path'
+import { basename, join } from 'path'
 import { stat, readFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { homedir } from 'os'
+import { execSync } from 'child_process'
 import { nativeImage } from 'electron'
 import type { ChatSendInput, ModelLoadedInfo } from '../shared/ipc'
 import {
@@ -50,6 +53,57 @@ let activeFamily: import('../shared/prompts').ModelFamily = 'generic'
 
 export function setCustomSystemPrompt(prompt: string): void {
   customSystemPrompt = prompt
+}
+
+/**
+ * "Kontrol → Anla → Yap": modele bu makinenin GERÇEK ortam gerçeklerini verir ki
+ * yolları TAHMİN etmesin (Türkçe sistemde masaüstü ~/Masaüstü, ~/Desktop DEĞİL).
+ * xdg-user-dir ile çözülür; yoksa Türkçe/İngilizce yaygın adlar denenir; hiçbiri
+ * yoksa o satır atlanır (grant modele "listede yoksa ÖNCE kontrol et" der). Bir kez
+ * hesaplanıp cache'lenir.
+ */
+let cachedEnvNote: string | null = null
+function resolveUserDir(xdgName: string, ...candidates: string[]): string | null {
+  try {
+    const p = execSync(`xdg-user-dir ${xdgName}`, { encoding: 'utf8', timeout: 1500 }).trim()
+    if (p && p !== homedir() && existsSync(p)) return p
+  } catch {
+    /* xdg-user-dir kurulu değil — adaylara düş */
+  }
+  for (const c of candidates) if (existsSync(c)) return c
+  return null
+}
+export function environmentNote(): string {
+  if (cachedEnvNote) return cachedEnvNote
+  const home = homedir()
+  const plat = process.platform
+  const lines: string[] = [
+    `- OS: ${plat === 'darwin' ? 'macOS' : plat === 'win32' ? 'Windows' : 'Linux'} (${plat})`,
+    `- Home: ${home}`
+  ]
+  if (plat === 'linux') {
+    const desk = resolveUserDir('DESKTOP', join(home, 'Masaüstü'), join(home, 'Desktop'))
+    const dl = resolveUserDir('DOWNLOAD', join(home, 'İndirilenler'), join(home, 'Downloads'))
+    const docs = resolveUserDir('DOCUMENTS', join(home, 'Belgeler'), join(home, 'Documents'))
+    if (desk) lines.push(`- Desktop: ${desk}`)
+    if (dl) lines.push(`- Downloads: ${dl}`)
+    if (docs) lines.push(`- Documents: ${docs}`)
+  } else {
+    // macOS/Windows: yerelleştirilmiş klasör adları da fiziksel olarak İngilizce'dir.
+    for (const [label, name] of [['Desktop', 'Desktop'], ['Downloads', 'Downloads'], ['Documents', 'Documents']]) {
+      const p = join(home, name)
+      if (existsSync(p)) lines.push(`- ${label}: ${p}`)
+    }
+  }
+  const shell = process.env.SHELL || (plat === 'win32' ? 'cmd/powershell' : 'bash')
+  lines.push(`- Shell: ${shell}`)
+  const locale = process.env.LANG || process.env.LC_ALL || ''
+  if (locale) lines.push(`- Locale: ${locale}`)
+  cachedEnvNote =
+    '\n\nENVIRONMENT (real, live values on THIS machine — use these EXACT paths, never guess English defaults like ~/Desktop):\n' +
+    lines.join('\n') +
+    '\n[RUN] commands execute inside the project folder; use the absolute paths above for anything outside it.'
+  return cachedEnvNote
 }
 
 export function getActiveProfileId(): string {
@@ -281,6 +335,19 @@ ${UPDATE_MODE_RULES}
     } catch {
       /* MCP bağlantısı bu turu bloklamasın */
     }
+  }
+
+  // Kontrol→Anla→Yap: bilgisayar-erişimi muhtemel turlara GERÇEK ortam gerçeklerini
+  // (home/masaüstü/… absolut yollar) ekle ki model yol TAHMİN etmesin (~/Desktop
+  // yerine ~/Masaüstü). Sohbet / agent-niyeti / düzenleme (mevcut dosya) turları;
+  // saf yeni-build ve prose turları hariç (ilgisiz + token gürültüsü).
+  if (
+    input.options?.purpose !== 'prose' &&
+    (input.options?.purpose === 'chat' ||
+      detectAgentIntent(input.prompt) ||
+      (input.currentFiles !== undefined && input.currentFiles.length > 0))
+  ) {
+    prompt += environmentNote()
   }
 
   // FAZ 9.3 — Fidelity build/edit turu: spec'e HARFİYEN uy + __SLOT__
