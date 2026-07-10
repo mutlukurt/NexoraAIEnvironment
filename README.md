@@ -75,9 +75,13 @@ v0.17 unleashed *building* — v0.18 makes the workspace **complete**. You can n
 >
 > *Theme & Language, moved from the sidebar into Settings → General → Appearance.*
 >
-> <img src="docs/screenshots/provhub-detail.png" width="80%" alt="Provider Hub master-detail: clicking OpenRouter opens its own config pane at the top with a back button" />
+> <img src="docs/screenshots/provhub-list.png" width="80%" alt="Provider Hub list view: the searchable provider grid with 157 providers, each card showing a chevron cue" />
 >
-> *Provider Hub, master-detail: click a provider → its config opens at the top, no scrolling.*
+> *Provider Hub — the list: a searchable grid of all 157 providers, each with a `›` cue.*
+>
+> <img src="docs/screenshots/provhub-detail.png" width="80%" alt="Provider Hub detail view: clicking OpenRouter opens its own config pane at the top with a back button" />
+>
+> *…click one → its config opens at the top (`‹ All providers` to go back). No scrolling.*
 > </div>
 
 > **v0.18.1 (patch) — Settings is now a two-pane workspace, and the local vision model is yours to pick.** Settings had grown into one long scroll with everything piled together. It's now a **two-pane layout** (like Claude/ChatGPT): a **left category nav** — General · Providers · Models · Trust & Permissions · Prompt & Rules · Knowledge · Tools · Commands · Engine — and a **right content pane** that shows only the selected category. Click between them; each opens clean, always starting on **General**. Alongside it, **local vision (VL) model selection was un-hardcoded**: the app no longer assumes Qwen — it **scans every installed VL GGUF** (any main-model + `mmproj` pair — Qwen3-VL, LLaVA, whatever you have) and lets you **pick which one** analyzes reference images from the new **Models** section, picking the largest that fits your RAM by default. *(Both live-verified on the real app; the local-first default is untouched.)*
