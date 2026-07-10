@@ -53,8 +53,27 @@ for (const p of [
 ]) {
   ok(detectAgentIntent(p), `intent olmalı: "${p}"`)
 }
-// Sohbet/soru — agent-eylemi DEĞİL (yanlış tetik olmasın)
-for (const p of ['merhaba nasılsın', 'react nedir anlat', 'bu kodu açıkla', 'teşekkürler']) {
+// Kontrol/kur/çalıştır/incele — "ne dersem YAP" (v0.18.3): terminalle gerçek
+// eylem isteyen sohbet mesajları da agent-eylemi sayılmalı (model açıklamasın, YAPSIN).
+for (const p of [
+  'bilgisayarda vercel cli yüklü mü kontrol et bana söyle',
+  'npm test çalıştır',
+  'hangi node sürümü var',
+  'git durumunu kontrol et',
+  'python kurulu mu bak',
+  'docker çalışıyor mu',
+  'projeyi derle ve hataları göster',
+  'vercel kur',
+  'dosyaları listele'
+]) {
+  ok(detectAgentIntent(p), `intent olmalı (kontrol/kur/çalıştır): "${p}"`)
+}
+// Sohbet/soru — agent-eylemi DEĞİL. Türkçe kelime-içi false-match (ASCII \b bug'ı)
+// olmasın: "nasılsın" içindeki "ls", "kısıtlamalar" içindeki "install" vb. eşleşmemeli.
+for (const p of [
+  'merhaba nasılsın', 'react nedir anlat', 'bu kodu açıkla', 'teşekkürler',
+  'berberler ne iş yapar', 'bu şiiri güzelleştir', 'hava nasıl orada', 'kısıtlamalar nelerdir'
+]) {
   ok(!detectAgentIntent(p), `intent OLMAMALI: "${p}"`)
 }
 

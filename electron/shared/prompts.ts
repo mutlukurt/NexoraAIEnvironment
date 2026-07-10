@@ -74,10 +74,32 @@ Meaning: PKG=add npm dependency, FONT=download+wire a Google Font, FETCH=downloa
 FILE OPERATIONS: You have FULL access to the project's files on disk (the working directory IS the project folder). For ANY file operation the user asks — convert/optimize an image (webp, avif — use cwebp, ImageMagick \`convert\`, or Python Pillow), delete, rename, copy, move, resize, compress — emit a [RUN] with the right shell command using project-relative paths (e.g. src/assets/...). After the command the workspace is re-scanned automatically, so new/converted files appear in the editor + assets and deleted files disappear — you do NOT also need [DELETE] for files a [RUN] rm removed. Use [DELETE] only for files that live solely in the editor and were never written to disk.
 ---`
 
-const AGENT_INTENT_RE =
-  /\b(kur|yükle|yukle|install|paket|package|font|fontu|fonts?|indir|download|çalıştır|calistir|başlat|baslat|run\s|npm|pip\b|pillow|localhost|dev\s*server|sunucu|görsel\s*(ekle|indir)|resim\s*(ekle|indir)|image|remember|hatırla|hatirla|aklında|aklinda|unutma|not al|webp|avif|dönüştür|donustur|convert|format|optimize|optimizasyon|sıkıştır|sikistir|compress|\bsil\b|\bsil(er|in)|\bdelete\b|kaldır|kaldir|adlandır|adlandir|rename|kopyala|\bcopy\b|taşı|tasi|\bmove\b|\bkes\b|\bcut\b|resize|boyutlandır|boyutlandir|magick|imagemagick|ffmpeg|cwebp)\b/i
+// Unicode-farkında sınırlar: ASCII \b Türkçe'de bozuluyor — "nasılsın" içindeki
+// "ls" false-match ediyordu (ı non-ASCII → \b sınır sanıyor) VE "çalışıyor" gibi
+// Türkçe-başlangıçlı kelimeler kelime başında HİÇ eşleşmiyordu (boşluk→ç sınır
+// değil). \p{L}/\p{N} lookaround + 'u' bayrağı ikisini de çözer.
+const AGENT_INTENT_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}_])(' +
+    ['kur','yükle','yukle','install','paket','package','fontu?','fonts','indir','download',
+     'çalıştır','calistir','çalıştırabilir','calistirabilir','başlat','baslat','run','npm','npx','node','pip','pillow','python3?',
+     'localhost','dev\\s*server','sunucu','görsel\\s*(ekle|indir)','resim\\s*(ekle|indir)','image',
+     'remember','hatırla','hatirla','aklında','aklinda','unutma','not\\s*al',
+     'webp','avif','dönüştür','donustur','convert','format','optimize','optimizasyon','sıkıştır','sikistir','compress',
+     'sil','siler','silin','delete','kaldır','kaldir','adlandır','adlandir','rename','kopyala','copy','taşı','tasi','move','kes','cut',
+     'resize','boyutlandır','boyutlandir','magick','imagemagick','ffmpeg','cwebp',
+     'kontrol\\s*et','kontrol\\s*ed','denetle','yüklü\\s*m[üu]','yuklu\\s*mu','kurulu\\s*mu','var\\s*m[ıi]','mevcut\\s*mu',
+     'çalışıyor\\s*mu','calisiyor\\s*mu','çalışır\\s*m[ıi]','hangi\\s*s[üu]r[üu]m','s[üu]r[üu]m[üu]?','versiyon','version',
+     'test\\s*et','listele','terminal','komut','bilgisayar','sistemde?','klasör','klasor','dizin','oluştur','olustur',
+     'klonla','clone','derle','compile','curl','wget','check','verify','installed','exists','is\\s*there','is\\s*running',
+     'directory','status','scan','tara'].join('|') +
+    ')(?![\\p{L}\\p{N}_])',
+  'iu'
+)
 
-/** Kullanıcının isteği gerçek bir agent eylemi (paket/font/indirme/çalıştırma) istiyor mu? */
+/** Kullanıcının isteği gerçek bir agent eylemi (paket/font/indirme/çalıştırma/
+ *  kontrol/kurulum/komut) istiyor mu? Genişletildi: sadece kur/indir değil,
+ *  "kontrol et / yüklü mü / çalıştır / hangi sürüm / terminal komutu" gibi
+ *  denetle-ve-yap istekleri de yakalanır (kullanıcı: ne dersem yapabilmeli). */
 export function detectAgentIntent(text: string): boolean {
   return AGENT_INTENT_RE.test(text)
 }
@@ -453,7 +475,13 @@ export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' =
     // persona yalnızca "düz metin yaz, kod yazma" çerçevesini kurar.
     return `You are NexoraAI, a helpful assistant inside a local desktop app that builds websites and apps. This turn is a plain-text WRITING task — follow the instructions in the user message exactly. Output plain text only: no code, no fenced blocks, no file paths. ${langLine}`
   }
-  return `You are NexoraAI, a friendly, knowledgeable and highly capable assistant inside a local desktop app that builds websites and apps from natural language. Right now the user is chatting or asking a question — this is NOT a build request, so do not output code files or SEARCH/REPLACE edit blocks (short inline code snippets to illustrate an answer are fine).
+  return `You are NexoraAI, a friendly, knowledgeable and highly capable assistant inside a local desktop app that builds websites and apps from natural language. Right now the user is chatting or asking a question — this is NOT a build request, so do not output whole code files or SEARCH/REPLACE edit blocks (short inline code snippets to illustrate an answer are fine).
+
+⚙️ REAL COMPUTER ACCESS — you can actually DO things, not just talk about them. This app runs on the user's own machine and you have TERMINAL access to it and to the current project folder. Whenever the user asks you to DO or CHECK ANYTHING on their computer or project — e.g. "is X installed", "which version", "run this command", "install/remove a package", "create/read/move/delete a file", "run the tests", "check the status", "set up / configure something" — you MUST actually perform it by writing a directive line OUTSIDE any code block (write REAL values, never placeholders):
+[RUN] <shell command>            (runs in the project folder; the REAL output comes back to you — no sudo)
+[FETCH] <url> -> <relative/path>  (download a file into the project)
+[PKG] <package>                  (add an npm dependency)
+Examples: to check if the Vercel CLI is installed → [RUN] command -v vercel || echo "not installed"  (or [RUN] vercel --version). To install it → [RUN] npm i -g vercel. Then, using the REAL result that comes back, tell the user what you found or did. NEVER answer such a request by only EXPLAINING how they could do it themselves, and NEVER write the answer into a text file instead of running the command. This works on every model — you have the access, so use it. If the message is just a question or casual chat with no action needed, answer normally (no directives).
 
 You are a full-strength assistant: use all of your knowledge and reasoning. Match the depth the user asks for — when they ask for a detailed, thorough or step-by-step explanation, give a rich, well-structured answer (use headings, lists and examples); when they want something short, be concise. Never reply with a shallow summary when detail was requested.
 

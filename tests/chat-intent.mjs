@@ -18,9 +18,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-chat-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { looksLikeChatIntent, looksLikeBuildRequest } from '${join(repo, 'src/lib/sectionPlan.ts')}'\n`)
+writeFileSync(entry, `export { looksLikeChatIntent, looksLikeBuildRequest, looksLikeAgentActionIntent } from '${join(repo, 'src/lib/sectionPlan.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { looksLikeChatIntent } = await import(pathToFileURL(outfile).href)
+const { looksLikeChatIntent, looksLikeAgentActionIntent } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -58,6 +58,25 @@ notChat('sayaca buton ekleyebilir misin?') // soru gibi ama edit fiili var → e
 
 // Boş/anlamsız
 notChat('')
+
+// v0.18.3 — TERMİNAL/SİSTEM EYLEMİ: "kontrol et / kur / çalıştır / hangi sürüm"
+// build/edit DEĞİL → sohbet/agent yolundan gitmeli (kod personası dosya DÖKMESİN),
+// model [RUN] ile gerçek komutu koşup sonucu raporlar. (Kullanıcı: ne dersem YAP.)
+chat('bilgisayarda vercel cli yüklü mü kontrol et bana söyle')
+chat('npm test çalıştır')
+chat('hangi node sürümü var')
+chat('git durumunu kontrol et')
+chat('docker çalışıyor mu')
+chat('projeyi derle ve hataları göster')
+
+const act = (t) => { if (looksLikeAgentActionIntent(t)) { pass++; console.log('✓ ACTION:', t) } else { fail++; failures.push(`✗ ACTION olmalıydı: "${t}"`) } }
+const notAct = (t) => { if (!looksLikeAgentActionIntent(t)) { pass++; console.log('✓ notACTION:', t) } else { fail++; failures.push(`✗ ACTION OLMAMALIYDI: "${t}"`) } }
+act('vercel yüklü mü kontrol et')
+act('npm install çalıştır')
+act('python sürümü ne')
+notAct('bana bir portfolyo sitesi yap') // build → agent-action DEĞİL
+notAct('merhaba nasılsın')             // "nasılsın" içindeki "ls" false-match etmemeli
+notAct('bu şiiri güzelleştir')
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nchat-intent: ${pass} geçti, ${fail} kaldı`)

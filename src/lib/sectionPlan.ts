@@ -193,5 +193,29 @@ export function looksLikeChatIntent(text: string): boolean {
   if (CHAT_GREET_RE.test(t)) return true
   if (CHAT_QUESTION_RE.test(t)) return true
   if (/\?\s*$/.test(t) && t.length < 240) return true
+  if (looksLikeAgentActionIntent(t)) return true
   return false
+}
+
+// Terminal/sistem eylemi: bir aracı/komutu KONTROL ET / KUR / ÇALIŞTIR / İNCELE —
+// proje KODU (React bileşeni) DEĞİL. Bu turlar sohbet/agent yolundan gitmeli
+// (kod personası dosya DÖKMESİN); model [RUN] ile gerçek komutu çalıştırır ve
+// sonucu raporlar. Kullanıcı: "ne dersem yapabilmeli, kontrol et dediğimde YAPSIN".
+// Unicode-farkında sınırlar (ASCII \b Türkçe'de bozuluyor — bkz. prompts.ts notu).
+const AGENT_ACTION_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}_])(' +
+    ['kontrol\\s*et','kontrol\\s*ed','denetle','yüklü\\s*m[üu]','yuklu\\s*mu','kurulu\\s*mu','var\\s*m[ıi]','mevcut\\s*mu',
+     'çalışıyor\\s*mu','calisiyor\\s*mu','çalışır\\s*m[ıi]','hangi\\s*s[üu]r[üu]m','s[üu]r[üu]m[üu]?\\s*(ne|nedir|ka[çc])',
+     'test\\s*et','çalıştır','calistir','run','komut','terminal','npm','npx','pip','clone','klonla','derle','build\\s*et',
+     'curl','wget','kur','yükle','yukle','install','check','verify','installed','is\\s*there','is\\s*running','version','status'].join('|') +
+    ')(?![\\p{L}\\p{N}_])',
+  'iu'
+)
+
+/** Sistem/terminal eylemi mi? (build/edit DEĞİL — o zaman false döner). */
+export function looksLikeAgentActionIntent(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (looksLikeBuildRequest(t)) return false // "bana bir site kur/yap" build'dir
+  return AGENT_ACTION_RE.test(t)
 }

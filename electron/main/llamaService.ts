@@ -259,7 +259,13 @@ ${UPDATE_MODE_RULES}
   // prompt'una koymak küçük modellerin şablon satırlarını kopyalamasına yol
   // açıyordu ([FETCH] <url> ... satırlarının dosya olarak üretilmesi vakası).
   // Sohbet/brief turunda hiç eklenmez: soru cevaplanacak, eylem yapılmayacak.
-  if (!isProseTurn && detectAgentIntent(input.prompt)) {
+  // Sohbet turu (purpose==='chat') de action isteği taşıyabilir ("vercel yüklü
+  // mü kontrol et") — eskiden isProseTurn TÜM purpose'ları (chat+prose) elerdi,
+  // böylece sohbette [RUN] yeteneği HİÇ verilmiyordu (model açıklıyordu, yapmıyordu).
+  // Artık yalnız 'prose' (yazım/brief) elenir; chat+intent AGENT_HINT alır. Ayrıca
+  // chat personasının kendisi (chatSystemPrompt) terminal iznini her sohbet turuna
+  // koyar → regex kaçırsa bile güçlü model yine yapar.
+  if (input.options?.purpose !== 'prose' && detectAgentIntent(input.prompt)) {
     prompt += '\n\n' + AGENT_HINT
     // 10.1 — bağlı MCP araçları varsa modele bildir. Sunucu yoksa liste boştur
     // (mcp.json yoksa hiç süreç spawn edilmez → sıfır maliyet).
@@ -288,7 +294,9 @@ ${UPDATE_MODE_RULES}
   // node-llama-cpp içinde kod personasıyla kurulu). Sohbet turunda soruyu
   // kısa bir konuşma direktifiyle sarmak oradaki tek koruma.
   if (input.options?.purpose === 'chat' && engine === workerEngine) {
-    prompt = `The user is chatting or asking a question — NOT requesting a build. Answer briefly and conversationally in the user's language. No code, no files.\n\n${prompt}`
+    prompt = detectAgentIntent(input.prompt)
+      ? `The user is asking you to DO or CHECK something on their computer/project. Actually do it: write a directive line like "[RUN] <command>" (outside code blocks) to run it in the project folder, then report the REAL result in the user's language. Do NOT just explain how they could do it, and do NOT write files instead of running the command.\n\n${prompt}`
+      : `The user is chatting or asking a question — NOT requesting a build. Answer briefly and conversationally in the user's language. No code, no files.\n\n${prompt}`
   }
 
   // GBNF gramerleri (roadmap 2.1 + 2.2): format örnekleyici seviyesinde
@@ -316,6 +324,12 @@ ${UPDATE_MODE_RULES}
     if (engine === workerEngine) {
       prompt = `${frontierSys}\n\n=== TASK ===\n${prompt}`
     }
+  } else if (input.options?.purpose === 'chat' || input.options?.purpose === 'prose') {
+    // Frontier DEĞİL sohbet/brief turu: yerel SERVER motoru da action-capable
+    // sohbet personasını kullansın (API yolu apiSys ile zaten kullanıyor). Böylece
+    // "vercel kontrol et" gibi istekler yerel modelde de [RUN] ile YAPILIR, kod
+    // personasıyla dosya dökülmez. (Worker embedded → yukarıdaki sargı korur.)
+    options.systemOverride = chatSystemPrompt(input.options?.answerLang, input.options.purpose)
   }
   // FAZ 9.3 — fidelity bileşen turu: motor geçmişini yalıt. Aksi hâlde model KV
   // geçmişindeki önceki dosyayı (Navbar) sonraki bileşene klonluyor (Hero=Navbar
