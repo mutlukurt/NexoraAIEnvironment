@@ -560,6 +560,25 @@ function registerIpc(): void {
     }
   })
 
+  // Faz 13 — yerel görsel-üretim modeli kataloğu + durumu (indirici için).
+  ipcMain.handle(IPC.IMAGE_MODELS_LIST, async () => {
+    const li = await import('./localImageService')
+    let vramGb = 0
+    try {
+      const hw = await detectHardware()
+      vramGb = hw?.gpu?.vramGb ?? 0
+    } catch {
+      /* VRAM okunamazsa 0 (rozet 🔵 gösterir) */
+    }
+    return { catalog: li.imageCatalogStatus(), installed: li.scanInstalledImageModels(), vramGb }
+  })
+
+  // Katalogdan bir görsel modelini tek-tık indir (ilerleme IMAGE_DL_STATUS ile).
+  ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD, async (_e, id: string) => {
+    const li = await import('./localImageService')
+    return li.downloadCatalogModel(id, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
+  })
+
   ipcMain.handle(IPC.ADVISOR_DETECT, async () => {
     return detectHardware()
   })

@@ -444,6 +444,10 @@ type GenOpts = {
  *  Dönen: bir veya daha çok görsel (varyasyon). */
 export async function generateImage(prompt: string, opts?: GenOpts): Promise<GenImg[]> {
   const o = opts ?? {}
+  // Faz 13 — YEREL görsel modeli varsa offline üret (API'ye gitme). H4: active()
+  // "Aktif bir görsel modeli yok" fırlattığından ÖNCE, en üstte kısa devre.
+  const localImg = await import('./localImageService')
+  if (localImg.hasLocalImageModel()) return localImg.generateImageLocal(prompt, o)
   const c = active()
   if (!c.model) throw new Error('Aktif bir görsel modeli yok.')
   const base = c.baseUrl.replace(/\/+$/, '')

@@ -13,6 +13,8 @@ export interface CustomCommand {
 export interface Settings {
   customSystemPrompt: string
   enableGpu: boolean
+  /** Faz 13 — yerel (offline) görsel üretimi açık mı? (sd-server, ~/NexoraAI/models). */
+  localImageEnabled: boolean
   /** GPU'ya offload edilecek katman sayısı; 0 = otomatik (VRAM'e sığan kadar). */
   gpuLayers: number
   /** Yerel görsel (VL) analizi için seçilen model yolu; null = oto (RAM'e sığan en büyük).
@@ -97,6 +99,7 @@ export function uiScaleInitial(): number {
 const DEFAULT_SETTINGS: Settings = {
   customSystemPrompt: '',
   enableGpu: false,
+  localImageEnabled: false,
   gpuLayers: 0,
   visionModelPath: null,
   customCommands: [],
@@ -127,6 +130,7 @@ function loadSettings(): Settings {
     return {
       customSystemPrompt: parsed.customSystemPrompt ?? '',
       enableGpu: parsed.enableGpu ?? false,
+      localImageEnabled: parsed.localImageEnabled === true,
       gpuLayers: typeof parsed.gpuLayers === 'number' ? parsed.gpuLayers : 0,
       visionModelPath: typeof parsed.visionModelPath === 'string' ? parsed.visionModelPath : null,
       customCommands: Array.isArray(parsed.customCommands)
@@ -165,6 +169,7 @@ interface SettingsState extends Settings {
   setEnableGpu: (v: boolean) => void
   setGpuLayers: (v: number) => void
   setVisionModelPath: (v: string | null) => void
+  setLocalImageEnabled: (v: boolean) => void
   addCommand: () => void
   updateCommand: (id: string, patch: Partial<Pick<CustomCommand, 'label' | 'prompt'>>) => void
   removeCommand: (id: string) => void
@@ -192,6 +197,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setGpuLayers: (v) => set({ gpuLayers: Math.max(0, Math.round(v)) }),
   setVisionModelPath: (v) => {
     set({ visionModelPath: v })
+    get().save()
+  },
+  setLocalImageEnabled: (v) => {
+    set({ localImageEnabled: v })
     get().save()
   },
   addCommand: () =>

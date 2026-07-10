@@ -100,6 +100,23 @@ export function aspectToSize(aspect: ImageAspect | undefined, provider: 'dashsco
   return provider === 'dashscope' ? dash[a] : oai[a]
 }
 
+/**
+ * YEREL (sd-server / SD1.5-sınıfı) için boyut. SD1.5 512 tabanlıdır — 1024²
+ * hem kaliteyi bozar hem 4GB VRAM'de OOM olur ("no results"). Uzun kenar ≤768,
+ * boyutlar 64'ün katı. (SDXL/Flux daha büyük kaldırır — 13.6 modele göre ayarlar.)
+ */
+export function localImageSize(aspect: ImageAspect | undefined): string {
+  const a = aspect ?? '1:1'
+  const m: Record<ImageAspect, string> = {
+    '1:1': '512x512',
+    '16:9': '768x448',
+    '9:16': '448x768',
+    '4:3': '576x448',
+    '3:4': '448x576'
+  }
+  return m[a]
+}
+
 /** true → text-to-image ÜRETEN model (görsel-üretme yoluna gider). */
 export function isImageGenModel(model: string | null | undefined): boolean {
   const m = (model || '').toLowerCase()

@@ -200,6 +200,10 @@ export const IPC = {
   IMAGE_GENERATE: 'image:generate',
   IMAGE_STATUS: 'image:status',
   IMAGE_SAVE_AS: 'image:save-as',
+  // Faz 13 — yerel görsel-üretim modeli kataloğu + tek-tık indirme.
+  IMAGE_MODELS_LIST: 'image:models-list',
+  IMAGE_MODEL_DOWNLOAD: 'image:model-download',
+  IMAGE_DL_STATUS: 'image:dl-status',
   ADVISOR_DETECT: 'advisor:detect',
   ADVISOR_PLAN: 'advisor:plan',
   SESSIONS_LIST: 'sessions:list',

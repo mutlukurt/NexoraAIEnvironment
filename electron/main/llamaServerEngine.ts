@@ -44,8 +44,8 @@ const BIN_TAG = 'b9870'
 const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
 const CACHE_DIR = join(homedir(), 'NexoraAI', 'cache')
 const HOST = '127.0.0.1'
-/** Vision sidecar 8091 kullanır — ona dokunma. */
-const AVOID_PORTS = new Set([8091])
+/** Vision sidecar 8091, yerel görsel-üretim sd-server 8092 — onlara dokunma. */
+const AVOID_PORTS = new Set([8091, 8092])
 
 // llamaWorker.ts / cjkScan.ts ile birebir aynı aralıklar.
 const CJK_RE = /[　-〿぀-ヿ㐀-䶿一-鿿豈-﫿＀-￯가-힯]/

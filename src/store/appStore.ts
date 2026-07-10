@@ -3778,9 +3778,11 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // ekran + indirme + assets'e ekleme). Yerel model/kod pipeline'ına HİÇ girmez.
     {
       const activeApiImg = useSettingsStore.getState().activeApiModel
-      if (activeApiImg && !opts?.hideUser && !opts?.expectFile) {
+      const localImgOn = useSettingsStore.getState().localImageEnabled
+      if (!opts?.hideUser && !opts?.expectFile) {
         const { isImageGenModel } = await import('@shared/imageModels')
-        if (isImageGenModel(activeApiImg.model)) {
+        // API görsel modeli seçili YA DA yerel görsel üretimi açık (offline sd-server).
+        if ((activeApiImg && isImageGenModel(activeApiImg.model)) || localImgOn) {
           // Composer seçenekleri + referans görsel (görsel→görsel).
           const st = get()
           const ref = st.pendingImage
