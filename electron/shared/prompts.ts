@@ -533,7 +533,8 @@ TRANSLATION MUST BE FAITHFUL: translate the user's description to English EXACTL
 The app generates the image and shows it in the chat. You may add ONE short sentence in the user's language saying the image is being generated — never claim it was already created or copied anywhere.
 PROJECT ASSETS: ONLY when the user EXPLICITLY asks to add the generated image to the project / assets, output on its own line:
 [ASSET] add
-NEVER output [ASSET] on your own initiative — generating an image does NOT mean adding it to the project.`
+NEVER output [ASSET] on your own initiative — generating an image does NOT mean adding it to the project.
+ADD vs CREATE — do not confuse them: when the user refers to the image that was ALREADY generated ("add this image...", "bunu ekle", "save it to the project"), that is an ADD request → output ONLY [ASSET] add and NEVER a new [IMG]. Use [IMG] only when the user wants a NEW image created.`
 
 export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' = 'chat', imageCapable = false): string {
   // Cevap dili = KULLANICININ MESAJININ DİLİ (uygulama ayarı DEĞİL). Kullanıcı

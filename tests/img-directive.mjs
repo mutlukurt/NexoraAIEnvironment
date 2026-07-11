@@ -112,6 +112,13 @@ const ok = (cond, label) => { if (cond) { pass++; console.log('✓', label) } el
   ok(g.includes('never claim it was already created'), '"kopyalandı" yalanı yasak')
 }
 {
+  // Canlı kusur (ADIM 4): qwen-plus "add this image" deyince [ASSET] yerine
+  // [IMG] basıp görseli YENİDEN üretti — ekle≠üret ayrımı personada kilitli.
+  const g = chatSystemPrompt('tr', 'chat', true)
+  ok(g.includes('ADD vs CREATE'), 'ekle≠üret ayrımı personada')
+  ok(g.includes('NEVER a new [IMG]'), 'ekleme isteğinde yeniden-üretim yasak')
+}
+{
   ok(UPDATE_MODE_RULES.includes('[IMG]'), 'UPDATE kuralları: görsel isteği dosya edit\'i DEĞİL — [IMG] devri')
   ok(UPDATE_MODE_RULES.includes('[ASSET] add'), 'UPDATE kuralları: assets ekleme [ASSET] ile, App.tsx build\'i değil')
   ok(UPDATE_MODE_RULES.includes('NO code files'), 'UPDATE kuralları: bu isteklerde kod dosyası yok')
