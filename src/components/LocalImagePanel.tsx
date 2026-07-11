@@ -118,13 +118,13 @@ export default function LocalImagePanel({ language }: { language: Lang }) {
             <div key={e.id} className="flex items-center gap-3 rounded-lg border border-ink-line/60 bg-ink-panel px-3 py-2.5">
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
-                  <span className="truncate text-[13px] font-bold text-ink-text">{e.label}</span>
+                  <span className="truncate text-[13px] font-bold text-ink-text">{tt(language, e.label)}</span>
                   <span className={'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ' + (fits(e.minVramGb) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-sky-500/15 text-sky-600 dark:text-sky-400')}>
                     {fits(e.minVramGb) ? tt(language, '🟢 fits') : tt(language, '🔵 spills')}
                   </span>
                 </span>
                 <span className="block truncate text-[10px] text-ink-dim">
-                  {e.sizeGb.toFixed(1)} GB · {e.license} · {e.note}
+                  {e.sizeGb.toFixed(1)} GB · {tt(language, e.license)} · {tt(language, e.note)}
                 </span>
               </span>
               {e.installed ? (

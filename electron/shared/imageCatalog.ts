@@ -28,28 +28,28 @@ export const IMAGE_CATALOG: ImageCatalogEntry[] = [
     url: 'https://huggingface.co/second-state/stable-diffusion-v1-5-GGUF/resolve/main/stable-diffusion-v1-5-pruned-emaonly-Q4_0.gguf',
     sizeGb: 1.57,
     minVramGb: 3,
-    license: 'OpenRAIL-M (ticari OK)',
-    note: 'Hızlı ve hafif — her cihazda (CPU dahil) çalışır. Başlangıç için önerilen.'
+    license: 'OpenRAIL-M (commercial OK)',
+    note: 'Fast and light — runs on any device (CPU included). Recommended starting point.'
   },
   {
     id: 'sd15-q8',
-    label: 'Stable Diffusion 1.5 · Q8 (daha kaliteli)',
+    label: 'Stable Diffusion 1.5 · Q8 (higher quality)',
     file: 'stable-diffusion-v1-5-pruned-emaonly-Q8_0.gguf',
     url: 'https://huggingface.co/second-state/stable-diffusion-v1-5-GGUF/resolve/main/stable-diffusion-v1-5-pruned-emaonly-Q8_0.gguf',
     sizeGb: 2.0,
     minVramGb: 4,
-    license: 'OpenRAIL-M (ticari OK)',
-    note: 'Daha yüksek kalite, biraz daha fazla VRAM. 4GB+ kartlar için iyi.'
+    license: 'OpenRAIL-M (commercial OK)',
+    note: 'Higher quality, a bit more VRAM. Good for 4GB+ GPUs.'
   },
   {
     id: 'sd15-f16',
-    label: 'Stable Diffusion 1.5 · F16 (tam kalite)',
+    label: 'Stable Diffusion 1.5 · F16 (full quality)',
     file: 'stable-diffusion-v1-5-pruned-emaonly-f16.gguf',
     url: 'https://huggingface.co/second-state/stable-diffusion-v1-5-GGUF/resolve/main/stable-diffusion-v1-5-pruned-emaonly-f16.gguf',
     sizeGb: 3.2,
     minVramGb: 6,
-    license: 'OpenRAIL-M (ticari OK)',
-    note: 'Sıkıştırmasız SD1.5 — en iyi SD1.5 kalitesi. 6GB+ kart önerilir.'
+    license: 'OpenRAIL-M (commercial OK)',
+    note: 'Uncompressed SD1.5 — best SD1.5 quality. 6GB+ GPU recommended.'
   }
 ]
 
