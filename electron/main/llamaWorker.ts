@@ -52,7 +52,16 @@ interface SimpleRequest {
   cmd: 'abort' | 'unload'
 }
 
-type WorkerRequest = LoadRequest | ResetRequest | PromptRequest | SimpleRequest
+/** Faz 13 — motordan geçmeyen alışverişi (görsel üretimi / oturum tohumu)
+ *  worker oturum geçmişine işle. replace=true → geçmişi (system hariç) değiştir. */
+interface InjectRequest {
+  id: number
+  cmd: 'inject'
+  turns: Array<{ role: 'user' | 'assistant'; content: string }>
+  replace?: boolean
+}
+
+type WorkerRequest = LoadRequest | ResetRequest | PromptRequest | SimpleRequest | InjectRequest
 
 let mod: LlamaModule | null = null
 let llama: Llama | null = null
@@ -504,6 +513,25 @@ process.on('message', (raw: unknown) => {
           abortController?.abort()
           send({ id: req.id, ok: true })
           break
+        case 'inject': {
+          // Faz 13 — motordan geçmeyen alışverişi oturum geçmişine işle
+          // (görsel üretimi notu / model-değişimi tohumu). Oturum yoksa veya
+          // sürüm get/setChatHistory sunmuyorsa sessizce ok döner (yedek motor).
+          const s = session as unknown as {
+            getChatHistory?: () => Array<{ type?: string }>
+            setChatHistory?: (h: unknown[]) => void
+          } | null
+          if (s?.getChatHistory && s.setChatHistory) {
+            const mapped = req.turns
+              .filter((t) => (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
+              .map((t) => (t.role === 'user' ? { type: 'user', text: t.content } : { type: 'model', response: [t.content] }))
+            const cur = s.getChatHistory()
+            const base = req.replace ? cur.filter((h) => h?.type === 'system') : cur
+            s.setChatHistory([...base, ...mapped])
+          }
+          send({ id: req.id, ok: true })
+          break
+        }
         case 'unload':
           await unload()
           send({ id: req.id, ok: true })

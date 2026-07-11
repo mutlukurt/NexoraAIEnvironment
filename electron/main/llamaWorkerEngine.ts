@@ -159,6 +159,23 @@ async function request(msg: Record<string, unknown>): Promise<WorkerResponse> {
 export const workerEngine: InferenceEngine = {
   name: 'worker',
 
+  // Faz 13 — serverEngine ile AYNI kancalar (yedek motorda da görsel-notu ve
+  // model-değişimi tohumu çalışsın). Ateşle-unut: void interface, worker'a
+  // 'inject' komutu gider; worker yoksa sessiz düşer.
+  noteExchange(user: string, assistant: string): void {
+    void request({
+      cmd: 'inject',
+      turns: [
+        { role: 'user', content: user },
+        { role: 'assistant', content: assistant }
+      ]
+    }).catch(() => undefined)
+  },
+
+  seedHistory(turns: Array<{ role: 'user' | 'assistant'; content: string }>): void {
+    void request({ cmd: 'inject', turns, replace: true }).catch(() => undefined)
+  },
+
   async load(opts: EngineLoadOptions): Promise<EngineLoadResult> {
     activeProgressCb = opts.onProgress ?? null
     try {
