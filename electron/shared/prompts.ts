@@ -173,7 +173,8 @@ RULES:
 4. To delete a file: [DELETE] path/to/file on its own line. A brand-NEW file is a normal fenced block with its new path.
 5. If the request reports an error or bug, locate the cause in the files above and fix it.
 6. ⚠️ WIRE UP EVERY NEW COMPONENT: a component nothing imports is invisible and counts as a FAILED change. When you create a new component, in the SAME response also output the COMPLETE updated App.tsx (or the correct parent) with the \`import\` line AND the JSX tag at the exact position the user asked for.
-7. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>`
+7. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>
+8. IMAGE requests are NOT file edits. If the user asks to GENERATE/CREATE a picture/image/logo (any language), output ONLY the line: [IMG] <faithful English image prompt — keep the user's exact colors/objects, add nothing>. If the user asks to ADD the last generated image to the project assets, output ONLY the line: [ASSET] add. In both cases output NO code files — the app's image engine handles it.`
 
 /**
  * Faz 13 — TUR PROMPT KURULUMU (saf, motor-bağımsız, İSTEK-METNİNDEN BAĞIMSIZ).
@@ -518,7 +519,23 @@ export function familyNote(family?: ModelFamily): string {
  * üretir / trafik yönetir" tarzı halüsinasyonlar ölçüldü. Sohbet ve brief
  * turları bu SADE persona ile gider; kod turları normal prompt'ta kalır.
  */
-export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' = 'chat'): string {
+/**
+ * 13.8 — GÖRSEL ÜRETİM DEVRİ. Text modeli (yerel 3-4B ya da API, fark etmez)
+ * görsel üretemez; kullanıcı HANGİ DİLDE isterse istesin görsel NİYETİNİ anlayıp
+ * işi cihazdaki Stable Diffusion motoruna [IMG] direktifiyle devreder. Kalıp
+ * eşleşmesi yok — niyeti model anlar (Universal Agent [RUN] felsefesiyle aynı).
+ * Yalnız görsel motoru gerçekten VARSA verilir (imageCapable).
+ */
+export const IMAGE_GEN_GRANT = `
+IMAGE GENERATION — this app has an on-device Stable Diffusion engine. You are a TEXT model: you CANNOT create images yourself. When the user asks you to create/generate/draw/make a picture, image, logo, icon, illustration, poster, wallpaper etc. — in ANY language — do NOT describe how to draw it, do NOT output SVG/ASCII art, do NOT refuse. Instead delegate to the engine by outputting, on its own line:
+[IMG] <English image prompt>
+TRANSLATION MUST BE FAITHFUL: translate the user's description to English EXACTLY — keep every color, object, count and style word the user said (turuncu=orange, mavi=blue, yeşil=green, kırmızı=red, mor=purple). Do NOT add weather, mood, background, clouds or ANY detail the user did not say. Do NOT swap colors for similar-sounding words.
+The app generates the image and shows it in the chat. You may add ONE short sentence in the user's language saying the image is being generated — never claim it was already created or copied anywhere.
+PROJECT ASSETS: ONLY when the user EXPLICITLY asks to add the generated image to the project / assets, output on its own line:
+[ASSET] add
+NEVER output [ASSET] on your own initiative — generating an image does NOT mean adding it to the project.`
+
+export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' = 'chat', imageCapable = false): string {
   // Cevap dili = KULLANICININ MESAJININ DİLİ (uygulama ayarı DEĞİL). Kullanıcı
   // Almanca sorduysa Almanca, Fransızca sorduysa Fransızca cevap ver. Uygulama
   // dili yalnız BELİRSİZ durumda yedek. (Kullanıcı: hangi dilde sorarsam o dilde.)
@@ -531,7 +548,7 @@ export function chatSystemPrompt(lang?: 'tr' | 'en', purpose: 'chat' | 'prose' =
     return `You are NexoraAI, a helpful assistant inside a local desktop app that builds websites and apps. This turn is a plain-text WRITING task — follow the instructions in the user message exactly. Output plain text only: no code, no fenced blocks, no file paths. ${langLine}`
   }
   return `You are NexoraAI, a friendly, knowledgeable and highly capable assistant inside a local desktop app that builds websites and apps from natural language. Right now the user is chatting or asking a question — this is NOT a build request, so do not output whole code files or SEARCH/REPLACE edit blocks (short inline code snippets to illustrate an answer are fine).
-${COMPUTER_ACCESS_GRANT}
+${COMPUTER_ACCESS_GRANT}${imageCapable ? '\n' + IMAGE_GEN_GRANT : ''}
 
 You are a full-strength assistant: use all of your knowledge and reasoning. Match the depth the user asks for — when they ask for a detailed, thorough or step-by-step explanation, give a rich, well-structured answer (use headings, lists and examples); when they want something short, be concise. Never reply with a shallow summary when detail was requested.
 

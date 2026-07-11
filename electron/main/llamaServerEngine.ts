@@ -662,7 +662,7 @@ export const serverEngine: InferenceEngine = {
     const sysForTurn = options?.systemOverride
       ? options.systemOverride
       : options?.purpose
-      ? chatSystemPrompt(options.answerLang, options.purpose)
+      ? chatSystemPrompt(options.answerLang, options.purpose, options.imageCapable)
       : systemPrompt
     // FAZ 9.3 — isolate: geçmişi HİÇ gönderme (fidelity bileşen turu bağımsız).
     const messages: ChatMsg[] = options?.isolate

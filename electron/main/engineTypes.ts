@@ -51,6 +51,9 @@ export interface PromptOptions {
   purpose?: 'chat' | 'prose'
   /** Sohbet sistem prompt'unun cevap dili. */
   answerLang?: 'tr' | 'en'
+  /** 13.8 — cihazda görsel motoru (SD) var: sohbet personasına [IMG]/[ASSET]
+   *  devri yetkisi eklenir (text modeli görseli KENDİSİ üretmeye kalkmaz). */
+  imageCapable?: boolean
   /**
    * 10.16 — Bu TUR için sistem prompt'unu geçersiz kıl (oturum prompt'u
    * değişmeden). Frontier build/edit personasını GÜÇLÜ YEREL modele (≥9GB, ≈13B+)

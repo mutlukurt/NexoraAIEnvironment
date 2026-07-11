@@ -2478,6 +2478,16 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
         if (hasDirectives(directives)) {
           void (async () => {
+            // 13.8 — [IMG]/[ASSET]: text modeli (yerel/API) görsel NİYETİNİ anlayıp
+            // işi SD motoruna devreder; [ASSET] son görseli projeye ekler. Güven
+            // kapısından bağımsız (yerel SD + bellek-içi asset — zararsız sınıf);
+            // kalan direktifler mevcut trust akışında yaşamaya devam eder.
+            if (directives.imgs.length > 0 || directives.assetAdd) {
+              await runImageDirectives(directives.imgs, directives.assetAdd)
+              directives.imgs = []
+              directives.assetAdd = false
+              if (!hasDirectives(directives)) return
+            }
             // 7.5 İKİ KATMANLI GÜVEN. Katman 1 (sandbox): her komut için
             // hüküm — 'deny' hiçbir onayla çalışmaz (main'de de duvar),
             // 'auto' çalışma alanı içi güvenli sınıf, 'ask' sınırda.
@@ -4710,6 +4720,87 @@ ${outgoing}`
 }))
 
 export { fmtBytes }
+
+/**
+ * 13.8 — [ASSET] / "Assets'e ekle" ortak çekirdeği: görseli src/assets/<ad>
+ * olarak artifacts store'a yazar + sohbete iz kartı düşer (dosya adı model
+ * geçmişlerine girer). ChatPanel'deki buton da bunu kullanır.
+ */
+export function addGeneratedImageToAssets(img: { dataUrl: string; name: string }): string {
+  const safe = img.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
+  const path = `src/assets/${safe}`
+  useArtifactsStore.getState().upsertFile(path, img.dataUrl)
+  useAppStore.setState((s) => ({
+    messages: [...s.messages, { id: 'asset-' + Date.now().toString(36), role: 'assistant', content: `🖼 Görsel projeye eklendi: ${path}` }]
+  }))
+  void useAppStore.getState().saveSessionNow()
+  return path
+}
+
+/** 13.8 — [ASSET] add: sohbetteki SON üretilmiş görseli assets'e ekle. */
+function addLastGeneratedImageToAssets(): void {
+  const msgs = useAppStore.getState().messages as Array<{ images?: Array<{ dataUrl: string; name: string }> }>
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const im = msgs[i].images
+    if (im && im.length > 0) {
+      addGeneratedImageToAssets(im[im.length - 1])
+      return
+    }
+  }
+  useAppStore.setState((s) => ({
+    messages: [...s.messages, { id: nanoid(), role: 'assistant', content: '⚠️ Eklenecek üretilmiş bir görsel bulunamadı — önce bir görsel üretin.' }]
+  }))
+}
+
+/**
+ * 13.8 — [IMG] yürütücüsü: text modelin devrettiği İngilizce prompt'u SD
+ * motoruna (yerel görsel modeli varsa offline, yoksa aktif API görsel modeli)
+ * gönderir; sonuç sohbete görsel mesajı olarak düşer. Model hangisi seçili
+ * olursa olsun görseli TEXT modeli değil GÖRSEL motoru üretir.
+ */
+async function runImageDirectives(imgs: string[], assetAdd: boolean): Promise<void> {
+  const set = useAppStore.setState
+  const get = useAppStore.getState
+  for (const promptEn of imgs.slice(0, 2)) {
+    const statusId = nanoid()
+    set((s) => ({ messages: [...s.messages, { id: statusId, role: 'assistant', content: '🎨 Görsel üretiliyor… (Stable Diffusion)' }] }))
+    const unsub = window.nexora.images.onStatus((e: { msg: string }) => {
+      set((s) => ({ messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🎨 ${e.msg}` } : m)) }))
+    })
+    try {
+      const lm = await window.nexora.images.listModels?.().catch(() => null)
+      const hasLocal = !!(lm as { installed?: unknown[] } | null)?.installed?.length
+      const res = await window.nexora.images.generate({
+        prompt: promptEn,
+        aspect: get().imageAspect,
+        count: 1,
+        preferLocal: hasLocal,
+        localModelPath: useSettingsStore.getState().activeLocalImageModel ?? undefined
+      })
+      unsub()
+      if (!res.ok || !res.images || res.images.length === 0) {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === statusId
+              ? { ...m, content: `⚠️ Görsel üretilemedi: ${res.error ?? (hasLocal ? 'bilinmeyen hata' : 'yerel görsel modeli yok — Model Tarayıcı → Görsel sekmesinden indirin')}` }
+              : m
+          )
+        }))
+        continue
+      }
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: '', images: res.images, imagePrompt: promptEn } : m))
+      }))
+      void get().saveSessionNow()
+    } catch (err) {
+      unsub()
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `⚠️ Görsel üretilemedi: ${(err as Error).message}` } : m))
+      }))
+    }
+  }
+  if (assetAdd) addLastGeneratedImageToAssets()
+}
 
 // Onarım Merdiveni: runtime hata aboneliği İLK MESAJI BEKLEMEZ. Canlı test
 // bulgusu — abonelik sendMessage içinde kurulduğundan, kullanıcı hiç mesaj

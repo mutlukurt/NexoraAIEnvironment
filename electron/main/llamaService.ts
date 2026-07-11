@@ -383,6 +383,20 @@ export async function chat(
   //  - UPDATE turu: cerrahi düzenleme; SEARCH ≤12 satır, hedef yol yalnızca
   //    gerçekten var olan dosyalar.
   const options: PromptOptions = { ...(input.options ?? {}) }
+  // 13.8 — cihazda görsel motoru (SD modeli) var mı? Varsa sohbet personası
+  // [IMG]/[ASSET] devri yetkisi alır: text modeli görsel isteğini ANLAR ve işi
+  // SD'ye devreder (kendisi tarif/SVG üretmeye kalkmaz). Motor-bağımsız: aynı
+  // bayrak yerel server/worker VE API personasına gider.
+  let imageCapable = false
+  if (input.options?.purpose === 'chat') {
+    try {
+      const li = await import('./localImageService')
+      imageCapable = li.hasLocalImageModel()
+    } catch {
+      /* görsel servisi kurulmamışsa yetenek yok */
+    }
+    options.imageCapable = imageCapable
+  }
   // 10.14/10.16 — Frontier persona: bu tur güçlü bir modelle (API VEYA büyük yerel
   // GGUF) yeni build / iterasyon. currentFiles varsa DÜZENLEME, yoksa YENİ build
   // personası. Tek yerde hesaplanır: API yolu apiSys olarak, YEREL yol
@@ -405,7 +419,7 @@ export async function chat(
     // sohbet personasını kullansın (API yolu apiSys ile zaten kullanıyor). Böylece
     // "vercel kontrol et" gibi istekler yerel modelde de [RUN] ile YAPILIR, kod
     // personasıyla dosya dökülmez. (Worker embedded → yukarıdaki sargı korur.)
-    options.systemOverride = chatSystemPrompt(input.options?.answerLang, input.options.purpose)
+    options.systemOverride = chatSystemPrompt(input.options?.answerLang, input.options.purpose, imageCapable)
   }
   // FAZ 9.3 — fidelity bileşen turu: motor geçmişini yalıt. Aksi hâlde model KV
   // geçmişindeki önceki dosyayı (Navbar) sonraki bileşene klonluyor (Hero=Navbar
@@ -452,7 +466,7 @@ export async function chat(
       const apiSys = frontierSys
         ? frontierSys
         : input.options?.purpose
-        ? chatSystemPrompt(input.options.answerLang, input.options.purpose)
+        ? chatSystemPrompt(input.options.answerLang, input.options.purpose, imageCapable)
         : getFullSystemPrompt()
       // Görsel bug düzeltmesi: iliştirilmiş referans görsel API'ye DOĞRUDAN
       // (çok-kipli) gider — yerel VL modeli çalıştırılmaz. Renderer yalnız API
