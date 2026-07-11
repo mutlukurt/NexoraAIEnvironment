@@ -142,6 +142,19 @@ export function noteImageExchange(userPrompt: string, marker: string): void {
 }
 
 /**
+ * Faz 13 — motor geçmişini UI sohbetiyle tohumla: farklı bir yerel model
+ * yüklenince / oturum açılınca yeni model önceki konuşmayı bilsin (eskiden
+ * motor geçmişi sıfır başlıyordu — model "az önce ne konuştuk"u bilmiyordu).
+ */
+export function seedEngineHistory(turns: Array<{ role: 'user' | 'assistant'; content: string }>): void {
+  try {
+    engine?.seedHistory?.(turns)
+  } catch {
+    /* tohumlanamazsa sessiz geç */
+  }
+}
+
+/**
  * Görsel bug düzeltmesi: bir görsel dosyasını API multimodal girdisi için
  * data-URL'e çevir. Uzun kenar 1024px'e küçültülür (token + bant tasarrufu;
  * visionService ile aynı yaklaşım); nativeImage başarısızsa ham baytlara düşer.

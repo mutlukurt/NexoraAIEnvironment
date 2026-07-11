@@ -86,4 +86,7 @@ export interface InferenceEngine {
   /** Faz 13 — motordan GEÇMEYEN bir alışverişi (ör. görsel üretimi) geçmişe işle:
    *  sonraki turda yerel model "az önce ne yapıldı"yı bilsin. Opsiyonel. */
   noteExchange?(user: string, assistant: string): void
+  /** Faz 13 — motor geçmişini UI sohbetiyle tohumla: farklı bir model yüklenince
+   *  (veya oturum açılınca) yeni model önceki konuşmayı bilsin. Geçmişi DEĞİŞTİRİR. */
+  seedHistory?(turns: Array<{ role: 'user' | 'assistant'; content: string }>): void
 }

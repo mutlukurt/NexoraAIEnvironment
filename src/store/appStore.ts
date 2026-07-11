@@ -2792,16 +2792,23 @@ export const useAppStore = create<AppState>((set, get) => ({
             : res.info.gpuLayers === -1
               ? 'GPU modunda (katmanlar VRAM\'e göre otomatik)'
               : 'CPU modunda'
-        set({
+        // Faz 13 — model değişimi SOHBETİ SİLMEZ: aynı pencerede devam edilir
+        // (eskiden mesajlar tek karta indirgeniyordu). Önce mevcut konuşmadan
+        // tohum çıkar, motoru sıfırla, sonra yeni motora tohumla — yeni model
+        // "az önce ne konuştuk"u bilir.
+        const priorTurns = buildApiHistory(get().messages, 12000)
+        set((s) => ({
           messages: [
+            ...s.messages,
             {
               id: nanoid(),
               role: 'assistant',
-              content: `Model yüklendi: ${res.info.name} (${fmtBytes(res.info.sizeBytes)}). ${modeText}, ${res.info.contextSize} token bağlam ile çalışıyor.`
+              content: `Model yüklendi: ${res.info!.name} (${fmtBytes(res.info!.sizeBytes)}). ${modeText}, ${res.info!.contextSize} token bağlam ile çalışıyor.`
             }
           ]
-        })
+        }))
         await window.nexora.chat.newSession()
+        if (priorTurns.length > 0) await window.nexora.chat.seedHistory?.(priorTurns)
       } else {
         set({ modelLoading: false, modelLoadProgress: null, modelError: res.error ?? 'Model yüklenemedi' })
       }
@@ -3387,6 +3394,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Taze model bağlamı — eski sohbet UI'da durur, iterasyonlar güncel
     // dosyalar üzerinden çalışır (UPDATE MODE dosyaları her tur gönderir).
     await window.nexora.chat.newSession()
+    // Faz 13 — açılan oturumun konuşması yerel motora tohumlanır: model
+    // "bu sohbette ne konuşulmuştu"yu bilir (eskiden sıfır başlıyordu).
+    const seedTurns = buildApiHistory((data.messages ?? []) as never[], 12000)
+    if (seedTurns.length > 0) await window.nexora.chat.seedHistory?.(seedTurns)
     const files = Object.fromEntries(
       (Object.entries(data.files) as Array<[string, SessionFileEntry]>).map(([p, f]) => [
         p,

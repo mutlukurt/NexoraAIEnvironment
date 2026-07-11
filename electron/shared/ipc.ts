@@ -171,6 +171,7 @@ export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
   CHAT_STREAM: 'chat:stream',
+  CHAT_SEED_HISTORY: 'chat:seed-history',
   HF_SEARCH: 'hf:search',
   HF_DOWNLOAD: 'hf:download',
   HF_CANCEL: 'hf:cancel',

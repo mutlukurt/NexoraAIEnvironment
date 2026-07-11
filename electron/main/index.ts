@@ -244,6 +244,19 @@ function registerIpc(): void {
     return { ok: true }
   })
 
+  // Faz 13 — yerel motor geçmişini UI sohbetiyle tohumla: farklı bir model
+  // yüklenince / oturum açılınca yeni model önceki konuşmayı bilsin.
+  ipcMain.handle(IPC.CHAT_SEED_HISTORY, async (_e, turns: Array<{ role: 'user' | 'assistant'; content: string }>) => {
+    if (!Array.isArray(turns)) return { ok: false }
+    const safe = turns
+      .filter((t) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.content === 'string' && t.content.trim())
+      .slice(-100)
+      .map((t) => ({ role: t.role, content: t.content.slice(0, 6000) }))
+    const { seedEngineHistory } = await import('./llamaService')
+    seedEngineHistory(safe)
+    return { ok: true }
+  })
+
   ipcMain.handle(IPC.HF_SEARCH, async (_e, query: string) => {
     try {
       return { ok: true, results: await searchModels(query) }

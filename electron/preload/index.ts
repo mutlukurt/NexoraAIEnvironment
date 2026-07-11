@@ -80,6 +80,8 @@ export interface NexoraApi {
     send: (input: ChatSendInput) => Promise<ChatSendResponse>
     abort: () => Promise<{ ok: boolean }>
     onStream: (cb: (event: ChatStreamEvent) => void) => () => void
+    /** Faz 13 — yerel motor geçmişini UI sohbetiyle tohumla (model değişimi / oturum açılışı). */
+    seedHistory: (turns: Array<{ role: 'user' | 'assistant'; content: string }>) => Promise<{ ok: boolean }>
   }
   hf: {
     search: (query: string) => Promise<HfSearchResponse>
@@ -301,7 +303,9 @@ const api: NexoraApi = {
       const handler = (_e: unknown, data: ChatStreamEvent) => cb(data)
       ipcRenderer.on(IPC.CHAT_STREAM, handler as never)
       return () => ipcRenderer.off(IPC.CHAT_STREAM, handler as never)
-    }
+    },
+    seedHistory: (turns: Array<{ role: 'user' | 'assistant'; content: string }>) =>
+      ipcRenderer.invoke(IPC.CHAT_SEED_HISTORY, turns)
   },
   hf: {
     search: (query: string) => ipcRenderer.invoke(IPC.HF_SEARCH, query),

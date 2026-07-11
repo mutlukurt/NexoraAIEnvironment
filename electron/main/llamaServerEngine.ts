@@ -526,6 +526,15 @@ export const serverEngine: InferenceEngine = {
     history.push({ role: 'assistant', content: assistant })
   },
 
+  // Faz 13 — motor geçmişini UI sohbetiyle tohumla (model değişimi / oturum
+  // açılışı): yeni yüklenen model önceki konuşmayı bilir. Geçmişi DEĞİŞTİRİR;
+  // ctxUsed tahmini güncellenir (ilk gerçek turda sunucu usage'ı ezer).
+  seedHistory(turns: Array<{ role: 'user' | 'assistant'; content: string }>): void {
+    history = turns.map((t) => ({ role: t.role, content: t.content }))
+    ctxUsed = Math.ceil(turns.reduce((n, t) => n + t.content.length, 0) / 3)
+    console.log(`[llamaServerEngine] geçmiş tohumlandı: ${turns.length} tur (~${ctxUsed} token)`)
+  },
+
   async load(opts: EngineLoadOptions): Promise<EngineLoadResult> {
     await killProc()
     history = []

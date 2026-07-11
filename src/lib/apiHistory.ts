@@ -16,6 +16,40 @@ type MsgLike = { role?: string; content?: string; streaming?: boolean; images?: 
  * yakın geçmiş korunsun. En yeni turlardan geriye doğru bütçelenir. */
 export const HISTORY_CHAR_BUDGET = 48000
 
+/** Bütçe dışına düşen eski turların özet derlemesi için karakter tavanı. */
+export const DIGEST_CHAR_BUDGET = 3500
+
+/**
+ * Bütçe dışına düşen turları kronolojik, kısaltılmış bir bağlam notuna derle —
+ * eskiden bunlar SESSİZCE düşüyordu (yerel motor özet alırken API almıyordu).
+ * Deterministik (LLM'siz): her tur tek satır, ilk ~160 karakter. Açılış turu
+ * (konuyu kuran mesaj) daima dahil; kalan yer en yeni düşenlere ayrılır.
+ */
+function digestDropped(dropped: ChatTurn[]): string {
+  const line = (t: ChatTurn): string => {
+    const who = t.role === 'user' ? 'Kullanıcı' : 'Asistan'
+    const body = t.content.replace(/\s+/g, ' ').trim()
+    return `- ${who}: ${body.length > 160 ? body.slice(0, 160) + '…' : body}`
+  }
+  const opener = line(dropped[0])
+  const rest: string[] = []
+  let used = opener.length
+  for (let i = dropped.length - 1; i >= 1; i--) {
+    const l = line(dropped[i])
+    if (used + l.length > DIGEST_CHAR_BUDGET) break
+    rest.unshift(l)
+    used += l.length
+  }
+  const skipped = dropped.length - 1 - rest.length
+  return (
+    '[Bağlam notu: sohbetin daha eski kısmı uzunluk sınırı nedeniyle kısaltıldı. Kronolojik özet derlemesi:\n' +
+    opener +
+    (skipped > 0 ? `\n…(${skipped} eski tur atlandı)…` : '') +
+    (rest.length ? '\n' + rest.join('\n') : '') +
+    '\nBu nottaki bilgiler geçerli bağlamdır; kullanıcıya bu notu gösterme.]'
+  )
+}
+
 /**
  * Sohbet mesajlarını API'ye gidecek {role,content} dizisine çevir.
  * - Yalnız user/assistant rolleri (system kartları, araç/görev kartları elenir).
@@ -41,10 +75,25 @@ export function buildApiHistory(msgs: readonly MsgLike[], budget = HISTORY_CHAR_
   }
   let total = 0
   const kept: ChatTurn[] = []
+  let cut = -1 // kept'e girmeyen son (en yeni) düşen turun indeksi
   for (let i = turns.length - 1; i >= 0; i--) {
     total += turns[i].content.length
-    if (total > budget && kept.length > 0) break
+    if (total > budget && kept.length > 0) {
+      cut = i
+      break
+    }
     kept.unshift(turns[i])
+  }
+  // Düşen turlar varsa özet derlemesini başa iliştir. Rol alternasyonu korunur:
+  // ilk kalan tur user ise notu içeriğinin başına göm; assistant ise nottan
+  // ayrı bir user turu aç (user→assistant→… dizilimi bozulmaz).
+  if (cut >= 0) {
+    const digest = digestDropped(turns.slice(0, cut + 1))
+    if (kept[0]?.role === 'user') {
+      kept[0] = { role: 'user', content: digest + '\n\n' + kept[0].content }
+    } else {
+      kept.unshift({ role: 'user', content: digest })
+    }
   }
   return kept
 }
