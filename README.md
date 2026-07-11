@@ -22,7 +22,7 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
-3. [Release Scorecards (newest → oldest)](#image-generation--full-file-access--the-v018-scorecard) → [VOLTA output](#volta-output)
+3. [Release Scorecards (newest → oldest)](#offline-image-generation--the-intent-based-agent--the-v019-scorecard) → [VOLTA output](#volta-output)
 4. [Feature Overview](#feature-overview)
 5. [Screenshots](#screenshots)
 6. [Getting Started](#getting-started)
@@ -57,6 +57,51 @@ Cloud AI builders (Bolt, Lovable, v0) are excellent, but they have three structu
 | **Control** | One fixed model, one fixed pipeline | Any GGUF you want — swap models like cartridges |
 
 NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B model with a strategy tuned for small models (sectioned generation, format grammars, tight caps); plug a **≥ 13B GGUF** on a workstation — or opt into a frontier **API** — and the *same app* automatically switches to the **unleashed** path: one-shot, multi-file, elite-persona project generation with none of the small-model crutches. The tool's value grows every time the open-model ecosystem improves, with zero code changes. *(An optional BYO-key API mode — 157 providers, keys in the OS keychain — exists for those who want a frontier cloud model; the local, nothing-leaves-your-machine path stays the default.)*
+
+## Offline Image Generation & the Intent-Based Agent — the v0.19 Scorecard
+
+v0.18 could generate images — **through a cloud API**. v0.19 closes the last local-first gap: **image generation now runs fully on-device** (stable-diffusion.cpp `sd-server`, its own out-of-process sidecar on port `8092`) — no API key, no internet, proven live on a 4 GB RTX 2050. And the whole app crossed a philosophical line in the same release: **behaviour is decided by the model's understanding of your intent, never by keyword patterns.**
+
+**🖼️ Offline images, end to end.** Type *"bana turuncu bir sıcak hava balonu görseli üret"* to **any** model — the local 4B text model or a cloud API model — and it understands the intent, delegates via an `[IMG]` directive, and **Stable Diffusion generates it on your machine**. Turkish (or any language) prompts are translated **faithfully** to English on-device by the local LLM first (SD's CLIP encoder only understands English — and yes, *turuncu* now stays **orange**, not turquoise). Say *"bu görseli assets'e ekle"* and the `[ASSET]` directive drops it into `src/assets/` — then builds reference the **real file path** (a prompt-assembly bug that made models invent `picsum` placeholders was found and locked with a 55-check test suite).
+
+**🧲 Models are yours to choose — like GGUF, but for images.** No hardcoded model: the chat-screen **Model Browser grew a Text / Image toggle** — a device-fit catalog (🟢 fits / 🔵 spills VRAM badges, one-click download) plus **free HuggingFace search** over every single-file `.gguf`/`.safetensors` image model in the world. The composer's model picker now switches freely between **local text ↔ API ↔ local image** — the selected image model is the one that generates.
+
+**🧠 One conversation, shared memory.** Generate an image, switch to the local text model, ask *"what did I ask you to draw?"* — it knows. Switch to the API model — it knows too. Image turns are injected into the local engine's history, carried as `[image generated]` markers in the API history, and a **context digest** now summarizes old turns instead of silently dropping them. Switching models **no longer wipes the chat**; the new engine is seeded with the conversation.
+
+**🎯 Intent-based, everywhere.** The keyword gates that used to decide behaviour were removed or demoted to *performance hints* with the model holding the final say in both directions: a chat-routed message that's really a build request → the model emits **`[BUILD]`** and the production pipeline runs (live-proven with *"…ne düşünüyorsun, bence artık şart, **hallet gitsin**"* — 3 seconds to `[BUILD]`); a build-routed question → `ANSWER:` drops back to chat. Mixed question+instruction messages follow the instruction — it can't be swallowed.
+
+| What was true (≤ v0.18.3) | What v0.19 brings |
+| --- | --- |
+| Image generation required the cloud API | **Fully offline** on-device generation (`sd-server` / stable-diffusion.cpp sidecar, port 8092) — internet off, no key, real PNGs on a 4 GB GPU |
+| Asking a *text* model for an image produced an essay (or SVG soup) | **Any model delegates to SD** via `[IMG]` — any provider, any wording, **any language**; faithful English translation happens on-device |
+| Turkish prompts → CLIP garbage (brown blobs) | Local-LLM translation with a **fidelity contract**: colors/objects/count preserved exactly, no invented details |
+| Only 3 curated image models | **Catalog + free HuggingFace search** in the chat-screen Model Browser (Text/Image toggle) — download any single-file SD/SDXL/Flux model, VRAM-fit badges |
+| Image model lived in Settings; switching modes was rigid | **Composer picker switches local-text ↔ API ↔ local-image freely**; 🎨 label shows the active image model |
+| Adding to assets = a UI button only | *"add this image to the project assets"* **in chat** → `[ASSET]` — add ≠ regenerate is locked; no unsolicited adds |
+| Builds referenced invented `picsum` URLs instead of your asset | Asset paths reach **every** prompt unconditionally (`composeTurnPrompt`, 55-check contract) → builds use the **exact real path** |
+| Switching local models wiped the conversation | Chat survives; the new engine is **seeded** with the conversation (works across restarts and sessions too) |
+| Models forgot images ever existed after a switch | Shared memory: engine-history injection + `[image generated]` markers + **context digest** instead of silent truncation |
+| Router keywords had the final say on chat-vs-build | **Intent bridges**: `[BUILD]` (chat→build) and `ANSWER:` (build→chat) — the model overrides the router in both directions |
+| The new image UI was English-only | **28 new strings × 10 languages** (RTL Arabic verified live) — panel, catalog notes, badges, search |
+
+<div align="center">
+<img src="docs/screenshots/v019-picker.png" width="88%" alt="The composer model picker: downloaded GGUF models, API models, and a separate 'Local image generation' section with the SD 1.5 model — plus a 'Download image model…' shortcut" />
+
+*One picker, three worlds: local GGUF text models, API models, and the offline image engine — switch freely mid-conversation.*
+
+<img src="docs/screenshots/v019-image-tab.png" width="88%" alt="The chat-screen Model Browser in Image mode: offline toggle, device-fit catalog with VRAM badges, and free HuggingFace search" />
+
+*The Model Browser's Image tab: device-fit catalog (🟢 fits / 🔵 spills) + free HuggingFace search — find any image model like you find GGUFs.*
+
+<table><tr>
+<td align="center"><img src="docs/screenshots/v019-sample-dragon.png" width="240" alt="Green dragon logo generated fully offline by SD 1.5 Q4 on a 4 GB GPU" /><br/><em>"yeşil bir ejderha logosu, minimal"</em></td>
+<td align="center"><img src="docs/screenshots/v019-sample-robot.png" width="240" alt="Blue robot flat vector icon generated fully offline" /><br/><em>"küçük mavi bir robot, düz vektör ikon"</em></td>
+</tr></table>
+
+*Generated **fully offline** on the 4 GB RTX 2050 — Turkish prompts, faithfully translated on-device, rendered by stable-diffusion.cpp.*
+</div>
+
+---
 
 ## Image Generation & Full File Access — the v0.18 Scorecard
 
