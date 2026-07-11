@@ -2478,6 +2478,25 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
         if (hasDirectives(directives)) {
           void (async () => {
+            // NİYET KÖPRÜSÜ [BUILD]: sohbet personası "bu aslında ÜRETİM isteği"
+            // dedi — son kullanıcı mesajı üretim hattına yeniden yönlenir.
+            // Yönlendirme sezgisi (looksLikeChatIntent) yalnız performans ipucu;
+            // SON SÖZ modelde. (Build personaları [BUILD] yetkisi almaz → döngü yok.)
+            if (directives.build) {
+              directives.build = false
+              const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
+              if (lastUser) {
+                const buildText = lastUser.content
+                set((s) => ({
+                  messages: [...s.messages, { id: nanoid(), role: 'assistant', content: '🏗️ Üretim isteği olarak anlaşıldı — üretim hattına alınıyor…' }]
+                }))
+                forceBuildNext = true
+                setTimeout(() => {
+                  void useAppStore.getState().sendMessage(buildText, { hideUser: true })
+                }, 250)
+              }
+              if (!hasDirectives(directives)) return
+            }
             // 13.8 — [IMG]/[ASSET]: text modeli (yerel/API) görsel NİYETİNİ anlayıp
             // işi SD motoruna devreder; [ASSET] son görseli projeye ekler. Güven
             // kapısından bağımsız (yerel SD + bellek-içi asset — zararsız sınıf);

@@ -328,7 +328,11 @@ export async function chat(
   // Artık yalnız 'prose' (yazım/brief) elenir; chat+intent AGENT_HINT alır. Ayrıca
   // chat personasının kendisi (chatSystemPrompt) terminal iznini her sohbet turuna
   // koyar → regex kaçırsa bile güçlü model yine yapar.
-  if (input.options?.purpose !== 'prose' && detectAgentIntent(input.prompt)) {
+  // NİYET-TABANLI (kalıpsız): SOHBET turu ajan yetkisini ve MCP listesini
+  // KOŞULSUZ alır — regex niyet tahmini yok, niyeti model anlar. Build/fix
+  // turlarında regex yalnız EK ipucu enjeksiyonunu optimize eder (yetenek
+  // personada; stripStrayDirectiveLines şablon-kopyalamayı temizler).
+  if (input.options?.purpose === 'chat' || (input.options?.purpose !== 'prose' && detectAgentIntent(input.prompt))) {
     prompt += '\n\n' + AGENT_HINT
     // 10.1 — bağlı MCP araçları varsa modele bildir. Sunucu yoksa liste boştur
     // (mcp.json yoksa hiç süreç spawn edilmez → sıfır maliyet).
@@ -350,11 +354,11 @@ export async function chat(
   // (home/masaüstü/… absolut yollar) ekle ki model yol TAHMİN etmesin (~/Desktop
   // yerine ~/Masaüstü). Sohbet / agent-niyeti / düzenleme (mevcut dosya) turları;
   // saf yeni-build ve prose turları hariç (ilgisiz + token gürültüsü).
+  // NİYET-TABANLI: ortam gerçekleri (home/Masaüstü mutlak yolları) SOHBET
+  // turlarına ve dosyalı (düzenleme) turlara KOŞULSUZ girer — regex tahmini yok.
   if (
-    input.options?.purpose !== 'prose' &&
-    (input.options?.purpose === 'chat' ||
-      detectAgentIntent(input.prompt) ||
-      (input.currentFiles !== undefined && input.currentFiles.length > 0))
+    input.options?.purpose === 'chat' ||
+    (input.options?.purpose !== 'prose' && input.currentFiles !== undefined && input.currentFiles.length > 0)
   ) {
     prompt += environmentNote()
   }
@@ -370,9 +374,9 @@ export async function chat(
   // node-llama-cpp içinde kod personasıyla kurulu). Sohbet turunda soruyu
   // kısa bir konuşma direktifiyle sarmak oradaki tek koruma.
   if (input.options?.purpose === 'chat' && engine === workerEngine) {
-    prompt = detectAgentIntent(input.prompt)
-      ? `The user is asking you to DO or CHECK something on their computer/project. Actually do it: write a directive line like "[RUN] <command>" (outside code blocks) to run it in the project folder, then report the REAL result in the user's language. Do NOT just explain how they could do it, and do NOT write files instead of running the command.\n\n${prompt}`
-      : `The user is chatting or asking a question — NOT requesting a build. Answer briefly and conversationally in the user's language. No code, no files.\n\n${prompt}`
+    // NİYET-TABANLI (kalıpsız): tek birleşik direktif — niyeti regex değil model
+    // ayırt eder. Sohbetse sohbet eder; "yap/kontrol et" ise [RUN] ile YAPAR.
+    prompt = `The user is chatting with you. Answer conversationally in the user's language. BUT if their message asks you to DO or CHECK something on their computer/project, actually do it: write a directive line like "[RUN] <command>" (outside code blocks) to run it in the project folder, then report the REAL result — never just explain how they could do it, and never write files instead of running the command.\n\n${prompt}`
   }
 
   // GBNF gramerleri (roadmap 2.1 + 2.2): format örnekleyici seviyesinde
