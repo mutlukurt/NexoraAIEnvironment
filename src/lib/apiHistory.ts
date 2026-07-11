@@ -10,7 +10,7 @@
  */
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string }
-type MsgLike = { role?: string; content?: string; streaming?: boolean }
+type MsgLike = { role?: string; content?: string; streaming?: boolean; images?: unknown[]; imagePrompt?: string }
 
 /** Büyük-bağlam API'lerde ~48k karakter ≈ 12-15k token: pencere taşmasın ama
  * yakın geçmiş korunsun. En yeni turlardan geriye doğru bütçelenir. */
@@ -28,7 +28,15 @@ export function buildApiHistory(msgs: readonly MsgLike[], budget = HISTORY_CHAR_
     if (m.role !== 'user' && m.role !== 'assistant') continue
     if (m.streaming) continue
     const content = (m.content ?? '').trim()
-    if (!content) continue
+    if (!content) {
+      // Faz 13: görsel mesajının content'i boş (yalnız images[]) — geçmişten
+      // sessizce düşünce model "görsel üretilmedi" sanıyordu (canlı bug).
+      // Metin izi bırak ki sonraki text/API turu görseli bilsin.
+      if (m.role === 'assistant' && Array.isArray(m.images) && m.images.length > 0) {
+        turns.push({ role: 'assistant', content: `[Görsel üretildi${m.imagePrompt ? ': ' + m.imagePrompt : ''}]` })
+      }
+      continue
+    }
     turns.push({ role: m.role, content })
   }
   let total = 0

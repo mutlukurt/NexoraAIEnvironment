@@ -457,9 +457,12 @@ export default function ChatPanel() {
   const modelInfo = useAppStore((s) => s.modelInfo)
   // 10.13: API modeli aktifken YEREL GGUF şart değil — composer/gönder açık olmalı.
   const activeApiModel = useSettingsStore((s) => s.activeApiModel)
-  const hasModel = !!modelInfo || !!activeApiModel
+  // Faz 13: yerel görsel üretimi açıksa da (yerel GGUF/API olmadan) composer AÇIK
+  // olmalı — yoksa "görsel üret" promptu gönderilemez (Gönder disabled kalırdı).
+  const localImageEnabled = useSettingsStore((s) => s.localImageEnabled)
+  const hasModel = !!modelInfo || !!activeApiModel || localImageEnabled
   // Görsel-üretme modeli aktif mi? (composer ipucu + görsel ayarları için)
-  const isImageModel = isImageGenModel(activeApiModel?.model)
+  const isImageModel = isImageGenModel(activeApiModel?.model) || localImageEnabled
   const sendMessage = useAppStore((s) => s.sendMessage)
   const abort = useAppStore((s) => s.abort)
   const clearError = useAppStore((s) => s.clearError)

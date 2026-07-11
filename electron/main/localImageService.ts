@@ -340,11 +340,46 @@ export async function generateImageLocal(
   const onStatus = o.onStatus ?? (() => undefined)
   // Kullanıcı sohbet-seçicide belirli bir yerel görsel modelini seçtiyse onu kullan.
   const ready = await ensureLocalImageReady(onStatus, o.localModelPath)
+  // SD/CLIP metin kodlayıcısı SADECE İngilizce anlar — Türkçe prompt bulanık
+  // çorba üretiyordu (canlı bug: "küçük mavi bir robot" → kahverengi leke).
+  // Non-ASCII prompt'u yüklü YEREL LLM ile İngilizceye çevir (yalıtılmış tek
+  // atış, bulut YOK). Model yüklü değilse olduğu gibi geç + kullanıcıya ipucu.
+  let promptEn = prompt
+  if (/[^\x20-\x7E]/.test(prompt)) {
+    try {
+      const svc = await import('./llamaService')
+      if (svc.isModelLoaded()) {
+        onStatus('Prompt İngilizceye çevriliyor (yerel model)…')
+        // Qwen3 düşünme modu: /no_think mesaj SONUNDA olmalı; kapanmamış <think>
+        // bloğu da soyulur (128 token'ı düşünmeye yiyip boş dönme vakası).
+        const raw = await svc.generateForServe(
+          'Translate this image description to English. Reply with ONLY the English translation, no quotes, no explanation.\n\n' + prompt + ' /no_think',
+          { maxTokens: 320, temperature: 0 },
+          () => undefined
+        )
+        const clean = raw
+          .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
+          .split('\n')
+          .map((l) => l.trim())
+          .filter((l) => l && /^[\x20-\x7E]+$/.test(l))
+          .pop()
+          ?.replace(/^["']|["']$/g, '')
+          .trim()
+        console.log('[localImage] çeviri:', JSON.stringify({ raw: raw.slice(0, 120), clean: (clean ?? '').slice(0, 120) }))
+        if (clean && clean.length >= 3 && clean.length <= 300) promptEn = clean
+      } else {
+        onStatus('İpucu: SD modeli İngilizce anlar — İngilizce prompt daha iyi sonuç verir.')
+      }
+    } catch {
+      /* çeviri başarısızsa orijinal prompt'la devam */
+    }
+  }
   if (!ready.ok || !ready.model) throw new Error(ready.error ?? 'Yerel görsel motoru hazır değil.')
   const started = await startImageServer(ready.model, onStatus)
   if (!started.ok) throw new Error(started.error ?? 'Görsel sunucusu başlatılamadı.')
 
-  const fullPrompt = o.negativePrompt?.trim() ? `${prompt}\n\nAvoid / do NOT include: ${o.negativePrompt.trim()}` : prompt
+  // SD1.5 kalite güçlendiricileri: kısa prompt'larda belirgin fark yaratır.
+  const fullPrompt = `${promptEn}, best quality, highly detailed${o.negativePrompt?.trim() ? `\n\nAvoid / do NOT include: ${o.negativePrompt.trim()}` : ''}`
   const n = Math.max(1, Math.min(o.n ?? 1, 4))
   onStatus('Görsel üretiliyor… (yerel, offline)')
   const res = await fetch(`http://127.0.0.1:${IMAGE_PORT}/v1/images/generations`, {
