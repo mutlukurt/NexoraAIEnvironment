@@ -314,18 +314,20 @@ export async function chat(
   }
 
   let prompt = input.prompt
+  // Bağlam diyeti: gösterilmeyen dosyalar listelenir ki model onları yeniden
+  // yaratmaya kalkmasın; görsel/asset'ler BİREBİR yolla referanslanır (canlı
+  // bug: "assets'teki görseli kullan" turunda model gerçek dosya adını hiç
+  // görmeyip picsum yer tutucusu uydurdu).
+  const othersNote =
+    input.otherPaths && input.otherPaths.length > 0
+      ? `\n\nOther existing project files (content not shown — they EXIST, do NOT recreate them. Reference them by these EXACT paths — e.g. use an image asset in <img src> or import it; never invent placeholder URLs when a matching asset exists. Ask the user to mention @file if you need one's content): ${input.otherPaths.join(', ')}`
+      : ''
   if (input.currentFiles && input.currentFiles.length > 0) {
     const filesContext = input.currentFiles
       .map((f) => `--- ${f.path} ---\n${f.content}`)
       .join('\n\n')
-    // Bağlam diyeti: gösterilmeyen dosyalar listelenir ki model onları
-    // yeniden yaratmaya kalkmasın; gerekiyorsa kullanıcı @dosya ile ekler.
-    const others =
-      input.otherPaths && input.otherPaths.length > 0
-        ? `\n\nOther existing project files (content not shown — they EXIST, do NOT recreate them; ask the user to mention @file if you need one): ${input.otherPaths.join(', ')}`
-        : ''
     prompt = `Current project files:
-${filesContext}${others}
+${filesContext}${othersNote}
 
 ==================================================
 UPDATE MODE — the user wants a CHANGE in the existing project.
@@ -333,6 +335,10 @@ User request: ${input.prompt}
 
 ${UPDATE_MODE_RULES}
 ==================================================`
+  } else if (othersNote) {
+    // Proje yalnız binary asset'lerden ibaretken (görsel üretildi → "Assets'e
+    // ekle" → ilk build) currentFiles boş kalır; asset listesi yine de gitsin.
+    prompt = othersNote.trimStart() + '\n\nUser request: ' + input.prompt
   }
 
   // Agent ipucu yalnızca istek gerektirdiğinde eklenir — kalıcı olarak sistem

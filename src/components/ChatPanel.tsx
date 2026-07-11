@@ -54,6 +54,15 @@ function ImageCard({ img, onFull, language }: { img: { dataUrl: string; name: st
     // Code'da görünür, export'ta diske iner, Preview import'u çözer.
     const safe = img.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
     useArtifactsStore.getState().upsertFile(`src/assets/${safe}`, img.dataUrl)
+    // Faz 13 — sohbete iz kartı: dosya adı model geçmişlerine girer (API hemen,
+    // yerel motor tohumlamayla) — "hangi görsel eklendi?" sorusu uydurma ada
+    // ("wyvern.png" vakası) düşmez; kullanıcı da eklendiğini net görür.
+    useAppStore.setState((s) => ({
+      messages: [
+        ...s.messages,
+        { id: 'asset-' + Date.now().toString(36), role: 'assistant', content: `🖼 Görsel projeye eklendi: src/assets/${safe}` }
+      ]
+    }))
     setAdded(true)
     setTimeout(() => setAdded(false), 2200)
   }
