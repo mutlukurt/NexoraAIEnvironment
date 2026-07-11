@@ -176,6 +176,41 @@ RULES:
 7. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>`
 
 /**
+ * Faz 13 — TUR PROMPT KURULUMU (saf, motor-bağımsız, İSTEK-METNİNDEN BAĞIMSIZ).
+ *
+ * Genellik garantisi BURADA yaşar: içeriği gönderilmeyen dosyaların (binary
+ * asset'ler dahil) listesi, kullanıcı isteğinin diline/kalıbına BAKILMAKSIZIN
+ * her tura koşulsuz eklenir — "assets" kelimesi geçse de geçmese de, Türkçe de
+ * olsa Almanca da. Canlı bug: liste yalnız currentFiles doluyken gidiyordu;
+ * proje sadece görselden ibaretken model asset adını hiç görmeyip picsum
+ * uyduruyordu. test:assetctx bu sözleşmeyi kilitler.
+ */
+export function composeTurnPrompt(
+  userPrompt: string,
+  currentFiles?: Array<{ path: string; content: string }>,
+  otherPaths?: string[]
+): string {
+  const othersNote =
+    otherPaths && otherPaths.length > 0
+      ? `\n\nOther existing project files (content not shown — they EXIST, do NOT recreate them. Reference them by these EXACT paths — e.g. use an image asset in <img src> or import it; never invent placeholder URLs when a matching asset exists. Ask the user to mention @file if you need one's content): ${otherPaths.join(', ')}`
+      : ''
+  if (currentFiles && currentFiles.length > 0) {
+    const filesContext = currentFiles.map((f) => `--- ${f.path} ---\n${f.content}`).join('\n\n')
+    return `Current project files:
+${filesContext}${othersNote}
+
+==================================================
+UPDATE MODE — the user wants a CHANGE in the existing project.
+User request: ${userPrompt}
+
+${UPDATE_MODE_RULES}
+==================================================`
+  }
+  if (othersNote) return othersNote.trimStart() + '\n\nUser request: ' + userPrompt
+  return userPrompt
+}
+
+/**
  * FAZ 9.3 — FIDELITY MODE önsözü. Harici hiper-detaylı bir spec (Gemini gibi)
  * saptanınca (Project Contract specificity yüksek) sistem prompt'una eklenir.
  * Amaç: modeli SPEC'E HARFİYEN uydurmak — istenen stack/sürüm, adlandırılmış
