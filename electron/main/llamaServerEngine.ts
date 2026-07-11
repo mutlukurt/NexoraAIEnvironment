@@ -518,6 +518,14 @@ async function chatRequest(
 export const serverEngine: InferenceEngine = {
   name: 'server',
 
+  // Faz 13 — motordan geçmeyen alışverişi (görsel üretimi) geçmişe işle:
+  // sonraki turda yerel model "az önce ne yapıldı"yı bilir (canlı bug:
+  // görselden sonra yerel text modeli soruya cevap veremiyordu).
+  noteExchange(user: string, assistant: string): void {
+    history.push({ role: 'user', content: user })
+    history.push({ role: 'assistant', content: assistant })
+  },
+
   async load(opts: EngineLoadOptions): Promise<EngineLoadResult> {
     await killProc()
     history = []

@@ -129,6 +129,19 @@ export function isModelLoaded(): boolean {
 }
 
 /**
+ * Faz 13 — görsel üretimi motordan geçmez; alışverişi yerel motorun geçmişine
+ * elle işle ki sonraki text turunda model "az önce ne yapıldı"yı bilsin.
+ * (API yolu bunu apiHistory'deki [Görsel üretildi] iziyle zaten görüyor.)
+ */
+export function noteImageExchange(userPrompt: string, marker: string): void {
+  try {
+    engine?.noteExchange?.(userPrompt, marker)
+  } catch {
+    /* geçmiş işlenemezse sessiz geç — tur akışı bozulmasın */
+  }
+}
+
+/**
  * Görsel bug düzeltmesi: bir görsel dosyasını API multimodal girdisi için
  * data-URL'e çevir. Uzun kenar 1024px'e küçültülür (token + bant tasarrufu;
  * visionService ile aynı yaklaşım); nativeImage başarısızsa ham baytlara düşer.

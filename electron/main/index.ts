@@ -540,6 +540,16 @@ function registerIpc(): void {
           }
           images.push({ dataUrl: `data:${mime};base64,${b64}`, name })
         }
+        // Faz 13 — alışverişi YEREL motorun geçmişine de işle: görselden sonra
+        // yerel text modeli "az önce ne yapıldı" sorusuna cevap verebilsin
+        // (API bunu apiHistory izinden zaten görüyor; yerel motor görmüyordu).
+        if (images.length > 0) {
+          const { noteImageExchange } = await import('./llamaService')
+          noteImageExchange(
+            input.prompt,
+            `[Sistem notu: Yerel görsel motoru bu istekten ${images.length > 1 ? images.length + ' adet PNG' : 'bir PNG'} üretti ve sohbette gösterdi: "${input.prompt}". Görsel HAZIR ve tamamlandı — yeniden üretme, SVG/kod yazma. Sorulursa yalnızca ne üretildiğini söyle.]`
+          )
+        }
         return { ok: true, images }
       } catch (err) {
         return { ok: false, error: (err as Error).message }

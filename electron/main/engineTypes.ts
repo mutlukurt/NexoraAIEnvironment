@@ -83,4 +83,7 @@ export interface InferenceEngine {
   unload(): Promise<void>
   /** Uygulama kapanışı: süreçleri öldür. */
   dispose(): void
+  /** Faz 13 — motordan GEÇMEYEN bir alışverişi (ör. görsel üretimi) geçmişe işle:
+   *  sonraki turda yerel model "az önce ne yapıldı"yı bilsin. Opsiyonel. */
+  noteExchange?(user: string, assistant: string): void
 }
