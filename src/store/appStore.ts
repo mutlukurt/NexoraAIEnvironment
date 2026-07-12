@@ -4088,6 +4088,34 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
     const asstMsg: ChatMessage = { id: asstId, role: 'assistant', content: '', streaming: true }
+    // Tur başarısız oldu. ELLE gönderilen turda kırmızı hata gösterilir; KUYRUK/
+    // zamanlanmış turda (queueTurnActive) kullanıcıya KIRMIZI HATA GÖSTERİLMEZ:
+    // canlı bug — app açılışında model yükken/API henüz hazır değilken bir
+    // zamanlanmış görev tetiklenip "Model yüklü değil ve API turu başarısız oldu"
+    // kırmızısını basıyordu. Artık görev 'queued'a geri alınır, kuyruk duraklar
+    // (spam yok) ve yumuşak neden gösterilir; kullanıcı bir mesaj gönderince
+    // (queuePaused temizlenir) motor hazırken sürdürülür.
+    const failTurn = (msg: string): void => {
+      if (queueTurnActive) {
+        queuePaused = true
+        set((s) => ({
+          sending: false,
+          generating: false,
+          queuedTasks: s.queuedTasks.map((t) => (t.state === 'running' ? { ...t, state: 'queued' as const } : t)),
+          queueWaitReason: s.language === 'tr'
+            ? '⏸ motor hazır değil — bir model yükleyin ya da devam için bir mesaj gönderin'
+            : '⏸ engine not ready — load a model or send a message to resume',
+          messages: s.messages.map((m) => (m.id === asstId ? { ...m, streaming: false } : m))
+        }))
+      } else {
+        set((s) => ({
+          error: msg,
+          sending: false,
+          generating: false,
+          messages: s.messages.map((m) => (m.id === asstId ? { ...m, streaming: false } : m))
+        }))
+      }
+    }
     // 10.4: GÖRÜNÜR bir kullanıcı turu → bu prompt'tan HEMEN ÖNCEki durumu
     // checkpoint'le (kod dosyaları + sohbet konumu). Gizli/makine turları
     // (expectFile, hideUser, retry) checkpoint AÇMAZ — kullanıcı niyeti değil.
@@ -4748,25 +4776,11 @@ ${outgoing}`
         options: sampling
       })
       if (!res.ok) {
-        set((s) => ({
-          error: res.error ?? 'Sohbet hatası',
-          sending: false,
-          generating: false,
-          messages: s.messages.map((m) =>
-            m.id === asstId ? { ...m, streaming: false } : m
-          )
-        }))
+        failTurn(res.error ?? 'Sohbet hatası')
         scheduleSessionSave()
       }
     } catch (err) {
-      set((s) => ({
-        error: (err as Error).message,
-        sending: false,
-        generating: false,
-        messages: s.messages.map((m) =>
-          m.id === asstId ? { ...m, streaming: false } : m
-        )
-      }))
+      failTurn((err as Error).message)
       scheduleSessionSave()
     } finally {
       // Fidelity yazım kilidi bu turla sınırlıdır — sonraki tur (auto App.tsx
