@@ -150,6 +150,38 @@ export function parseDirectives(text: string): AgentDirectives {
   return d
 }
 
+/**
+ * 14.4 — Tool-arg SADAKATİ: model bir eylem NİYETİ gösterdi ama direktif payload'ı
+ * BOZUK (parse edilemez) mu? Bunları döndürür ki app tek sınırlı onarım turuyla
+ * modele düzelttirsin (3B'de ~%100 ayrıştırılır direktif hedefi). Grammar destek-
+ * lenmese de çalışır. Yalnız NİYET AÇIK ama biçim bozuk olanları yakalar; sıradan
+ * prose'u değil.
+ */
+export function detectMalformedDirectives(text: string): string[] {
+  if (!text) return []
+  const issues: string[] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    // [MCP] server tool {json} — JSON kısmı bozuksa
+    const mcp = /^\[MCP\]\s+(\S+)\s+(\S+)\s*(\{.*)$/.exec(line)
+    if (mcp) {
+      try {
+        JSON.parse(mcp[3])
+      } catch {
+        issues.push(`[MCP] ${mcp[1]} ${mcp[2]} — invalid JSON args: ${mcp[3].slice(0, 60)}`)
+      }
+      continue
+    }
+    // Boş/eksik payload'lı direktifler (niyet var, argüman yok)
+    if (/^\[IMG\]\s*$/.test(line)) issues.push('[IMG] with no prompt')
+    else if (/^\[RUN\]\s*$/.test(line)) issues.push('[RUN] with no command')
+    else if (/^\[SEARCH\]\s*$/.test(line)) issues.push('[SEARCH] with no query')
+    else if (/^\[SYMBOL\]\s+(?!(find|refs)\b)/i.test(line)) issues.push('[SYMBOL] needs "find" or "refs" then a name: ' + line.slice(0, 60))
+    else if (/^\[FETCH\]\s+\S+\s*$/.test(line) && !/->|→/.test(line)) issues.push('[FETCH] needs "url -> path"')
+  }
+  return [...new Set(issues)]
+}
+
 export function hasDirectives(d: AgentDirectives): boolean {
   return (
     d.pkgs.length > 0 || d.fonts.length > 0 || d.fetches.length > 0 || d.runs.length > 0 || d.dev || d.mcp.length > 0 ||

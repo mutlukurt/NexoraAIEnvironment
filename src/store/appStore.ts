@@ -27,7 +27,7 @@ import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBu
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
-import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories } from '@/lib/agentActions'
+import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories, detectMalformedDirectives } from '@/lib/agentActions'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
 import { turnDiffStats } from '@/lib/diffStat'
 import { buildApiHistory } from '@/lib/apiHistory'
@@ -1784,6 +1784,8 @@ let forceBuildNext = false
 // 14.2 — retrieval continuation kilidi: [SEARCH]/[SYMBOL] geri-besleme turu
 // koşarken bir daha retrieval tetiklenmesin (sonsuz arama döngüsü guard'ı).
 let retrievalRoundActive = false
+// 14.4 — bozuk-direktif onarım turu kilidi (tek atış, sonsuz onarım guard'ı).
+let directiveRepairActive = false
 
 // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
 // + genel "hata/error" göndermeleri.
@@ -2479,6 +2481,24 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           set((s) => ({ pendingMemories: [...new Set([...s.pendingMemories, ...memories])].slice(-6) }))
         }
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
+        // 14.4 — Tool-arg sadakati: model bir eylem denedi ama direktifi BOZUK
+        // (parse edilemez) çıktıysa ve geçerli hiçbir direktif çıkmadıysa, tek
+        // sınırlı onarım turuyla düzelttir (3B'de ~%100 ayrıştırılır hedefi).
+        if (!hasDirectives(directives) && !directiveRepairActive) {
+          const malformed = detectMalformedDirectives(parsed.text + '\n' + fencedDirectives)
+          if (malformed.length > 0) {
+            const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
+            if (lastUser) {
+              directiveRepairActive = true
+              set((s) => ({ messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `⚠ Direktif biçimi bozuktu — düzeltiliyor: ${malformed[0]}` }] }))
+              const fix = `Your previous directive was malformed and could not be executed:\n${malformed.join('\n')}\nRe-emit it CORRECTLY (exact directive syntax, valid JSON for [MCP]) and nothing else, then continue.\n\n--- Original request ---\n${lastUser.content}`
+              setTimeout(() => {
+                void useAppStore.getState().sendMessage(fix, { hideUser: true }).finally(() => { directiveRepairActive = false })
+              }, 200)
+              return
+            }
+          }
+        }
         if (hasDirectives(directives)) {
           void (async () => {
             // 14.2 — RETRIEVAL [SEARCH]/[SYMBOL]: model gerçek arama istedi. Koştur,

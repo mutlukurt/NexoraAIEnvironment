@@ -104,3 +104,33 @@ fpath ::= dseg? dseg? dseg? fname
 dseg ::= [A-Za-z0-9_@-]+ "/"
 fname ::= [A-Za-z0-9_@-]+ ("." [A-Za-z0-9_@-]+)? "." ("tsx" | "ts" | "jsx" | "js" | "css" | "html" | "json" | "md" | "svg")`
 }
+
+/**
+ * Faz 14.4 — TETİKLENEN (lazy) direktif grameri + tetikleyiciler.
+ *
+ * Model serbest düşünür/yazar; ANCAK bir direktif satırı BAŞLATTIĞI an payload'ı
+ * şemaya kilitlenir. llama-server `grammar` + `grammar_lazy:true` + `grammar_triggers`
+ * ile: tetikleyici string (ör. "[MCP] ") görülene kadar gramer PASİFtir, görülünce
+ * root ile eşleşir → 3B'de bile geçerli JSON/imza. Eski sunucu tetikleyiciyi yok
+ * sayarsa mevcut "gramer reddi → gramersiz yeniden dene" fallback'i korur.
+ *
+ * En yüksek değer [MCP] JSON argümanlarında (bozuk JSON = başarısız araç çağrısı).
+ */
+export const DIRECTIVE_TRIGGERS = ['[MCP] ', '[IMG] ', '[SEARCH] ', '[SYMBOL] ']
+
+export function buildDirectiveGrammar(): string {
+  // Tetiklenen root: tetikleyici zaten tüketildi; kalan payload'ı kısıtla.
+  // [MCP] server tool {json} | [IMG] <metin> | [SEARCH] <metin> | [SYMBOL] find|refs <ad>
+  return `root ::= mcp | line | symbol
+mcp ::= ident ws ident ws object "\\n"
+symbol ::= ("find" | "refs") ws ident "\\n"
+line ::= [^\\n]+ "\\n"
+ident ::= [A-Za-z_] [A-Za-z0-9_.-]*
+object ::= "{" ws (pair (ws "," ws pair)*)? ws "}"
+pair ::= string ws ":" ws value
+value ::= string | number | object | array | "true" | "false" | "null"
+array ::= "[" ws (value (ws "," ws value)*)? ws "]"
+string ::= "\\"" ([^"\\\\] | "\\\\" .)* "\\""
+number ::= "-"? [0-9]+ ("." [0-9]+)?
+ws ::= [ \\t]*`
+}
