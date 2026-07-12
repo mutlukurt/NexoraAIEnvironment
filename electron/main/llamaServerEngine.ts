@@ -136,6 +136,16 @@ export async function ensureLlamaBinary(wantGpu = false): Promise<{ bin: string;
   return ensureBinary(wantGpu)
 }
 
+// 14.7 — Turbo (speculative decoding) opt-in bayrağı. Varsayılan KAPALI; kullanıcı
+// Ayarlar'dan açar (yanlış-vocab draft riskine karşı). Sonraki model yüklemede etkir.
+let turboDraftEnabled = false
+export function setTurboDraft(v: boolean): void {
+  turboDraftEnabled = v
+}
+export function isTurboDraft(): boolean {
+  return turboDraftEnabled
+}
+
 async function ensureBinary(wantGpu: boolean): Promise<{ bin: string; gpuCapable: boolean }> {
   const candidates = binaryCandidates(wantGpu)
   if (candidates.length === 0) throw new Error('Bu platform için hazır llama-server paketi yok.')
@@ -346,6 +356,33 @@ async function spawnServer(bin: string, modelPath: string, rung: SpawnRung, port
     args.push('-fa', 'on', '-ctk', 'q8_0', '-ctv', 'q8_0')
   } else {
     args.push('-fa', 'auto')
+  }
+  // 14.7 — anında resume: KV-slot kaydetme dizini (zararsız; /slots API'siyle
+  // kullanılır). Always-on: yalnız KAPASİTE'yi açar, davranışı değiştirmez.
+  try {
+    const { slotArgs } = await import('../shared/turboEngine')
+    const slotDir = join(BIN_ROOT, '..', 'cache', 'kv-slots')
+    await mkdir(slotDir, { recursive: true }).catch(() => undefined)
+    args.push(...slotArgs(slotDir))
+  } catch { /* opsiyonel */ }
+  // 14.7 — TURBO (speculative decoding): TURBO_DRAFT açık + aynı-aileden küçük
+  // draft GGUF varsa --model-draft ekle (bedava 1.4-2.5× hız). Varsayılan KAPALI
+  // (yanlış-vocab draft server'ı bozabilir; opt-in, worker fallback yine korur).
+  if (turboDraftEnabled) {
+    try {
+      const { pickDraftModel, draftArgs } = await import('../shared/turboEngine')
+      const { readdirSync, statSync } = await import('fs')
+      const dir = join(homedir(), 'NexoraAI', 'models')
+      const cands = readdirSync(dir).filter((f) => /\.gguf$/i.test(f)).map((f) => {
+        const p = join(dir, f)
+        return { path: p, sizeBytes: (() => { try { return statSync(p).size } catch { return 0 } })() }
+      })
+      const draft = pickDraftModel(modelPath, sizeBytes, cands)
+      if (draft) {
+        args.push(...draftArgs(draft))
+        console.log('[llamaServerEngine] TURBO draft:', draft.split('/').pop())
+      }
+    } catch { /* draft edinilemezse turbosuz devam */ }
   }
   console.log('[llamaServerEngine] deneme:', `ctx=${rung.ctx} ngl=${rung.ngl} kv=${rung.quantKv ? 'q8_0' : 'f16'}`)
   procLog = ''
