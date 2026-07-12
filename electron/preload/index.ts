@@ -158,6 +158,10 @@ export interface NexoraApi {
     saveAs: (input: { dataUrl: string; name: string }) => Promise<{ ok: boolean; savedPath?: string; error?: string }>
     onStatus: (cb: (event: { msg: string }) => void) => () => void
   }
+  embed: {
+    has: () => Promise<{ has: boolean }>
+    embed: (texts: string[]) => Promise<{ ok: boolean; vectors?: number[][]; error?: string }>
+  }
   advisor: {
     detect: () => Promise<import('../shared/advisor').HardwareInfo>
     plan: () => Promise<import('../shared/advisor').AdvisorPlan>
@@ -306,6 +310,10 @@ const api: NexoraApi = {
     },
     seedHistory: (turns: Array<{ role: 'user' | 'assistant'; content: string }>) =>
       ipcRenderer.invoke(IPC.CHAT_SEED_HISTORY, turns)
+  },
+  embed: {
+    has: () => ipcRenderer.invoke(IPC.EMBED_HAS),
+    embed: (texts: string[]) => ipcRenderer.invoke(IPC.EMBED_EMBED, texts)
   },
   hf: {
     search: (query: string) => ipcRenderer.invoke(IPC.HF_SEARCH, query),

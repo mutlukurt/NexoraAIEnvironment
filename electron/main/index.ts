@@ -257,6 +257,17 @@ function registerIpc(): void {
     return { ok: true }
   })
 
+  // 14.3 — yerel embed sidecar (opt-in): semantik [SEARCH] katmanı.
+  ipcMain.handle(IPC.EMBED_HAS, async () => {
+    const { hasEmbedModel } = await import('./localEmbedService')
+    return { has: hasEmbedModel() }
+  })
+  ipcMain.handle(IPC.EMBED_EMBED, async (_e, texts: string[]) => {
+    if (!Array.isArray(texts)) return { ok: false, error: 'geçersiz girdi' }
+    const { embed } = await import('./localEmbedService')
+    return embed(texts.slice(0, 256).map((t) => String(t)))
+  })
+
   ipcMain.handle(IPC.HF_SEARCH, async (_e, query: string) => {
     try {
       return { ok: true, results: await searchModels(query) }

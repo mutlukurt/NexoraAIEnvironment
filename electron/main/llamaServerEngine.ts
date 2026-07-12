@@ -45,7 +45,7 @@ const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
 const CACHE_DIR = join(homedir(), 'NexoraAI', 'cache')
 const HOST = '127.0.0.1'
 /** Vision sidecar 8091, yerel görsel-üretim sd-server 8092 — onlara dokunma. */
-const AVOID_PORTS = new Set([8091, 8092])
+const AVOID_PORTS = new Set([8091, 8092, 8093])
 
 // llamaWorker.ts / cjkScan.ts ile birebir aynı aralıklar.
 const CJK_RE = /[　-〿぀-ヿ㐀-䶿一-鿿豈-﫿＀-￯가-힯]/
@@ -131,6 +131,11 @@ async function extractArchive(archive: string, destDir: string): Promise<void> {
 }
 
 /** Kullanılabilir bir llama-server binary'si döndür (gerekirse indir). */
+/** 14.3 — embed sidecar llama-server binary'sini yeniden kullanır (aynı ikili). */
+export async function ensureLlamaBinary(wantGpu = false): Promise<{ bin: string; gpuCapable: boolean }> {
+  return ensureBinary(wantGpu)
+}
+
 async function ensureBinary(wantGpu: boolean): Promise<{ bin: string; gpuCapable: boolean }> {
   const candidates = binaryCandidates(wantGpu)
   if (candidates.length === 0) throw new Error('Bu platform için hazır llama-server paketi yok.')

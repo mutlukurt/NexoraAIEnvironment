@@ -2489,7 +2489,20 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               const { runRetrieval } = await import('@/lib/codeSearch')
               const files = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
               const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
-              const block = await runRetrieval(files, directives.searches, directives.symbols).catch(() => '')
+              let block = await runRetrieval(files, directives.searches, directives.symbols).catch(() => '')
+              // 14.3 — SEMANTİK katman (opt-in): embed modeli varsa [SEARCH]
+              // sorgularının anlamsal en-yakın kod bölgelerini de ekle.
+              try {
+                const { semanticSearch } = await import('@/lib/semanticIndex')
+                const semBlocks: string[] = []
+                for (const q of directives.searches.slice(0, 2)) {
+                  const sem = await semanticSearch(q, files)
+                  if (sem) semBlocks.push(sem)
+                }
+                if (semBlocks.length) block = (block ? block + '\n\n' : '') + semBlocks.join('\n\n')
+              } catch {
+                /* embed yoksa leksikal+sembol yeter */
+              }
               if (block && lastUser) {
                 set((s) => ({
                   messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `🔎 Arama: ${[...directives.searches, ...directives.symbols.map((x) => x.op + ' ' + x.name)].join(', ')} — sonuçlar modele verildi` }]
