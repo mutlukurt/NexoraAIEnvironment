@@ -26,7 +26,7 @@ import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
 import { looksUnderspecified } from '@/lib/intentGate'
 import { extractAgentDocs } from '@/lib/specDocs'
-import { isFullRewrite } from '@/lib/afterEdit'
+import { collectFullRewrites } from '@/lib/afterEdit'
 import { detectDeadInteractions, formatBehaviorReport } from '@/lib/behaviorCheck'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
@@ -2084,11 +2084,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         // değişiklik istenirken model bir dosyayı BAŞTAN yazdıysa uyar (hard-won
         // fidelity'yi korur — küçük istek tüm dosyayı ezmesin).
         if (updateTurn) {
-          const rewrites = touchedPaths.filter((p) => {
-            const base = turnBaseFiles[p]
-            const now = af[p]?.content
-            return base && now && !base.startsWith('data:') && isFullRewrite(base, now)
-          })
+          // 14.8 — Map erişimi tek yerde ve test altında (base[p] köşeli-parantez
+          // bug'ı: Map'te hep undefined → uyarı ASLA ateşlenmiyordu, canlı denetim).
+          const rewrites = collectFullRewrites(touchedPaths, turnBaseFiles, (p) => af[p]?.content)
           if (rewrites.length > 0) {
             set((s) => ({
               messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `ℹ️ Not: ${rewrites.map((p) => p.split('/').pop()).join(', ')} baştan yazıldı (küçük bir değişiklik beklenirken). İstersen ↩️ ile geri sarabilirsin.` }]

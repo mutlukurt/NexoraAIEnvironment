@@ -41,6 +41,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('✓', l) } else { fail++; f
 {
   ok(detectDeadInteractions([{ path: 'src/A.tsx', content: `<a href="#">Home</a>` }]).some((x) => x.kind === 'dead-link'), 'href="#" ölü link')
   ok(detectDeadInteractions([{ path: 'src/A.tsx', content: `<a>Nowhere</a>` }]).some((x) => x.kind === 'dead-link'), 'href\'siz <a> ölü')
+  ok(detectDeadInteractions([{ path: 'src/A.tsx', content: `<a href="">Empty</a>` }]).some((x) => x.kind === 'dead-link'), 'href="" (boş) ölü link — körnokta regresyonu')
+  ok(detectDeadInteractions([{ path: 'src/A.tsx', content: `<a href='#'>Hash</a>` }]).some((x) => x.kind === 'dead-link'), "href='#' (tek tırnak) ölü link")
   ok(!detectDeadInteractions([{ path: 'src/A.tsx', content: `<a href="/about">About</a>` }]).some((x) => x.kind === 'dead-link'), 'gerçek href temiz')
 }
 // 5) form onSubmit yok

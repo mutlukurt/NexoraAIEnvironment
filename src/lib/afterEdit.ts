@@ -77,3 +77,21 @@ export function isFullRewrite(oldContent: string, newContent: string): boolean {
   for (const l of newLines) if (oldLines.has(l)) kept++
   return kept / oldLines.size < 0.3 // eski satırların %30'undan azı korunduysa
 }
+
+/**
+ * Dokunulan dosyalardan BAŞTAN yazılanları topla. Taban içerikler bir Map'te
+ * tutulur; appStore bunu köşeli-parantez (`base[p]`) ile okuyordu → Map'te HEP
+ * undefined → uyarı ASLA ateşlenmiyordu (14.8 canlı-denetim bulgusu). Map erişimi
+ * artık burada, tek yerde ve test altında. data:-URL (görsel) tabanlar elenir.
+ */
+export function collectFullRewrites(
+  touchedPaths: readonly string[],
+  baseFiles: ReadonlyMap<string, string>,
+  getNow: (path: string) => string | undefined
+): string[] {
+  return touchedPaths.filter((p) => {
+    const base = baseFiles.get(p)
+    const now = getNow(p)
+    return !!base && !!now && !base.startsWith('data:') && isFullRewrite(base, now)
+  })
+}

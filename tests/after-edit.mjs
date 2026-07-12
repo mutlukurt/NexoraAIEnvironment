@@ -13,9 +13,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-ae-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { detectAfterEditCommands, scopeCommand, isFullRewrite } from '${join(repo, 'src/lib/afterEdit.ts')}'\n`)
+writeFileSync(entry, `export { detectAfterEditCommands, scopeCommand, isFullRewrite, collectFullRewrites } from '${join(repo, 'src/lib/afterEdit.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { detectAfterEditCommands, scopeCommand, isFullRewrite } = await import(pathToFileURL(outfile).href)
+const { detectAfterEditCommands, scopeCommand, isFullRewrite, collectFullRewrites } = await import(pathToFileURL(outfile).href)
 
 let pass = 0, fail = 0
 const failures = []
@@ -58,6 +58,22 @@ const ok = (c, l) => { if (c) { pass++; console.log('✓', l) } else { fail++; f
   const totallyNew = Array.from({ length: 20 }, (_, i) => `let other${i} = "${i}"`).join('\n')
   ok(isFullRewrite(big, totallyNew) === true, 'tamamen farklı içerik = full rewrite')
   ok(isFullRewrite('a\nb\nc', 'x\ny\nz') === false, 'küçük dosya (rewrite normal) uyarmaz')
+}
+// 6) collectFullRewrites — appStore entegrasyon sözleşmesi (14.8 canlı-denetim
+//    bulgusu: taban Map'e köşeli-parantez `base[p]` erişimi HEP undefined
+//    döndürüyordu → uyarı asla ateşlenmiyordu). Test MAP kullanır: köşeli-parantez
+//    hâlâ olsaydı bu blok kırmızıya dönerdi.
+{
+  const big = Array.from({ length: 20 }, (_, i) => `const line${i} = ${i}`).join('\n')
+  const totallyNew = Array.from({ length: 20 }, (_, i) => `let other${i} = "${i}"`).join('\n')
+  const base = new Map([['src/App.tsx', big], ['src/keep.tsx', big], ['logo.png', 'data:image/png;base64,AAAA']])
+  const now = { 'src/App.tsx': totallyNew, 'src/keep.tsx': big.replace('const line0 = 0', 'const line0 = 1'), 'logo.png': 'data:image/png;base64,BBBB' }
+  const rw = collectFullRewrites(['src/App.tsx', 'src/keep.tsx', 'logo.png'], base, (p) => now[p])
+  ok(rw.length === 1 && rw[0] === 'src/App.tsx', 'Map tabanından full-rewrite yakalanır (köşeli-parantez bug regresyonu)')
+  ok(!rw.includes('src/keep.tsx'), 'küçük değişiklik full-rewrite sayılmaz')
+  ok(!rw.includes('logo.png'), 'data: (görsel) tabanı elenir')
+  ok(collectFullRewrites(['x.tsx'], base, () => undefined).length === 0, 'now yoksa boş (çökme yok)')
+  ok(collectFullRewrites(['missing.tsx'], base, (p) => now[p]).length === 0, 'tabanda olmayan yol atlanır')
 }
 
 rmSync(work, { recursive: true, force: true })

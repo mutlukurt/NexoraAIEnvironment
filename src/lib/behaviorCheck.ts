@@ -34,9 +34,9 @@ export function detectDeadInteractions(files: Array<{ path: string; content: str
       const btn = /<button\b([^>]*)>/.exec(line)
       if (btn && !/on[A-Z]\w+=|type=["']submit["']/.test(btn[1]) && !/\{/.test(btn[1])) at('dead-button', '<button> handler/type=submit yok')
 
-      // <a> href yok veya href="#" (ölü link)
+      // <a> href yok / href="#" / href="" (boş da ölü link — canlı-denetim körnoktası)
       const a = /<a\b([^>]*)>/.exec(line)
-      if (a && (!/href=/.test(a[1]) || /href=["']#["']/.test(a[1])) && !/on[A-Z]\w+=/.test(a[1])) at('dead-link', '<a> gerçek href/handler yok (href="#" ya da yok)')
+      if (a && (!/href=/.test(a[1]) || /href=["']\s*#?\s*["']/.test(a[1])) && !/on[A-Z]\w+=/.test(a[1])) at('dead-link', '<a> gerçek href/handler yok (href="#", href="" ya da yok)')
 
       // <form> onSubmit yok (ve action yok)
       const form = /<form\b([^>]*)>/.exec(line)
