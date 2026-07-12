@@ -1,6 +1,6 @@
 {
   "name": "nexora-ai",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "NexoraAI - Local GGUF, agent-first desktop app",
   "main": "./out/main/index.js",
   "author": "NexoraAI",
