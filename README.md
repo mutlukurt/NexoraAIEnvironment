@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/banner.png" alt="NexoraAI — local-first, agent-first AI dev environment" width="100%" />
+
 # NexoraAI Environment
 
 **A local-first, agent-powered AI development environment for the desktop.**
