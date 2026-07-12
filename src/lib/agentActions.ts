@@ -36,12 +36,19 @@ export interface AgentDirectives {
    *  basar → istek üretim pipeline'ına yeniden yönlenir. Yönlendirme sezgisi
    *  (looksLikeChatIntent) böylece yalnız performans ipucudur; SON SÖZ modelde. */
   build: boolean
+  /** 14.2: [SEARCH] <sorgu> — model projede gerçek arama İSTER; app koşar ve
+   *  sonucu geri besler (bounded tek continuation). */
+  searches: string[]
+  /** 14.2: [SYMBOL] find|refs <ad> — sembol tanımı/referansları. */
+  symbols: Array<{ op: 'find' | 'refs'; name: string }>
 }
 
 const RUN_RE = /^\s*\[RUN\]\s+(.+?)\s*$/gm
 const IMG_RE = /^\s*\[IMG\]\s+(.+?)\s*$/gm
 const ASSET_RE = /^\s*\[ASSET\](?:\s+add)?\s*$/im
 const BUILD_RE = /^\s*\[BUILD\]\s*$/im
+const SEARCH_RE = /^\s*\[SEARCH\]\s+(.+?)\s*$/gim
+const SYMBOL_RE = /^\s*\[SYMBOL\]\s+(find|refs)\s+([\w$.-]+)\s*$/gim
 const FETCH_RE = /^\s*\[FETCH\]\s+(\S+)\s*(?:->|→)\s*(\S+)\s*$/gm
 const FONT_RE = /^\s*\[FONT\]\s+(.+?)\s*$/gm
 const PKG_RE = /^\s*\[PKG\]\s+(.+?)\s*$/gm
@@ -52,7 +59,7 @@ const MCP_RE = /^\s*\[MCP\]\s+(\S+)\s+(\S+)[ \t]*(\{.*\})?[ \t]*$/gm
 const REMEMBER_RE = /^\s*\[REMEMBER\]\s+(.+?)\s*$/gim
 
 /** Chat balonunda gizlenecek direktif satırları. */
-export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP|REMEMBER|IMG|ASSET|BUILD)\]/i
+export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP|REMEMBER|IMG|ASSET|BUILD|SEARCH|SYMBOL)\]/i
 
 /**
  * 10.8 — Onaylı-hafıza: modelin "[REMEMBER] ..." önerilerini çıkarır. Oto-yazMAZ;
@@ -91,7 +98,7 @@ export function isPlaceholderValue(v: string): boolean {
 }
 
 export function parseDirectives(text: string): AgentDirectives {
-  const d: AgentDirectives = { pkgs: [], fonts: [], fetches: [], runs: [], dev: false, mcp: [], imgs: [], assetAdd: false, build: false }
+  const d: AgentDirectives = { pkgs: [], fonts: [], fetches: [], runs: [], dev: false, mcp: [], imgs: [], assetAdd: false, build: false, searches: [], symbols: [] }
   if (!text) return d
   for (const m of text.matchAll(IMG_RE)) {
     const p = m[1].trim()
@@ -99,6 +106,14 @@ export function parseDirectives(text: string): AgentDirectives {
   }
   d.assetAdd = ASSET_RE.test(text)
   d.build = BUILD_RE.test(text)
+  for (const m of text.matchAll(SEARCH_RE)) {
+    const q = m[1].trim()
+    if (q && q.length >= 2 && q.length <= 120 && !isPlaceholderValue(q)) d.searches.push(q)
+  }
+  for (const m of text.matchAll(SYMBOL_RE)) {
+    const name = m[2].trim()
+    if (name && !isPlaceholderValue(name)) d.symbols.push({ op: m[1].toLowerCase() === 'refs' ? 'refs' : 'find', name })
+  }
   for (const m of text.matchAll(MCP_RE)) {
     const server = m[1].trim()
     const tool = m[2].trim()
@@ -138,7 +153,7 @@ export function parseDirectives(text: string): AgentDirectives {
 export function hasDirectives(d: AgentDirectives): boolean {
   return (
     d.pkgs.length > 0 || d.fonts.length > 0 || d.fetches.length > 0 || d.runs.length > 0 || d.dev || d.mcp.length > 0 ||
-    d.imgs.length > 0 || d.assetAdd || d.build
+    d.imgs.length > 0 || d.assetAdd || d.build || d.searches.length > 0 || d.symbols.length > 0
   )
 }
 

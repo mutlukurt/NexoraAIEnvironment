@@ -26,6 +26,8 @@ export interface RepoSymbol {
   /** Gövdesiz tek satırlık imza — ör. "Hero(props)" ya da "interface User". */
   signature: string
   exported: boolean
+  /** 1-tabanlı tanım satırı (14.2 sembol araması için; yoksa 0). */
+  line?: number
 }
 
 export interface FileNode {
@@ -107,10 +109,11 @@ function extractCode(ts: typeof TS, path: string, content: string, known: Set<st
   const sf = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, /*setParentNodes*/ true, kind)
   const symbols: RepoSymbol[] = []
   const imports = new Set<string>()
+  const lineOf = (node: TS.Node): number => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1
 
-  const addFn = (name: string, params: TS.NodeArray<TS.ParameterDeclaration>, exp: boolean): void => {
+  const addFn = (name: string, params: TS.NodeArray<TS.ParameterDeclaration>, exp: boolean, node: TS.Node): void => {
     const isComp = /^[A-Z]/.test(name)
-    symbols.push({ name, kind: isComp ? 'component' : 'function', signature: `${name}(${paramList(ts, params)})`, exported: exp })
+    symbols.push({ name, kind: isComp ? 'component' : 'function', signature: `${name}(${paramList(ts, params)})`, exported: exp, line: lineOf(node) })
   }
 
   for (const st of sf.statements) {
@@ -126,15 +129,15 @@ function extractCode(ts: typeof TS, path: string, content: string, known: Set<st
     }
     const exp = isExported(ts, st)
     if (ts.isFunctionDeclaration(st) && st.name) {
-      addFn(st.name.text, st.parameters, exp)
+      addFn(st.name.text, st.parameters, exp, st)
     } else if (ts.isClassDeclaration(st) && st.name) {
-      symbols.push({ name: st.name.text, kind: 'class', signature: `class ${st.name.text}`, exported: exp })
+      symbols.push({ name: st.name.text, kind: 'class', signature: `class ${st.name.text}`, exported: exp, line: lineOf(st) })
     } else if (ts.isInterfaceDeclaration(st)) {
-      symbols.push({ name: st.name.text, kind: 'interface', signature: `interface ${st.name.text}`, exported: exp })
+      symbols.push({ name: st.name.text, kind: 'interface', signature: `interface ${st.name.text}`, exported: exp, line: lineOf(st) })
     } else if (ts.isTypeAliasDeclaration(st)) {
-      symbols.push({ name: st.name.text, kind: 'type', signature: `type ${st.name.text}`, exported: exp })
+      symbols.push({ name: st.name.text, kind: 'type', signature: `type ${st.name.text}`, exported: exp, line: lineOf(st) })
     } else if (ts.isEnumDeclaration(st)) {
-      symbols.push({ name: st.name.text, kind: 'enum', signature: `enum ${st.name.text}`, exported: exp })
+      symbols.push({ name: st.name.text, kind: 'enum', signature: `enum ${st.name.text}`, exported: exp, line: lineOf(st) })
     } else if (ts.isVariableStatement(st)) {
       const vexp = isExported(ts, st)
       for (const d of st.declarationList.declarations) {
@@ -147,10 +150,11 @@ function extractCode(ts: typeof TS, path: string, content: string, known: Set<st
             name,
             kind: isComp ? 'component' : 'function',
             signature: `${name}(${paramList(ts, init.parameters)})`,
-            exported: vexp
+            exported: vexp,
+            line: lineOf(d)
           })
         } else {
-          symbols.push({ name, kind: 'const', signature: name, exported: vexp })
+          symbols.push({ name, kind: 'const', signature: name, exported: vexp, line: lineOf(d) })
         }
       }
     }

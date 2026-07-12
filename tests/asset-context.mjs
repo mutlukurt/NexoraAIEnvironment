@@ -92,9 +92,10 @@ const REQUESTS = [
   // currentFiles boşken bile repoMap gider (yalnız-harita turu)
   const p2 = composeTurnPrompt('bir şey yap', [], [], skel)
   ok(p2.includes('REPO MAP') && p2.includes('User request:'), 'currentFiles boşken repoMap yine gider')
-  // repoMap yoksa davranış birebir eski (regresyon yok)
+  // repoMap yoksa iskelet NOTU (imza bloğu) girmez — UPDATE kurallarındaki "REPO
+  // MAP" kelimesiyle karışmasın diye ayırt edici "signatures only" işareti bakılır.
   const p3 = composeTurnPrompt('logoyu değiştir', [HTML], [ASSET])
-  ok(!p3.includes('REPO MAP'), 'repoMap verilmezse iskelet notu yok (eski davranış)')
+  ok(!p3.includes('signatures only'), 'repoMap verilmezse imza iskeleti notu yok (eski davranış)')
 }
 
 // 4) Asset yokken not girmez (temiz sohbet/kod turu kirletilmez).

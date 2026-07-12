@@ -174,7 +174,12 @@ RULES:
 5. If the request reports an error or bug, locate the cause in the files above and fix it.
 6. ⚠️ WIRE UP EVERY NEW COMPONENT: a component nothing imports is invisible and counts as a FAILED change. When you create a new component, in the SAME response also output the COMPLETE updated App.tsx (or the correct parent) with the \`import\` line AND the JSX tag at the exact position the user asked for.
 7. If the user is ONLY asking a question (no change requested), reply instead with a single line starting with: ANSWER: <short answer in the user's language>
-8. IMAGE requests are NOT file edits. If the user asks to GENERATE/CREATE a picture/image/logo (any language), output ONLY the line: [IMG] <faithful English image prompt — keep the user's exact colors/objects, add nothing>. If the user asks to ADD the last generated image to the project assets, output ONLY the line: [ASSET] add. In both cases output NO code files — the app's image engine handles it.`
+8. IMAGE requests are NOT file edits. If the user asks to GENERATE/CREATE a picture/image/logo (any language), output ONLY the line: [IMG] <faithful English image prompt — keep the user's exact colors/objects, add nothing>. If the user asks to ADD the last generated image to the project assets, output ONLY the line: [ASSET] add. In both cases output NO code files — the app's image engine handles it.
+9. RETRIEVAL — when the REPO MAP or the shown files don't contain what you need to make the change correctly (you need a symbol's real body/signature, or to find where something lives), do NOT guess and do NOT recreate it. Output ONLY a retrieval line and STOP; the app runs it and re-prompts you with the real result, then you make the change:
+   [SEARCH] <keywords or code phrase to find>
+   [SYMBOL] find <Name>   (where a symbol is defined + its signature)
+   [SYMBOL] refs <Name>   (which files reference it)
+   Use retrieval only when genuinely needed — if the answer is already in the shown files or REPO MAP, just make the change.`
 
 /**
  * Faz 13 — TUR PROMPT KURULUMU (saf, motor-bağımsız, İSTEK-METNİNDEN BAĞIMSIZ).

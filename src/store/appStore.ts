@@ -1781,6 +1781,9 @@ let enhanceBypassNext = false
 // plan hiç gelmedi; önceki testte brief'teki "Giriş Yap" ifadesi şans eseri
 // kapıyı geçirmişti).
 let forceBuildNext = false
+// 14.2 — retrieval continuation kilidi: [SEARCH]/[SYMBOL] geri-besleme turu
+// koşarken bir daha retrieval tetiklenmesin (sonsuz arama döngüsü guard'ı).
+let retrievalRoundActive = false
 
 // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
 // + genel "hata/error" göndermeleri.
@@ -2478,6 +2481,27 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const directives = parseDirectives(parsed.text + '\n' + fencedDirectives)
         if (hasDirectives(directives)) {
           void (async () => {
+            // 14.2 — RETRIEVAL [SEARCH]/[SYMBOL]: model gerçek arama istedi. Koştur,
+            // sonucu geri besle ve turu YENİDEN sür (bounded: retrieval turu bir
+            // daha retrieval tetiklerse durur). Diğer direktifler bu partial turda
+            // YÜRÜTÜLMEZ — model retrieval sonuçlarıyla nihai eylemi üretir.
+            if ((directives.searches.length > 0 || directives.symbols.length > 0) && !retrievalRoundActive) {
+              const { runRetrieval } = await import('@/lib/codeSearch')
+              const files = Object.values(useArtifactsStore.getState().files).map((f) => ({ path: f.path, content: f.content }))
+              const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
+              const block = await runRetrieval(files, directives.searches, directives.symbols).catch(() => '')
+              if (block && lastUser) {
+                set((s) => ({
+                  messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `🔎 Arama: ${[...directives.searches, ...directives.symbols.map((x) => x.op + ' ' + x.name)].join(', ')} — sonuçlar modele verildi` }]
+                }))
+                retrievalRoundActive = true
+                const augmented = `${block}\n\n--- Original request ---\n${lastUser.content}`
+                setTimeout(() => {
+                  void useAppStore.getState().sendMessage(augmented, { hideUser: true }).finally(() => { retrievalRoundActive = false })
+                }, 200)
+                return // bu partial turun kalan direktifleri işlenmez
+              }
+            }
             // NİYET KÖPRÜSÜ [BUILD]: sohbet personası "bu aslında ÜRETİM isteği"
             // dedi — son kullanıcı mesajı üretim hattına yeniden yönlenir.
             // Yönlendirme sezgisi (looksLikeChatIntent) yalnız performans ipucu;
