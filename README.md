@@ -32,7 +32,7 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
-3. [Release Scorecards (newest → oldest)](#the-intent-brain--model-only-repair--the-v020-scorecard-phase-14) → [VOLTA output](#volta-output)
+3. [Now on the Snap Store](#now-on-the-snap-store--one-command-on-ubuntu-and-beyond) · [Release Scorecards (newest → oldest)](#the-intent-brain--model-only-repair--the-v020-scorecard-phase-14) → [VOLTA output](#volta-output)
 4. [Feature Overview](#feature-overview)
 5. [Screenshots](#screenshots)
 6. [Getting Started](#getting-started)
@@ -67,6 +67,29 @@ Cloud AI builders (Bolt, Lovable, v0) are excellent, but they have three structu
 | **Control** | One fixed model, one fixed pipeline | Any GGUF you want — swap models like cartridges |
 
 NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B model with a strategy tuned for small models (sectioned generation, format grammars, tight caps); plug a **≥ 13B GGUF** on a workstation — or opt into a frontier **API** — and the *same app* automatically switches to the **unleashed** path: one-shot, multi-file, elite-persona project generation with none of the small-model crutches. The tool's value grows every time the open-model ecosystem improves, with zero code changes. *(An optional BYO-key API mode — 157 providers, keys in the OS keychain — exists for those who want a frontier cloud model; the local, nothing-leaves-your-machine path stays the default.)*
+
+## Now on the Snap Store — one command on Ubuntu and beyond
+
+**NexoraAI is live on the [Snap Store](https://snapcraft.io/nexora-ai).** One command installs it on Ubuntu, Mint, Fedora, Pop!_OS — any distro with `snapd`:
+
+```bash
+sudo snap install nexora-ai --edge --devmode
+```
+
+> **The backstory.** We tried Flathub first — it rejected the app under its *generative-AI policy* (NexoraAI is built with AI) and for being a young project. The Snap Store has **no such gate**: its terms bar malware, IP infringement and impersonation — not *how an app was authored or how old it is*. So we shipped there instead: a working, installable store page with a real link, zero drama.
+
+**🔧 The build fight (and how we won it).** electron-builder's snap target is **broken on Ubuntu 26.04 + snapcraft 9** — its template path fails to unpack the runtime it bundles (the app crashed on second launch with `libnspr4.so: cannot open shared object file`), and its fallback path calls a `snapcraft` subcommand that no longer exists. Rather than wait on upstream, we wrote **`scripts/fix-snap.sh`**: it repairs electron-builder's output — restores the missing **NSS/NSPR libraries** + desktop launcher scripts, and forces **X11 + software rendering** so the app launches from the applications menu, not just a terminal. NexoraAI's real GPU work runs in the **llama-server Vulkan sidecar** (a separate process), so disabling Electron's own GPU costs nothing. It's wired into `npm run dist:snap`, so every build — and CI — reproduces a working snap.
+
+**🎯 Where it stands.** Live on the **edge** channel today with `devmode` confinement — the **full, working app**, verified launching from both a terminal and the applications menu. To reach the searchable **stable** channel (plain `snap install nexora-ai`, `snap find`, the desktop App Center), an agent that runs your project's toolchain against files at arbitrary paths needs **classic** confinement — the same category as VS Code — and that store review is in progress.
+
+| The obstacle | What we shipped |
+| --- | --- |
+| Flathub rejected it (generative-AI policy, young project) | **Live on the Snap Store** — no such policy; real store page + link |
+| electron-builder's snap build broken on Ubuntu 26.04 / snapcraft 9 (both paths) | **`fix-snap.sh`** repairs it — missing NSS libs + launcher restored, reproducible via `dist:snap` |
+| App launched from a terminal but crashed from the menu (Wayland/GPU) | **X11 + software render** in the launcher — llama's Vulkan GPU path untouched |
+| Searchable, flag-free install | **`classic` confinement review in progress** for the `stable` channel |
+
+---
 
 ## The Intent Brain & Model-Only Repair — the v0.20 Scorecard (Phase 14)
 
