@@ -150,6 +150,10 @@ Long builds still accrete history in one window (the Hero=Navbar clone that need
 - **14.9 Multimodal reach on running sidecars: OCR/document intake via the live VL sidecar; wire localImageService to /edits+init_image+mask_image with [EDIT] directive and Z-Image Turbo flagship; whisper.cpp push-to-talk dictation
 - **14.10 Behavior Prover + Point-and-Steer (stretch): CDP-driven behavioral self-test (click/submit/assert-persists) feeding the repro loop, and click-an-element-in-preview → next-turn edit target, reusing debugInspect.ts + comment-to-steer
 
+## Follow-ups — planned, not yet done (do later; nothing here is a cut)
+
+- **[EDIT] img2img strength tuning (14.9 follow-up)** — The [EDIT] directive now correctly fires img2img and faithfully keeps the last image's subject (fixed 2026-07-12, commit 5422f15: grant is intent-first "new-vs-edit" + apiHistory last-image marker; live-proven balon→"gece moduna çevir"→[EDIT] with subject preserved, no hallucination). REMAINING GAP: the visible edit effect is conservative — the default img2img `strength: 0.65` in localImageService leaves the result close to the original, so "make it night / dark tones" changes the background but the balloon stays bright orange. TO DO: make the denoise strength intent-aware (a heavy transform like "gece moduna çevir / tamamen değiştir" → higher strength ~0.75-0.85; a light touch like "biraz koyulaştır / add a small hat" → lower ~0.4-0.55), decided by the model's own read of how big the requested change is (intent-based, not a keyword table), plus an optional strength control in the image UI. Purely a quality/tuning nuance — the directive/subject-fidelity bug it grew out of is already closed.
+
 ## Cut list — deliberately off-mission (and why)
 
 - ✗ Cloud/background coding agents that clone a repo and open PRs on their own infra (Cursor Bugbot-fixer, Copilot cloud coding agent, Cursor/Copilot mobile+Slack agents, Agent HQ cloud delegation) — violate local-first by design
