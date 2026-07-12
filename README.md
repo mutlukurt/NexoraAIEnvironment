@@ -600,6 +600,16 @@ Download **`nexora-ai_<version>_amd64.deb`**, then:
 sudo dpkg -i ~/Downloads/nexora-ai_*_amd64.deb
 ```
 
+### Install — Linux (Snap Store)
+
+NexoraAI is also on the [**Snap Store**](https://snapcraft.io/nexora-ai):
+
+```bash
+sudo snap install nexora-ai --edge --devmode
+```
+
+> Currently on the **edge** channel with `devmode` confinement. As an agent that runs your project's toolchain (`npm`/`git`/…) against files at arbitrary paths, NexoraAI needs **classic** confinement (the same category as VS Code) to reach the `stable` channel — that store review is in progress. Until then, `--edge --devmode` gives you the full, working app.
+
 ### Build from source
 
 ```bash
