@@ -16,6 +16,23 @@ type MsgLike = { role?: string; content?: string; streaming?: boolean; images?: 
  * yakın geçmiş korunsun. En yeni turlardan geriye doğru bütçelenir. */
 export const HISTORY_CHAR_BUDGET = 48000
 
+/**
+ * Yerel motora TAŞINACAK (seedHistory) geçmiş bütçesi — MODEL DEĞİŞİMİ / OTURUM
+ * AÇILIŞI carryover'ı. API durumsuz olduğundan her tur 48000'i yeniden gönderir;
+ * yerel motor durumlu (tohum bir kez, sonra KV-cache'te birikir). Ama switch
+ * carryover'ı API'ye EŞ olmalı: güçlü/büyük-bağlam yerel modele geçince, API'ye
+ * geçseydin hatırlayacağından AZINI hatırlamasın (parite). Bütçe modelin context
+ * penceresine ölçeklenir (~%40'ı taşınan geçmişe, kalanı güncel tur + üretim),
+ * API tavanında (48000) doyar; bağlam bilinmiyorsa eski muhafazakâr 12000 tabanı.
+ */
+export function seedHistoryBudget(contextTokens?: number): number {
+  if (!contextTokens || contextTokens <= 0) return 12000
+  const CHARS_PER_TOKEN = 3.5 // TR/kod/EN karışık kaba oran
+  const HISTORY_FRACTION = 0.4
+  const scaled = Math.floor(contextTokens * CHARS_PER_TOKEN * HISTORY_FRACTION)
+  return Math.min(HISTORY_CHAR_BUDGET, Math.max(12000, scaled))
+}
+
 /** Bütçe dışına düşen eski turların özet derlemesi için karakter tavanı. */
 export const DIGEST_CHAR_BUDGET = 3500
 

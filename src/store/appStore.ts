@@ -34,7 +34,7 @@ import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories, detectMalformedDirectives } from '@/lib/agentActions'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
 import { turnDiffStats } from '@/lib/diffStat'
-import { buildApiHistory } from '@/lib/apiHistory'
+import { buildApiHistory, seedHistoryBudget } from '@/lib/apiHistory'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
 import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
@@ -2842,7 +2842,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         // (eskiden mesajlar tek karta indirgeniyordu). Önce mevcut konuşmadan
         // tohum çıkar, motoru sıfırla, sonra yeni motora tohumla — yeni model
         // "az önce ne konuştuk"u bilir.
-        const priorTurns = buildApiHistory(get().messages, 12000)
+        // Carryover bütçesi YENİ modelin bağlam penceresine ölçeklenir — güçlü
+        // yerel model, API'ye geçseydin hatırlayacağından azını hatırlamasın.
+        const priorTurns = buildApiHistory(get().messages, seedHistoryBudget(res.info?.contextSize))
         set((s) => ({
           messages: [
             ...s.messages,
@@ -3422,7 +3424,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.nexora.chat.newSession()
     // Faz 13 — açılan oturumun konuşması yerel motora tohumlanır: model
     // "bu sohbette ne konuşulmuştu"yu bilir (eskiden sıfır başlıyordu).
-    const seedTurns = buildApiHistory((data.messages ?? []) as never[], 12000)
+    const seedTurns = buildApiHistory((data.messages ?? []) as never[], seedHistoryBudget(get().modelInfo?.contextSize))
     if (seedTurns.length > 0) await window.nexora.chat.seedHistory?.(seedTurns)
     const files = Object.fromEntries(
       (Object.entries(data.files) as Array<[string, SessionFileEntry]>).map(([p, f]) => [

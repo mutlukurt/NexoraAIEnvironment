@@ -19,9 +19,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-apihist-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { buildApiHistory, HISTORY_CHAR_BUDGET } from '${join(repo, 'src/lib/apiHistory.ts')}'\n`)
+writeFileSync(entry, `export { buildApiHistory, HISTORY_CHAR_BUDGET, seedHistoryBudget } from '${join(repo, 'src/lib/apiHistory.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { buildApiHistory, HISTORY_CHAR_BUDGET } = await import(pathToFileURL(outfile).href)
+const { buildApiHistory, HISTORY_CHAR_BUDGET, seedHistoryBudget } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -130,6 +130,34 @@ const ok = (cond, label) => { if (cond) { pass++; console.log('✓', label) } el
 
 // 6) Boş girdi → boş dizi (temiz sohbet başlangıcı).
 ok(buildApiHistory([]).length === 0, 'boş sohbet → boş history')
+
+// 7) seedHistoryBudget — yerel model-switch carryover'ı bağlam penceresine
+//    ölçeklenir; API'ye (48000) parite hedefler, tabanı 12000.
+{
+  ok(seedHistoryBudget(undefined) === 12000, 'bağlam bilinmiyor → 12000 taban')
+  ok(seedHistoryBudget(0) === 12000, '0 bağlam → 12000 taban')
+  ok(seedHistoryBudget(4096) === 12000, 'küçük bağlam (4k) → 12000 tabanın altına düşmez')
+  ok(seedHistoryBudget(16384) === Math.floor(16384 * 3.5 * 0.4), '16k bağlam → ölçekli (~22937), eski 12000\'den büyük')
+  ok(seedHistoryBudget(16384) > 12000, '16k yerel model eski sabitten DAHA ÇOK taşır')
+  ok(seedHistoryBudget(32768) === Math.min(HISTORY_CHAR_BUDGET, Math.floor(32768 * 3.5 * 0.4)), '32k bağlam → ~45875')
+  ok(seedHistoryBudget(1000000) === HISTORY_CHAR_BUDGET, 'çok büyük bağlam → API tavanı 48000\'de doyar (parite)')
+}
+
+// 8) EŞDEĞERLİK: yerel-seed ve API AYNI buildApiHistory'yi kullanır → geçmiş
+//    İKİ bütçeye de sığdığında ÜRETİLEN TURLAR BİREBİR AYNI (görsel işaretleri,
+//    tur sırası, roller). Yani tek fark budama miktarı; format asla ayrışmaz.
+{
+  const convo = [
+    { role: 'user', content: 'mavi bir robot çiz' },
+    { role: 'assistant', content: '', images: [{ x: 1 }], imagePrompt: 'a blue robot, flat vector' },
+    { role: 'user', content: 'şimdi kırmızı yap' },
+    { role: 'assistant', content: 'Tamam, kırmızıya çeviriyorum.' }
+  ]
+  const apiSide = buildApiHistory(convo, HISTORY_CHAR_BUDGET)          // API yolu (48000)
+  const seedSide = buildApiHistory(convo, seedHistoryBudget(16384))    // yerel seed (16k model)
+  ok(JSON.stringify(apiSide) === JSON.stringify(seedSide), 'kısa konuşmada seed ve API BİREBİR aynı turları üretir (format ayrışmaz)')
+  ok(seedSide.some((t) => t.content.includes('a blue robot')), 'görsel işareti seed yolunda da var (yerel model görseli bilir)')
+}
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\napi-history: ${pass} geçti, ${fail} kaldı`)
