@@ -1,0 +1,47 @@
+# Piebald & Claude-Code-Prompts study → Phases 15–20 (v0.21+)
+
+> **Provenance.** 2026-07-12: a 7-agent deep research sweep of **Piebald AI** (piebald.ai, docs.piebald.ai incl. `llms.txt`, roadmap, pricing) and the **`Piebald-AI/claude-code-system-prompts`** repo (515+ extracted Claude Code prompt fragments), then an applicability map + roadmap synthesis. Every "already have" claim was verified against NexoraAI's own `file:line`. This doc records what applies, what to skip, and the proposed phases.
+
+## What Piebald is (and the honest bottom line)
+
+Piebald is a cross-platform **"agentic AI control experience"** — a paid (Basic/Pro) desktop+web GUI **control-plane that DRIVES coding agents** (Claude Code provider + OpenAI/Anthropic/Google/Bedrock/Copilot/Qwen), with session persistence, parallel-agent orchestration, config granularity, HTTP inspection, git worktrees, a terminal, and cloud sync. It does **not** generate projects on-device; it orchestrates cloud agents.
+
+**Bottom line: ~10% of Piebald is genuinely applicable to NexoraAI.** A 26-item parity check confirmed NexoraAI is *ahead* on most axes (trust tiers, persistent context, 157 providers, on-device image+vision, git revert, checkpoints, serving its own endpoint). The real gold is the **`claude-code-system-prompts` repo** (prompt-engineering discipline) plus a few genuine gaps — none of which are "copy Piebald", all of which are our own architecture maturing. Piebald's Pro-paywall / cloud-control-plane / cloud-sync / OAuth-subscription-bridge / telemetry / web-mode pieces are **incompatible with local-first + free + intent-based** and are explicitly rejected.
+
+## Parity — already have (Piebald/CC idea → NexoraAI equivalent)
+
+Trust tiers + shared verdict core + deny-list (`electron/shared/trust.ts`) · blast-radius/reversibility safety (trust command classes) · context compaction + digest + `proje-gecmisi.md` · token/context meter (`ContextMeter.tsx`, 10.12.2) · MCP stdio client + `[MCP]` · AGENTS.md/CLAUDE.md + hierarchical `KURALLAR.md` (`rulesService.ts`) · slash-command workflows (`slashCommands.ts`, 10.8) · **157-provider hub** + keychain (Piebald has 6) · on-device `[IMG]`/`[EDIT]` SD + VL vision (Piebald is input-only) · notifications + tray (10.5) · checkpoints/rewind (`checkpoints.ts`) · git-truth diff + hunk-level revert (`gitRead.ts`, `DiffModal.tsx`) · message queuing (`taskQueue.ts`) · session persistence (`sessionsService.ts` atomic tmp+rename) · comment-to-steer (`steerComments.ts`) · 10-language UI incl. RTL · exe/deb/dmg CI · **serves its own OpenAI-compatible endpoint** (`serveEngine.ts`, 10.2 — Piebald only *consumes* one). *(~26 items verified in-code.)*
+
+## Genuine high-value additions (worth taking)
+
+1. **Reboot-resilient pending-approval serialization** *(high / S)* — a `[RUN]`/git-push permission ask lives only in-memory (`appStore.ts` permissionRequest); a crash mid-approval loses it silently. Persist `pendingApprovals[]` in `SessionData` (`ipc.ts`), re-hydrate + re-render the PermissionModal on relaunch. *(Sibling of the v0.20.1 startup-queue fix.)*
+2. **Config Profiles** *(high / M)* — a user-facing bundle `{system-prompt additions, temp/top-p/max-tokens, enabled directive allow-list, enabled MCP servers, trust tier}`, selectable per session (`~/.nexora/profiles/*.json`). Presets: *Ideation* (chat, no `[RUN]`/`[BUILD]`, read tier), *Coding* (full), *Frontend build*. NOTE: today "profiles" in `prompts.ts` are ARCHITECTURE-only (react-spa/next/electron) — this is the orthogonal config axis.
+3. **Motor raw-prompt + local-inference inspector** *(high / M)* — `appendRepairLog` captures structured steps but NO raw prompt. Add an opt-in inspector of the exact system prompt + directive payloads + sampling + response, for both llama-server and BYO-key API. For a local-first app this reframes Piebald's paywalled HTTP-inspector as **"prove nothing left the machine"** — a differentiator.
+4. **Subagent context-offloading** *(high / L)* — run `[SEARCH]`/`[SYMBOL]`/repoMap/multi-file scans in an isolated child pass (extend the proven `options.isolate` at `llamaServerEngine.ts`) that returns only a DISTILLED summary, keeping the parent context lean. The single biggest lever for on-device 4–8K-window models.
+
+Secondary: conversation branching (DAG) as a cheap alternative to linear checkpoints · sidebar per-session status badges (working/awaiting-approval/verified/needs-review/error) · scheduled-task self-termination (condition-met → auto-remove) · memory-consolidation "dream" cycle · security-review pass with confidence filter · local Whisper dictation · smooth-streaming easing toggle.
+
+## Prompt-engineering wins from `claude-code-system-prompts` (nearly free)
+
+- **U-shaped attention**: bookend the hardest constraints (LOCAL-FIRST / INTENT-BASED / privacy + highest-risk directive rules) at BOTH head and tail of the system prompt + a turn-start reminder to fight mid-conversation drift.
+- **Principle over procedure + state the WHY**: replace residual "if TS error → do X" rules with the principle + reason ("prefer deterministic static analysis because it's auditable") — matches our no-keyword-regex creed and generalizes better.
+- **Stripped-context two-stage permission classifier**: judge `[RUN]`/`[BUILD]`/`[FETCH]` safety from the user message + payload but NOT the model's own justification (prevents self-rationalizing); stage-1 fast class/blast filter, stage-2 reasoning only on flagged high-blast actions.
+- **Observability rationale in directive docs**: tell the model each intent directive is auditable by design (prefers transparent `[SEARCH]`/`[MCP]` over opaque shell) — same "Read not cat" logic.
+- **Outcome-first communication block** for `purpose:'chat'|'prose'`; **modular prompt assembly with KV-slot cache breakpoints** (static skeleton before dynamic repo-map+conversation → `--slot-save-path` recovers ~90% of static tokens); **token budget as a declared first-class constraint** per pass.
+
+## Skip — incompatible with local-first / free / intent-based
+
+$20/mo Pro paywall & feature-gating · cloud control-plane driving remote agents · Piebald Cloud chat/profile sync · public expiring share-links + cloud usage aggregation · OAuth bridging to consumer Pro/Max/Plus portals · device-flow federated team tokens · vendor telemetry · automated decompilation of a competitor's prompts (grey-area) · Python env auto-detection (our stack is Node+C++) · remote HTTP MCP (Figma/Slack over OAuth) · web-mode hosted-service.
+
+---
+
+## Proposed phases (v0.21+)
+
+- **Phase 15 — Session Integrity & Config Profiles** *(high / M)*: (1) reboot-resilient pending-approval serialization; (2) config profiles with 3 presets; (3) sidebar per-session status badges. All sit on existing spines (SessionData persistence, `trust.ts` tiers, `QueuedTask` state enum).
+- **Phase 16 — Radical Transparency** *(high / M)*: (1) Motor raw-prompt + local-inference inspector ("nothing left the machine"); (2) auditable-by-design directive docs (prompt-only); (3) local conversation/diff export to file (honest substitute for cloud share-links).
+- **Phase 17 — Context Economy for Small Local Models** *(high / L)*: (1) subagent context-offloading via `options.isolate`; (2) sequential cheap→expensive reduction pipeline; (3) memory-attach precision + valid ZERO-result; (4) modular prompt assembly + KV-slot cache breakpoints.
+- **Phase 18 — Prompt-Engineering Discipline** *(high / S, nearly free)*: U-shaped attention bookending; principle-over-procedure directive docs; stripped-context two-stage permission classifier; outcome-first chat/prose block; narration-first autonomous state.
+- **Phase 19 — Scaling Memory & Self-Managing Automation** *(med / M)*: memory-consolidation "dream" cycle over the knowledge base + `proje-gecmisi.md`; token budget as a first-class constraint; scheduled-task self-termination + status-conditional cleanup.
+- **Phase 20 — Advanced Session Model & Hardening** *(med / L)*: conversation branching (DAG); security-review pass with confidence filter; local Whisper dictation; smooth-streaming easing toggle.
+
+**Top-3 first moves:** (1) pending-approval serialization (highest impact-per-line, fixes a real data-loss gap), (2) Motor prompt-inspector (transparency = the local-first differentiator), (3) subagent context-offloading (biggest small-model lever).
