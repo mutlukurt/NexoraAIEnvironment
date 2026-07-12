@@ -27,6 +27,7 @@ import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBu
 import { looksUnderspecified } from '@/lib/intentGate'
 import { extractAgentDocs } from '@/lib/specDocs'
 import { isFullRewrite } from '@/lib/afterEdit'
+import { detectDeadInteractions, formatBehaviorReport } from '@/lib/behaviorCheck'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
@@ -2062,6 +2063,22 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const stats = turnDiffStats(touchedPaths, turnBaseFiles, (p) => af[p]?.content)
         if (stats.length > 0 && streamMsgId) {
           set((s) => ({ messages: s.messages.map((m) => (m.id === streamMsgId ? { ...m, diffStats: stats } : m)) }))
+        }
+        // 14.10 — STATİK DAVRANIŞ DENETİMİ: üretilen JSX'te ölü buton / no-op
+        // handler / onSubmit'siz form / mock veri var mı? "Render oluyor" ≠
+        // "çalışıyor" — Potemkin arayüzü kullanıcıya sessizce gitmesin.
+        try {
+          const af2 = useArtifactsStore.getState().files
+          const touchedJsx = touchedPaths
+            .filter((p) => /\.(tsx|jsx)$/i.test(p) && af2[p])
+            .map((p) => ({ path: p, content: af2[p]!.content }))
+          if (touchedJsx.length > 0) {
+            const issues = detectDeadInteractions(touchedJsx)
+            const report = formatBehaviorReport(issues)
+            if (report) set((s) => ({ messages: [...s.messages, { id: nanoid(), role: 'assistant', content: report }] }))
+          }
+        } catch {
+          /* denetim opsiyonel */
         }
         // 14.8 — DIFF-ONLY sözleşmesi: iterasyon (updateTurn) turunda KÜÇÜK bir
         // değişiklik istenirken model bir dosyayı BAŞTAN yazdıysa uyar (hard-won
