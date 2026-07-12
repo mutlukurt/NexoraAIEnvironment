@@ -377,6 +377,17 @@ async function processQueue(): Promise<void> {
       // duraklamayı kaldırana dek).
       if (queuePaused) break
       if (st.sending || st.generating || postVerifyActive) break
+      // Motor yoksa kuyruk turu AÇMA — boşluğa gönderip "Model yüklü değil" hatası
+      // vermek yerine dürüstçe bekle (canlı bug: app açılışında model yükken kuyruk
+      // turu tetiklenip kırmızı hata veriyordu). Model yüklenince ya da API seçilince
+      // kalp atışı yeniden çalar.
+      if (!st.modelInfo && !useSettingsStore.getState().activeApiModel) {
+        const reason = st.language === 'tr'
+          ? '⏸ model yok — çalıştırmak için bir model yükleyin ya da API seçin'
+          : '⏸ no model — load a model or select an API to run queued tasks'
+        if (st.queueWaitReason !== reason) useAppStore.setState({ queueWaitReason: reason })
+        break
+      }
       const next = nextRunnable(st.queuedTasks)
       if (!next) break
       useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, 'running', Date.now()) }))
@@ -395,7 +406,23 @@ async function processQueue(): Promise<void> {
       } catch {
         /* git yok / bağlı klasör — İncele normal kapsamla açılır */
       }
-      await useAppStore.getState().sendMessage(next.prompt)
+      try {
+        await useAppStore.getState().sendMessage(next.prompt)
+      } catch {
+        // Kuyruk/zamanlanmış turu başarısız (ör. açılışta motor henüz hazır değil,
+        // API turu patladı): görevi 'queued'a geri al, kuyruğu DURAKLAT (1.5sn'de
+        // bir spam etme) ve kırmızı hatayı bastır. Kullanıcı bir mesaj gönderince
+        // (sendMessage queuePaused'ı temizler) motor hazırken sürdürülür.
+        useAppStore.setState((s) => ({
+          queuedTasks: transition(s.queuedTasks, next.id, 'queued', Date.now()),
+          error: null,
+          queueWaitReason: s.language === 'tr'
+            ? '⏸ tur başarısız — motor hazır olunca bir mesaj gönderip sürdürün'
+            : '⏸ turn failed — send a message once the engine is ready'
+        }))
+        queuePaused = true
+        break
+      }
       // Delege edilen işte plan onayı delegasyonun kendisidir (Agent Decides):
       // plan yine üretilir ve karta düşer, ama kuyruk onu bekletmez.
       if (useAppStore.getState().planPending) {
@@ -3455,10 +3482,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionTokensOut: 0,
       lastUsage: null
     })
-    queuePaused = false // yeni oturum: Durdur duraklaması taşınmaz
+    // Canlı bug: kullanıcı app'i açtı, HİÇBİR ŞEY yapmadı, önceki oturumdan kalan
+    // bir kuyruk görevi ("bağımlılıkları güncelle ve test et") kendi başladı ve
+    // model hazır olmadığından hata verdi. Restore edilen kuyruk artık DURAKLI
+    // başlar — kullanıcı bir mesaj gönderince (sendMessage'de queuePaused=false)
+    // sürdürülür. Böylece açılış asla kendiliğinden tur açmaz.
+    const restoredQueued = (data.queuedTasks ?? []).some((t) => t.state === 'queued')
+    queuePaused = restoredQueued
     stopQueueHeartbeat() // önceki oturumun kalp atışını sıfırla
-    if ((data.queuedTasks ?? []).some((t) => t.state === 'queued')) {
-      ensureQueueHeartbeat() // 8.2: kalıcı kalp atışı devraldı
+    if (restoredQueued) {
+      ensureQueueHeartbeat() // NEDEN'i göster (⏸ duraklatıldı — devam için mesaj gönder), koşturma
     }
     set({
       // Bayat görev kartları da kapanır (yarıda kalan koşular streaming gibi).
