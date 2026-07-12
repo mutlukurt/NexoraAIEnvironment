@@ -6,6 +6,16 @@
 
 Build complete web projects by chatting with a GGUF model that runs entirely on your own machine — by default no cloud, no API keys, no subscription, nothing leaving your computer. *(An optional, clearly-labelled BYO-key API mode is there if you ever want a frontier cloud model — 157 providers, keys in the OS keychain.)*
 
+<a href="https://snapcraft.io/nexora-ai"><img alt="Get it from the Snap Store" src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg" height="54" /></a>
+
+<a href="https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mutlukurt/NexoraAIEnvironment?sort=semver&color=8B73FF&label=release" /></a>
+&nbsp;
+<a href="https://snapcraft.io/nexora-ai"><img alt="Snap Store" src="https://img.shields.io/badge/Snap_Store-nexora--ai-8B73FF?logo=snapcraft&logoColor=white" /></a>
+&nbsp;
+<a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
+&nbsp;
+<img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20Windows%20%C2%B7%20macOS-informational" />
+
 <img src="docs/screenshots/ui-chat-ubuntu.png" width="100%" alt="NexoraAI running on Ubuntu (Linux)" />
 
 **🐧 Ubuntu (Linux)**
