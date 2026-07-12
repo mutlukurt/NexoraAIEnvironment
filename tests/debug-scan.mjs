@@ -1,10 +1,11 @@
 /**
  * Debug Engine — statik tarama regresyon takımı (roadmap 5.2 + 5.6 tohumu).
  *
- * Basit BOZUK projeler: tarayıcı her sınıfı ÇALIŞTIRMADAN bulmalı,
- * deterministik olanları Kat 0 üzerinden onarmalı, temiz projede
- * SIFIR yanlış alarm vermeli. Kural korpusla aynı: canlıda kaçan her
- * hata önce buraya fixture olarak girer.
+ * Basit BOZUK projeler: tarayıcı her sınıfı ÇALIŞTIRMADAN bulmalı (TESPİT),
+ * temiz projede SIFIR yanlış alarm vermeli. Deterministik araç-onarımı
+ * kaldırıldı (2026-07-12) — her bulgu artık MODELE yönlendirilir; bu takım
+ * yalnız tespiti güvenceye alır. Kural: canlıda kaçan her hata önce buraya
+ * fixture olarak girer (yeni sınıf → önce burada tespit edilmeli).
  *
  * Çalıştırma: npm run test:scan
  */
@@ -138,19 +139,14 @@ const failures = []
 
 for (const c of CASES) {
   const r = await runDebugScan(c.files)
+  // Artık deterministik/model ayrımı yok: her bulgu TESPİT edilip modele
+  // (remaining) yönlendirilir. Test yalnız "sınıf yakalandı mı"yı güvenceye alır.
   const hit = r.findings.find((f) => f.cls === c.cls)
   let err = null
   if (!hit) err = `sınıf bulunamadı (bulunanlar: ${r.findings.map((f) => f.cls).join(', ') || 'yok'})`
-  else if (c.fixedNote) {
-    const fx = r.fixed.find((x) => x.finding.cls === c.cls)
-    if (!fx) err = 'deterministik onarım bekleniyordu ama remaining\'de kaldı'
-    else if (!c.fixedNote.test(fx.note)) err = `onarım notu beklenen değil: ${fx.note}`
-  } else {
-    if (r.fixed.some((x) => x.finding.cls === c.cls)) err = 'model katına kalmalıydı ama Kat 0 "onardı" (yanlış onarım riski)'
-    else if (!r.remaining.some((f) => f.cls === c.cls)) err = 'remaining listesinde yok'
-  }
+  else if (!r.remaining.some((f) => f.cls === c.cls)) err = 'remaining (model) listesinde yok — tüm bulgular modele gitmeli'
   if (err) { fail++; failures.push(`✗ ${c.name} — ${err}`) }
-  else { pass++; console.log(`✓ ${c.name}`) }
+  else { pass++; console.log(`✓ ${c.name} (tespit → model)`) }
 }
 
 rmSync(work, { recursive: true, force: true })

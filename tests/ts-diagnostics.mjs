@@ -23,11 +23,10 @@ const entry = join(work, 'entry.ts')
 const outfile = join(repo, 'node_modules', '.cache', 'nexora-tsdiag-bundle.mjs')
 writeFileSync(
   entry,
-  `export { tsScan, resetTsService } from '${join(repo, 'src/lib/tsDiagnostics.ts')}'\n` +
-    `export { autoRepair } from '${join(repo, 'src/lib/autoRepair.ts')}'\n`
+  `export { tsScan, resetTsService } from '${join(repo, 'src/lib/tsDiagnostics.ts')}'\n`
 )
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['typescript'] })
-const { tsScan, autoRepair } = await import(pathToFileURL(outfile).href)
+const { tsScan } = await import(pathToFileURL(outfile).href)
 
 // Lib/tip haritası: uygulamadaki vite glob'unun fs karşılığı.
 function loadLibsFromFs() {
@@ -71,22 +70,15 @@ const check = (name, cond, detail) => {
   check('temiz proje — derleyici gürültüsü sıfır', findings.length === 0, JSON.stringify(findings.slice(0, 3)))
 }
 
-// 2) Tanımsız ad (2304) → deterministik tanı → Kat 0 GERÇEKTEN onarabilmeli
+// 2) Tanımsız ad (2304) → deterministik TANI üretilmeli (satırıyla). Onarım artık
+//    tamamen modelde (araç-onarımı kaldırıldı) — burada yalnız tespit güvencesi.
 {
   const files = F({
     'src/Sayac.tsx': `export default function Sayac() {\n  const [n, setN] = useState(0)\n  return <button onClick={() => setN(n + 1)}>{n}</button>\n}\n`
   })
   const findings = await tsScan(files, loadLibsFromFs)
   const hit = findings.find((f) => f.code === 2304 && /useState/.test(f.message))
-  check('2304 tanımsız ad yakalandı (satırıyla)', !!hit && hit.line === 2 && hit.deterministic, JSON.stringify(findings.slice(0, 3)))
-  if (hit) {
-    const fixes = autoRepair(hit.diagnosis, files)
-    check(
-      "2304 tanısı Kat 0'dan geçiyor (useState importu eklendi)",
-      fixes.length > 0 && /useState/.test(fixes[0].content),
-      JSON.stringify(fixes[0]?.note)
-    )
-  }
+  check('2304 tanımsız ad yakalandı (satırıyla) → modele gider', !!hit && hit.line === 2, JSON.stringify(findings.slice(0, 3)))
 }
 
 // 3) Olmayan property (2339/2551) → model katına, "şunu mu demek istedin" mesajıyla

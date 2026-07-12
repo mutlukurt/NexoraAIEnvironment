@@ -66,21 +66,19 @@ export function aggregateRepairStats(lines: string[]): RepairStats {
 }
 
 export interface LadderPriors {
-  /** Kat 0 bu sınıfı hiç tutturamadı (yeterli örneklemde) — vakit kaybetme. */
-  skipKat0: boolean
   /** Yerel model bu sınıfta repro'yu hiç geçemedi — ilk denemede tırmandır. */
   escalateEagerly: boolean
 }
 
 /**
- * Sınıf önselleri. Eşikler bilinçli muhafazakâr: az veriyle agresif yönlendirme
- * yanlış onarımdan beter — kanıt birikmeden davranış DEĞİŞMEZ.
+ * Sınıf önseli. Eşik bilinçli muhafazakâr: az veriyle agresif yönlendirme yanlış
+ * onarımdan beter — kanıt birikmeden davranış DEĞİŞMEZ. (Kat 0 önseli kaldırıldı:
+ * deterministik araç-onarımı artık yok, her tanı modele gider.)
  */
 export function ladderPriors(stats: RepairStats, diag: string): LadderPriors {
   const c = stats.classes[classifyDiag(diag)]
-  if (!c) return { skipKat0: false, escalateEagerly: false }
+  if (!c) return { escalateEagerly: false }
   return {
-    skipKat0: c.kat0Hit === 0 && c.kat0Miss >= 5,
     escalateEagerly: c.reproVerified === 0 && c.reproFailed >= 3
   }
 }

@@ -573,12 +573,14 @@ async function regenerateBrokenFile(
   const prompt = `The file ${path} does NOT compile. Build error:
 ${diagnosis.split('\n').slice(0, 8).join('\n')}
 
+This file is "${path}". Regenerate THIS EXACT file keeping THE SAME purpose it already has — infer it from the filename and the current content below. ⚠ Do NOT change what this component/file IS; do NOT turn it into a different app, feature or component; do NOT invent unrelated content (no note-app, no dashboard, nothing that isn't already here). ONLY fix the structural compile error (e.g. duplicate import like both \`import React, { useState }\` and \`import { useState }\`, missing declaration, unbalanced braces) while preserving every intended import, export, JSX element and behavior.
+
 Current BROKEN content of ${path}:
 --- ${path} ---
 ${file.content}
 --- end ---
 
-Rewrite ${path} from scratch as ONE complete, correct file: keep the intended imports/sections/behavior, fix the structural problem (e.g. missing function declaration, unbalanced braces). Output EXACTLY ONE fenced code block for ${path}.`
+Output EXACTLY ONE fenced code block for ${path}: the corrected, complete file, same purpose as now.`
   const wasActive = plannedBuildActive
   plannedBuildActive = true // bu turun ciktisi dogrudan uygulansin
   try {
@@ -660,25 +662,8 @@ const logRepair = (entry: Record<string, unknown>): void => {
   }
 }
 
-async function tryAutoRepair(diagnosis: string): Promise<string[]> {
-  const { autoRepair } = await import('@/lib/autoRepair')
-  const files = Object.fromEntries(
-    Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
-  )
-  const fixes = autoRepair(diagnosis, files)
-  for (const f of fixes) {
-    useArtifactsStore.getState().upsertFile(f.path, f.content)
-  }
-  if (fixes.length > 0) {
-    logRepair({ layer: 'kat0', notes: fixes.map((f) => f.note), diag: diagnosis.slice(0, 200) })
-  } else {
-    logRepair({ layer: 'kat0-miss', diag: diagnosis.slice(0, 200) })
-  }
-  return fixes.map((f) => f.note)
-}
-
 /**
- * Onarım Merdiveni — Kat 3: çalışan (yeşil) son sürüme dön. Kullanıcı asla
+ * Onarım Merdiveni — son kat: çalışan (yeşil) son sürüme dön. Kullanıcı asla
  * bozuk localhost ile baş başa bırakılmaz; deneme git geçmişinde durur.
  */
 async function rollbackToGreen(
@@ -732,7 +717,6 @@ async function postGenVerify(
   let regenerated = false
   let verifiedClean = false
   let lastDiagnosis = ''
-  const repairedDiags = new Set<string>()
   try {
     for (let round = 0; round < 4; round++) {
       if (pvEpoch !== stopEpoch || queuePaused) return
@@ -783,28 +767,10 @@ async function postGenVerify(
         return
       }
 
-      // Onarım Merdiveni — KAT 0: modele sormadan kodla onar (eksik import,
-      // kesme işaretli string, kırık görece yol…). Milisaniye sürer, tur
-      // yakmaz; aynı tanıya bir kez denenir (sonsuz döngü koruması).
-      const diagKey = diagnosis.slice(0, 160)
-      if (!repairedDiags.has(diagKey)) {
-        repairedDiags.add(diagKey)
-        const notes = await tryAutoRepair(diagnosis)
-        if (notes.length > 0) {
-          set((s) => ({
-            messages: [
-              ...s.messages,
-              {
-                id: nanoid(),
-                role: 'assistant',
-                content: '🔧 Kod onarımı (modelsiz, anında): ' + notes.join('; ')
-              }
-            ]
-          }))
-          round-- // Kat 0 tur yakmaz: yeniden doğrula
-          continue
-        }
-      }
+      // Onarım artık TAMAMEN model-tabanlı (niyet-tabanlı). Deterministik "araç"
+      // onarımı (eski Kat 0) kaldırıldı: hatalı çıktı bile olsa tanı doğrudan
+      // modele verilir; iyi bir yerel model ya da API bunu tek turda anlayıp
+      // düzeltir (kullanıcı kararı, 2026-07-12). Detection korunur, fix modele gider.
       if (round >= 2) {
         // Cerrahi turlar tukendi: dosyayi (bir kez) komple yeniden urettir,
         // dongu son kontrolu yapar; o da olmazsa yeşile dönüş + dürüst rapor.
@@ -855,7 +821,9 @@ async function postGenVerify(
       lastFixTurnApplied = -1
       logRepair({ layer: 'model-fix', diag: diagnosis.slice(0, 200) })
       await get().sendMessage(
-        'düzelt — üretimden hemen sonra yapılan otomatik denetim yukarıdaki hatayı yakaladı. Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
+        'düzelt — üretimden hemen sonra yapılan otomatik denetim yukarıdaki hatayı yakaladı. Kök nedeni bul ve düzelt. ' +
+          'AYNI hata birden çok dosyada olabilir (ör. iskeleden gelen çift import: hem `import React, { useState }` hem `import { useState }` → "already declared"). ' +
+          'Öyleyse HEPSİNİ bu turda düzelt — her etkilenen dosya için bir edit bloğu ver, sadece hata satırındaki dosyayı değil.' +
           numberedSnippet(diagnosis, filesForSnippet),
         { hideUser: true }
       )
@@ -1155,51 +1123,21 @@ ${e.message}
 ${cleanStack}
 HINT: "X is not defined" usually means a missing import in the file shown in the stack. Fix the ROOT CAUSE in that file with a SMALL edit block.`
     void (async () => {
-      // 6.7 öğrenen motor: sınıf önselleri — telemetri kanıt biriktirmişse
-      // merdiven ona göre yönlenir (muhafazakâr eşikler: kanıtsız davranış
-      // değişmez). skipKat0 = Kat 0 bu sınıfı hiç tutturamadı; eager = yerel
-      // model bu sınıfta repro'yu hiç geçemedi → izinliyse ilk denemede API.
-      let priors = { skipKat0: false, escalateEagerly: false }
+      // 6.7 öğrenen motor: sınıf önseli — telemetri kanıt biriktirmişse merdiven
+      // ona göre yönlenir. escalateEagerly = yerel model bu sınıfta repro'yu hiç
+      // geçemedi → izinliyse ilk denemede API. (Kat 0 önseli kaldırıldı: artık
+      // deterministik araç-onarımı yok, her tanı doğrudan modele gider.)
+      let priors = { escalateEagerly: false }
       try {
         const stats = await window.nexora.agent.repairStats()
         const { ladderPriors } = await import('@shared/errorClass')
         priors = ladderPriors(stats, `${e.message}\n${cleanStack}`)
-        if (priors.skipKat0 || priors.escalateEagerly) {
-          logRepair({ layer: 'priors-applied', notes: [priors.skipKat0 ? 'kat0-atla' : '', priors.escalateEagerly ? 'erken-tırmanış' : ''].filter(Boolean) })
+        if (priors.escalateEagerly) {
+          logRepair({ layer: 'priors-applied', notes: ['erken-tırmanış'] })
         }
       } catch { /* istatistik okunamadı — önselsiz akış */ }
-      // Onarım Merdiveni Kat 0: beyaz-sayfa sınıfının ezici çoğunluğu eksik
-      // import'tur — modele hiç gitmeden, milisaniyede kodla onar.
-      const notes = priors.skipKat0 ? [] : await tryAutoRepair(`${e.message}\n${cleanStack}`)
-      if (notes.length > 0) {
-        // Onarım DİSKE inmeli: dev sunucu diskten servis eder; sync sonrası
-        // vite HMR sayfayı kendiliğinden toparlar.
-        try {
-          const { getProjectName } = await import('@/lib/agentActions')
-          const files = Object.values(useArtifactsStore.getState().files).map((f) => ({
-            path: f.path,
-            content: f.content
-          }))
-          await window.nexora.agent.buildCheck({ projectName: getProjectName(), files, onlyIfInstalled: true })
-        } catch {
-          /* sync başarısızsa hata yeniden rapor edilir, model katı devralır */
-        }
-        set((s) => ({
-          messages: [
-            ...s.messages,
-            {
-              id: nanoid(),
-              role: 'assistant',
-              content: `🌐 Canlı sayfada hata yakalandı → 🔧 modelsiz onarıldı (anında): ${notes.join('; ')}`
-            }
-          ]
-        }))
-        // 6.6 onarım-sonrası repro: "onarıldı" iddiası AKTİF kanıtlanır —
-        // sayfa taze yüklenir, aynı imza hâlâ üretiliyorsa dürüstçe söylenir.
-        void verifyRepairByRepro(e.message, set, get)
-        return
-      }
-      // Model katı: yüklü model yoksa sessizce dur (Kat 0 zaten denendi).
+      // Onarım artık TEK yol: model. Yüklü model yoksa sessizce dur (araç-onarımı
+      // kaldırıldı — model/API erişilemezse otomatik onarım çalışmaz, bilinçli).
       if (!get().modelInfo) return
       // 6.6 ön-repro kapısı: model turu YAKMADAN önce hata taze yüklemede
       // yeniden üretilmeli. Üretilemeyen sinyal (bayat HMR raporu, düzeltme
@@ -1336,7 +1274,7 @@ HINT: "X is not defined" usually means a missing import in the file shown in the
         'düzelt — çalışan sayfadan otomatik yakalanan runtime hatası yukarıda.' +
           locHint +
           probeLine +
-          ' Kök nedeni bul ve KÜÇÜK bir edit bloğuyla düzelt.' +
+          ' Kök nedeni bul ve düzelt. Aynı hata birden çok dosyadaysa (ör. çift import) hepsini bu turda, her dosya için bir edit bloğuyla düzelt.' +
           numberedSnippet(snippetSeed, filesMap),
         { hideUser: true, escalate: esc.escalate }
       )
@@ -2404,35 +2342,8 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               ]
             }))
           } else if (autoFixRounds < 2 && check.error) {
-            // Onarım Merdiveni Kat 0: önce modelsiz onarımı dene — tutarsa
-            // model turu hiç harcamadan yeniden doğrula.
-            const notes = await tryAutoRepair(check.error)
-            if (notes.length > 0) {
-              set((s) => ({
-                messages: [
-                  ...s.messages,
-                  { id: nanoid(), role: 'assistant', content: '🔧 Kod onarımı (modelsiz, anında): ' + notes.join('; ') }
-                ]
-              }))
-              pendingBuildVerify = true
-              const files3 = Object.values(useArtifactsStore.getState().files).map((f) => ({
-                path: f.path,
-                content: f.content
-              }))
-              const again0 = await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: files3 })
-              pendingBuildVerify = false
-              if (again0.ok) {
-                autoFixRounds = 0
-                set((s) => ({
-                  lastBuildError: null,
-                  messages: [
-                    ...s.messages,
-                    { id: nanoid(), role: 'assistant', content: '✅ Derleme hatası modelsiz onarımla giderildi.' }
-                  ]
-                }))
-                return
-              }
-            }
+            // Derleme hatası doğrudan modele verilir — deterministik araç-onarımı
+            // (eski Kat 0) kaldırıldı; model niyet-tabanlı düzeltir.
             autoFixRounds++
             set((s) => ({
               lastBuildError: check.error ?? null,
@@ -3139,60 +3050,40 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!apply) {
       // Rapor modu (içe aktarma otomatiği): kullanıcının orijinal klasörüne
       // İZİNSİZ yazılmaz — bulgular listelenir, onarım Tara'ya bırakılır.
-      const fixable = report.fixed.length
       say(
         [
           isTr
-            ? `🔍 İçe aktarılan projede ${report.findings.length} olası sorun görüldü${fixable ? ` (${fixable} tanesi modelsiz onarılabilir)` : ''}:`
-            : `🔍 The imported project shows ${report.findings.length} potential issue(s)${fixable ? ` (${fixable} repairable without a model)` : ''}:`,
+            ? `🔍 İçe aktarılan projede ${report.findings.length} olası sorun görüldü:`
+            : `🔍 The imported project shows ${report.findings.length} potential issue(s):`,
           ...report.findings.map((f) => `  • ${f.path}${f.line ? ':' + f.line : ''} — ${f.message}`),
           isTr ? 'Onarmak için Dosyalar & Kod sekmesindeki "Tara" düğmesine bas.' : 'Press "Scan" in the Files & Code tab to repair.'
         ].join('\n')
       )
       return
     }
-    for (const [path, content] of Object.entries(report.patched)) {
-      useArtifactsStore.getState().upsertFile(path, content)
+    if (quiet) {
+      // Run öncesi sessiz tarama: görünür bir model turu AÇMAZ (sürpriz olur).
+      // Gerçek sorunlar Run'da runtime/derleme onarımıyla (model) çözülür.
+      logRepair({ layer: 'scan-detected', notes: report.findings.map((f) => `${f.cls}@${f.path}`) })
+      return
     }
-    if (report.fixed.length > 0) {
-      logRepair({ layer: 'scan-kat0', notes: report.fixed.map((f) => f.note) })
-      // Onarım diske inmeli (bağlı projede orijinal klasöre) — runtime
-      // onarımıyla aynı sync yolu; vite açıksa HMR sayfayı toparlar.
-      try {
-        const { getProjectName } = await import('@/lib/agentActions')
-        const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
-          path: f.path,
-          content: f.content
-        }))
-        await window.nexora.agent.buildCheck({ projectName: getProjectName(), files: all, onlyIfInstalled: true })
-      } catch { /* sync olmadıysa store günceldir; Run'da diske yazılır */ }
-    }
-    if (report.remaining.length > 0) {
-      logRepair({ layer: 'scan-remaining', notes: report.remaining.map((f) => `${f.cls}@${f.path}`) })
-    }
-    // 7.1: onarım oturumu görev kartı olarak — onarılan her bulgu ✓,
-    // model isteyenler ✗ + neden. Uzun rapor metni karta taşındı; kart
-    // oturum kaydında kalıcı (formatScanReport temiz/rapor modunda sürüyor).
-    const scanCardId = taskCardStart(
-      isTr ? `Tarama onarımı — ${report.findings.length} bulgu` : `Scan repair — ${report.findings.length} finding(s)`,
-      [
-        ...report.fixed.map((f) => ({
-          label: `${f.finding.path}${f.finding.line ? ':' + f.finding.line : ''}`,
-          status: 'done' as const,
-          detail: f.note
-        })),
-        ...report.remaining.map((f) => ({
-          label: `${f.path}${f.line ? ':' + f.line : ''}`,
-          status: 'failed' as const,
-          detail: (isTr ? 'model turu ister — ' : 'needs the model — ') + f.message.slice(0, 90)
-        }))
-      ]
+    // Tara düğmesi: bulguları MODELE yönlendir (deterministik araç-onarımı yok).
+    // Model çok-dosya, niyet-tabanlı bakışla düzeltir — aynı hata birçok dosyada
+    // olsa da tek turda hepsini.
+    logRepair({ layer: 'scan-remaining', notes: report.findings.map((f) => `${f.cls}@${f.path}`) })
+    say(formatScanReport(report, isTr))
+    const diag = report.findings.map((f) => `${f.path}${f.line ? ':' + f.line : ''} — ${f.message}`).join('\n')
+    const { numberedSnippet } = await import('@/lib/autoRepair')
+    const filesMap = Object.fromEntries(
+      Object.entries(useArtifactsStore.getState().files).map(([p, f]) => [p, { path: f.path, content: f.content }])
     )
-    taskCardFinish(
-      scanCardId,
-      isTr
-        ? `${report.fixed.length} modelsiz onarıldı${report.remaining.length ? ` · kalan ${report.remaining.length} için "düzelt" yeter` : ''}`
-        : `${report.fixed.length} repaired without a model${report.remaining.length ? ` · type "fix" for the rest` : ''}`
+    void get().sendMessage(
+      (isTr
+        ? 'düzelt — tarama şu sorunları buldu; kök nedeni bul ve AYNI hata birden çok dosyadaysa HEPSİNİ tek turda düzelt:\n'
+        : 'fix — the scan found these issues; find the root cause and if the SAME error is in multiple files fix ALL of them in one turn:\n') +
+        diag +
+        numberedSnippet(diag, filesMap),
+      { hideUser: true }
     )
   },
 

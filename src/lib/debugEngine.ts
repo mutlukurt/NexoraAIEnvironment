@@ -9,17 +9,12 @@
  * adımlarda bu çekirdeğe taşınacak — çağıran taraf değişir, boru değişmez.
  */
 import { scanProject, type ScanFinding } from './debugScan'
-import { autoRepair, type RepairFix } from './autoRepair'
 
 export interface DebugScanReport {
-  /** Taramanın bulduğu her şey (onarılanlar dahil). */
+  /** Taramanın bulduğu her şey. */
   findings: ScanFinding[]
-  /** Kat 0'ın modelsiz onardıkları. */
-  fixed: Array<{ finding: ScanFinding; note: string }>
-  /** Kat 0'ın onaramadıkları — model turu ya da insan ister. */
+  /** Tümü modele yönlendirilir (deterministik araç-onarımı kaldırıldı). */
   remaining: ScanFinding[]
-  /** Onarımlar uygulanmış dosya içerikleri (yol → yeni içerik). */
-  patched: Record<string, string>
 }
 
 type FileMap = Record<string, { path: string; content: string }>
@@ -42,59 +37,14 @@ const CLASS_ORDER: Record<ScanFinding['cls'], number> = {
 }
 
 export async function runDebugScan(files: FileMap): Promise<DebugScanReport> {
-  const fixed: Array<{ finding: ScanFinding; note: string }> = []
-  const patched: Record<string, string> = {}
-  const seen = new Set<string>()
-  let firstFindings: ScanFinding[] | null = null
-  let remaining: ScanFinding[] = []
-  let working: FileMap = files
-
-  // 5.7 çok-geçişli onarım: bir sınıfın onarımı başka bulguları GÖRÜNÜR
-  // kılabilir (kesme işareti düzelince aynı dosyanın eksik import'u ortaya
-  // çıkar). Yeni deterministik onarım çıkmayana dek yeniden taranır (≤3 tur).
-  for (let pass = 0; pass < 3; pass++) {
-    const findings = (await scanProject(working)).sort(
-      (a, b) => CLASS_ORDER[a.cls] - CLASS_ORDER[b.cls]
-    )
-    if (firstFindings === null) firstFindings = findings
-    else {
-      // Sonraki geçişlerde ortaya çıkan YENİ bulgular rapora eklenir.
-      for (const f of findings) {
-        const key = `${f.cls}|${f.path}|${f.message}`
-        if (!seen.has(key) && !firstFindings.some((x) => x.cls === f.cls && x.path === f.path && x.message === f.message)) {
-          firstFindings.push(f)
-        }
-      }
-    }
-    remaining = []
-    let progressed = false
-    for (const finding of findings) {
-      const key = `${finding.cls}|${finding.path}|${finding.message}`
-      if (seen.has(key)) continue
-      if (!finding.deterministic) {
-        remaining.push(finding)
-        continue
-      }
-      const fixes: RepairFix[] = autoRepair(finding.diagnosis, working)
-      if (fixes.length === 0) {
-        remaining.push(finding)
-        continue
-      }
-      for (const fix of fixes) {
-        working = { ...working, [fix.path]: { path: fix.path, content: fix.content } }
-        patched[fix.path] = fix.content
-      }
-      seen.add(key)
-      fixed.push({ finding, note: fixes[0].note })
-      progressed = true
-    }
-    if (!progressed) break
-  }
-
-  return { findings: firstFindings ?? [], fixed, remaining, patched }
+  // Deterministik araç-onarımı kaldırıldı (kullanıcı kararı, 2026-07-12): tarama
+  // yalnız TESPİT eder, her bulgu modele yönlendirilir. Model niyet-tabanlı,
+  // çok-dosya bakışıyla (maskelenen ardışık hatalar dahil) düzeltir.
+  const findings = (await scanProject(files)).sort((a, b) => CLASS_ORDER[a.cls] - CLASS_ORDER[b.cls])
+  return { findings, remaining: findings }
 }
 
-/** Rapor chat mesajı (TR/EN) — motorun ne görüp ne yaptığının dürüst özeti. */
+/** Rapor chat mesajı (TR/EN) — taramanın ne bulduğunun dürüst özeti. */
 export function formatScanReport(r: DebugScanReport, tr: boolean): string {
   if (r.findings.length === 0) {
     return tr
@@ -104,17 +54,12 @@ export function formatScanReport(r: DebugScanReport, tr: boolean): string {
   const lines: string[] = []
   lines.push(
     tr
-      ? `🔍 Tarama: ${r.findings.length} bulgu — ${r.fixed.length} tanesi modelsiz onarıldı${r.remaining.length ? `, ${r.remaining.length} tanesi model/insan istiyor` : ''}.`
-      : `🔍 Scan: ${r.findings.length} finding(s) — ${r.fixed.length} repaired without a model${r.remaining.length ? `, ${r.remaining.length} need the model or a human` : ''}.`
+      ? `🔍 Tarama: ${r.findings.length} bulgu yakalandı — model düzeltecek.`
+      : `🔍 Scan: ${r.findings.length} finding(s) — the model will fix them.`
   )
-  for (const f of r.fixed) {
-    lines.push(`  🔧 ${f.finding.path}${f.finding.line ? ':' + f.finding.line : ''} — ${f.note}`)
-  }
-  for (const f of r.remaining) {
+  for (const f of r.findings) {
     lines.push(`  ⚠️ ${f.path}${f.line ? ':' + f.line : ''} — ${f.message}`)
   }
-  if (r.remaining.length > 0) {
-    lines.push(tr ? 'Kalanlar için "düzelt" yazman yeterli.' : 'Type "fix" to hand the rest to the model.')
-  }
+  lines.push(tr ? '"düzelt" yazman yeterli — hepsi modele verilir.' : 'Type "fix" — all handed to the model.')
   return lines.join('\n')
 }

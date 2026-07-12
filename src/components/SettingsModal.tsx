@@ -355,8 +355,7 @@ export default function SettingsModal() {
                   {tt(language, "Total repair events")}: <b className="text-ink-text">{stats.totalEvents}</b>
                 </p>
                 {(() => {
-                  const hit = (stats.layers['kat0'] ?? 0) + (stats.layers['scan-kat0'] ?? 0)
-                  const miss = stats.layers['kat0-miss'] ?? 0
+                  const mf = stats.layers['model-fix'] ?? 0
                   const rv = stats.layers['repro-verified'] ?? 0
                   const rf = stats.layers['repro-failed'] ?? 0
                   const bp = stats.layers['behavior-pass'] ?? 0
@@ -364,7 +363,7 @@ export default function SettingsModal() {
                   const pct = (a: number, b: number) => (a + b > 0 ? Math.round((a / (a + b)) * 100) + '%' : '—')
                   return (
                     <>
-                      <p>{tt(language, "Model-free repair hit rate (rung 0)")}: <b className="text-ink-text">{pct(hit, miss)}</b> ({hit}/{hit + miss})</p>
+                      <p>{tt(language, "Model repair turns")}: <b className="text-ink-text">{mf}</b></p>
                       <p>{tt(language, "Repro verification rate")}: <b className="text-ink-text">{pct(rv, rf)}</b> ({rv}✓ {rf}✗)</p>
                       <p>{tt(language, "Behavior test pass")}: <b className="text-ink-text">{pct(bp, bf)}</b></p>
                     </>
@@ -372,11 +371,11 @@ export default function SettingsModal() {
                 })()}
                 <div className="mt-2 border-t border-ink-line/40 pt-2">
                   {Object.entries(stats.classes)
-                    .sort((a, b) => b[1].kat0Miss + b[1].kat0Hit - (a[1].kat0Miss + a[1].kat0Hit))
+                    .sort((a, b) => b[1].reproVerified + b[1].reproFailed - (a[1].reproVerified + a[1].reproFailed))
                     .slice(0, 5)
                     .map(([cls, c]) => (
                       <p key={cls} className="text-[10px] text-ink-dim">
-                        {cls}: kat0 {c.kat0Hit}✓/{c.kat0Miss}✗ · repro {c.reproVerified}✓/{c.reproFailed}✗{c.apiEscalated > 0 ? ` · api ${c.apiEscalated}` : ''}
+                        {cls}: repro {c.reproVerified}✓/{c.reproFailed}✗{c.apiEscalated > 0 ? ` · api ${c.apiEscalated}` : ''}
                       </p>
                     ))}
                 </div>

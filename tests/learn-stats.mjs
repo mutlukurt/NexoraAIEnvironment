@@ -47,20 +47,14 @@ const stats = aggregateRepairStats(LINES)
 check('toplam olay (bozuk hariç)', stats.totalEvents === 5, String(stats.totalEvents))
 check('sınıf sayaçları doğru', stats.classes['property-read']?.kat0Miss === 2 && stats.classes['undefined-name']?.kat0Hit === 1 && stats.classes['undefined-name']?.reproVerified === 1, JSON.stringify(stats.classes))
 
-// 3) Önseller: az kanıtla DEĞİŞMEZ (muhafazakârlık)
+// 3) Önsel: az kanıtla DEĞİŞMEZ (muhafazakârlık). (skipKat0 önseli kaldırıldı —
+//    deterministik araç-onarımı artık yok; yalnız escalateEagerly önseli kaldı.)
 {
   const p = ladderPriors(stats, "Cannot read properties of undefined (reading 'y')")
-  check('az kanıtla önsel pasif', p.skipKat0 === false && p.escalateEagerly === false, JSON.stringify(p))
+  check('az kanıtla önsel pasif', p.escalateEagerly === false, JSON.stringify(p))
 }
 
-// 4) Yeterli kanıtla skipKat0 açılır (hit=0, miss>=5)
-{
-  const many = aggregateRepairStats(Array.from({ length: 6 }, () => JSON.stringify({ layer: 'kat0-miss', diag: 'Cannot read properties of undefined (reading "a")' })))
-  const p = ladderPriors(many, 'Cannot read properties of undefined (reading "z")')
-  check('kat0-atla açıldı', p.skipKat0 === true, JSON.stringify(p))
-}
-
-// 5) Yeterli kanıtla erken-tırmanış açılır (verified=0, failed>=3) — ama tek
+// 4) Yeterli kanıtla erken-tırmanış açılır (verified=0, failed>=3) — ama tek
 //    doğrulama gelirse KAPANIR (öğrenme çift yönlü)
 {
   const failed3 = Array.from({ length: 3 }, () => JSON.stringify({ layer: 'repro-failed', diag: 'Cannot read properties of undefined (reading "a")' }))

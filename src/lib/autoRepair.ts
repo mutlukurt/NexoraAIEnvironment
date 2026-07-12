@@ -1,18 +1,14 @@
 /**
- * Onarım Merdiveni — Kat 0: deterministik, MODELSİZ hata onarımı.
+ * Onarım yardımcıları — MODEL onarım turu için bağlam üreten saf fonksiyonlar.
  *
- * Sahibin tespiti (2026-07-05): "kod düzeltme sorununu çözmeden ne yapsak
- * boş". Küçük modelin ürettiği hataların büyük çoğunluğu SAYILABİLİR
- * sınıflara düşer: eksik import, tanımsız lucide ikonu, kesme işaretiyle
- * erken kapanan string… Bu sınıflar modele hiç sorulmadan, milisaniyede ve
- * %100 kesinlikle kodla onarılır; model yalnızca kalanlara çağrılır.
+ * NOT (2026-07-12): Deterministik "araç" onarımı (eski Kat 0: eksik import /
+ * tanımsız ikon / kesme işareti sınıflarını modelsiz düzeltme) KALDIRILDI —
+ * kullanıcı kararı: "kat 0 bir boka yaramıyor; sorunu modele verince iyi bir
+ * yerel model niyet-tabanlı, tek turda düzeltir, API zaten düzeltir." Artık her
+ * tanı doğrudan modele gider. Buradan yalnız model turuna verilecek satır-numaralı
+ * bağlam (numberedSnippet) ve üretim-anı kesme-işareti önlemesi (fixTurkishApostrophes)
+ * kaldı; tespit (debugScan) ayrı modülde yaşar.
  */
-
-export interface RepairFix {
-  path: string
-  content: string
-  note: string
-}
 
 /**
  * Türkçe kesme işareti sanitizasyonu — ÖNLEME katmanı (kabul testi bulgusu):
@@ -37,10 +33,6 @@ export function fixTurkishApostrophes(content: string): string {
     .join('\n')
 }
 
-const REACT_HOOKS = new Set([
-  'useState', 'useEffect', 'useMemo', 'useRef', 'useCallback', 'useContext', 'useReducer', 'useLayoutEffect'
-])
-
 /** Tanı metninden hedef dosya yolunu çek ("File: src/App.tsx" ya da vite "src/App.tsx:12:5"). */
 export function fileFromDiagnosis(diagnosis: string, knownPaths: string[]): string | null {
   const m = diagnosis.match(/File:\s*([^\s\n]+)/)
@@ -57,172 +49,10 @@ function lineFromDiagnosis(diagnosis: string): number | null {
   return m ? Number(m[1]) : null
 }
 
-/** "X is not defined" / "X is not exported" sınıfındaki tanımlayıcıyı çek. */
-function undefinedIdent(diagnosis: string): string | null {
-  const m =
-    diagnosis.match(/([A-Za-z_$][\w$]*) is not defined/) ??
-    diagnosis.match(/does not provide an export named ['"]([\w$]+)['"]/)
-  return m ? m[1] : null
-}
-
-function addNamedImport(content: string, name: string, from: string): string {
-  const re = new RegExp(`(import\\s*\\{)([^}]*)(\\}\\s*from\\s*['"]${from.replace(/[/\\]/g, '\\$&')}['"])`)
-  const m = content.match(re)
-  if (m) {
-    if (new RegExp(`\\b${name}\\b`).test(m[2])) return content
-    return content.replace(re, `$1$2, ${name}$3`)
-  }
-  return `import { ${name} } from '${from}'\n` + content
-}
-
-/** Projedeki dosyalarda `name` adında export var mı? → görece import yolu döndür. */
-function findExportSource(
-  name: string,
-  files: Record<string, { path: string; content: string }>,
-  importerPath: string
-): { from: string; named: boolean } | null {
-  for (const f of Object.values(files)) {
-    if (f.path === importerPath || !/\.(tsx|ts|jsx|js)$/.test(f.path)) continue
-    const isDefault =
-      new RegExp(`export\\s+default\\s+(function\\s+)?${name}\\b`).test(f.content) ||
-      (new RegExp(`function\\s+${name}\\b`).test(f.content) && /export\s+default\s+\w/.test(f.content) === false && f.path.endsWith(`/${name}.tsx`))
-    const isNamed = new RegExp(`export\\s+(const|function|class)\\s+${name}\\b`).test(f.content)
-    if (isDefault || isNamed || f.path.endsWith(`/${name}.tsx`) || f.path.endsWith(`/${name}.jsx`)) {
-      // Görece yol hesabı
-      const fromDir = importerPath.includes('/') ? importerPath.slice(0, importerPath.lastIndexOf('/')).split('/') : []
-      const target = f.path.replace(/\.(tsx|ts|jsx|js)$/, '').split('/')
-      let common = 0
-      while (common < fromDir.length && common < target.length - 1 && fromDir[common] === target[common]) common++
-      const rel = '../'.repeat(fromDir.length - common) + target.slice(common).join('/')
-      return { from: rel.startsWith('.') ? rel : './' + rel, named: isNamed && !isDefault }
-    }
-  }
-  return null
-}
-
 /**
- * Kat 0 onarımı: tanı + dosyalar → uygulanabilir kesin düzeltmeler.
- * Boş dizi = bu tanı sınıfını kodla onaramıyoruz, model katına geç.
- */
-export function autoRepair(
-  diagnosis: string,
-  files: Record<string, { path: string; content: string }>
-): RepairFix[] {
-  const paths = Object.keys(files)
-  const target = fileFromDiagnosis(diagnosis, paths)
-  if (!target) return []
-  const file = files[target]
-  const fixes: RepairFix[] = []
-
-  // ---- Sınıf 1: tanımsız tanımlayıcı (import eksik) --------------------
-  const ident = undefinedIdent(diagnosis)
-  if (ident) {
-    // 1a) React hook'u
-    if (REACT_HOOKS.has(ident)) {
-      const patched = addNamedImport(file.content, ident, 'react')
-      if (patched !== file.content) {
-        return [{ path: target, content: patched, note: `eksik React import'u eklendi: ${ident}` }]
-      }
-    }
-    // 1b) React'in kendisi
-    if (ident === 'React') {
-      const patched = `import React from 'react'\n` + file.content
-      return [{ path: target, content: patched, note: "eksik import eklendi: React" }]
-    }
-    // 1c) Büyük harfli JSX bileşeni: projede export'u varsa import et
-    if (/^[A-Z]/.test(ident)) {
-      const src = findExportSource(ident, files, target)
-      if (src) {
-        const patched = src.named
-          ? addNamedImport(file.content, ident, src.from)
-          : `import ${ident} from '${src.from}'\n` + file.content
-        return [{ path: target, content: patched, note: `eksik bileşen import'u eklendi: ${ident} ← ${src.from}` }]
-      }
-      // 1d) Projede yoksa ve dosya lucide-react kullanıyorsa: ikon varsay
-      if (/from ['"]lucide-react['"]/.test(file.content) || new RegExp(`<${ident}[\\s/>]`).test(file.content)) {
-        const patched = addNamedImport(file.content, ident, 'lucide-react')
-        if (patched !== file.content) {
-          return [{ path: target, content: patched, note: `lucide-react import'una eklendi: ${ident}` }]
-        }
-      }
-    }
-  }
-
-  // ---- Sınıf 1e: uydurulmuş KÜÇÜK-harf veri değişkeni (info.map vakası) --
-  // 3B şablon doldururken var olmayan bir dizi değişkenine .map atabiliyor;
-  // bunu modelle "icat ettirmek" güvenilmez. Deterministik çare: boş dizi
-  // stub'ı — sayfa BEYAZ KALMAZ, bölüm boş render olur; görsel öz-denetim
-  // boş bölümü ayrıca işaretler. "Asla bozuk bırakma" ilkesinin gereği.
-  if (ident && /^[a-z]/.test(ident) && !REACT_HOOKS.has(ident)) {
-    const usesMap = new RegExp(`\\b${ident}\\s*\\.\\s*(map|filter|forEach|length)\\b`).test(file.content)
-    const declared = new RegExp(`\\b(const|let|var|function)\\s+${ident}\\b`).test(file.content) ||
-      new RegExp(`[{,]\\s*${ident}\\s*[},:]`).test(file.content.split('\n').filter((l) => l.includes('import')).join('\n'))
-    if (usesMap && !declared) {
-      const lines = file.content.split('\n')
-      let insertAt = 0
-      for (let i = 0; i < lines.length; i++) {
-        if (/^\s*import\b/.test(lines[i])) insertAt = i + 1
-      }
-      lines.splice(insertAt, 0, `const ${ident}: Array<Record<string, unknown>> = [] // NexoraAI onarımı: tanımsız veri değişkeni boş dizi olarak stub'landı`)
-      return [{
-        path: target,
-        content: lines.join('\n'),
-        note: `tanımsız '${ident}' değişkeni boş dizi stub'ıyla onarıldı (sayfa beyaz kalmaz)`
-      }]
-    }
-  }
-
-  // ---- Sınıf 2: kesme işaretiyle erken kapanan string ------------------
-  // Kabul testi dersi: satırda BİRDEN ÇOK string olabilir — dar satır-kalıbı
-  // yerine dosya geneline güvenli sanitizasyon uygulanır.
-  if (/Unterminated string|Unexpected token/.test(diagnosis)) {
-    const patched = fixTurkishApostrophes(file.content)
-    if (patched !== file.content) {
-      fixes.push({
-        path: target,
-        content: patched,
-        note: 'kesme işaretli tek-tırnak stringler çift tırnağa çevrildi'
-      })
-      return fixes
-    }
-  }
-
-  // ---- Sınıf 3: görece import hedefi yok (yanlış uzantı/büyük-küçük) ----
-  const badImport = diagnosis.match(/Failed to resolve import ['"](\.[^'"]+)['"] from ['"]([^'"]+)['"]/)
-  if (badImport) {
-    const spec = badImport[1]
-    const importer = paths.find((p) => badImport[2].endsWith(p)) ?? target
-    const importerDir = importer.includes('/') ? importer.slice(0, importer.lastIndexOf('/')) : ''
-    // İstenen mutlak proje yolu
-    const wanted = (importerDir ? importerDir + '/' : '') + spec.replace(/^\.\//, '')
-    const norm = wanted.split('/').reduce<string[]>((acc, part) => {
-      if (part === '..') acc.pop()
-      else if (part !== '.') acc.push(part)
-      return acc
-    }, []).join('/')
-    const candidate = paths.find(
-      (p) => p.toLowerCase() === norm.toLowerCase() || p.toLowerCase().replace(/\.(tsx|ts|jsx|js)$/, '') === norm.toLowerCase()
-    )
-    if (candidate && files[importer]) {
-      // Doğru görece yolu kur
-      const fromDir = importer.includes('/') ? importer.slice(0, importer.lastIndexOf('/')).split('/') : []
-      const t = candidate.replace(/\.(tsx|ts|jsx|js)$/, '').split('/')
-      let common = 0
-      while (common < fromDir.length && common < t.length - 1 && fromDir[common] === t[common]) common++
-      const rel = '../'.repeat(fromDir.length - common) + t.slice(common).join('/')
-      const fixed = files[importer].content.split(spec).join(rel.startsWith('.') ? rel : './' + rel)
-      if (fixed !== files[importer].content) {
-        return [{ path: importer, content: fixed, note: `kırık import yolu düzeltildi: ${spec} → ${rel}` }]
-      }
-    }
-  }
-
-  return fixes
-}
-
-/**
- * Model düzeltme turu için satır numaralı bağlam: hatalı dosyanın hata
- * satırı çevresi. SEARCH bloğunun birebir kopyalanabilmesi için.
+ * Model onarım turuna verilecek satır-numaralı pasaj: hata satırının ±12 satır
+ * çevresi, SEARCH bloğunun birebir kopyalanabilmesi için (no-op turların ana
+ * nedeni modelin dosyayı ezberden yazması).
  */
 export function numberedSnippet(
   diagnosis: string,
