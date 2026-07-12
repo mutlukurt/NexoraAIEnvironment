@@ -2586,6 +2586,12 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             // işi SD motoruna devreder; [ASSET] son görseli projeye ekler. Güven
             // kapısından bağımsız (yerel SD + bellek-içi asset — zararsız sınıf);
             // kalan direktifler mevcut trust akışında yaşamaya devam eder.
+            // 14.9 — [EDIT]: SON üretilmiş görseli img2img ile düzenle (sd-server).
+            if (directives.edits.length > 0) {
+              await runImageEdits(directives.edits)
+              directives.edits = []
+              if (!hasDirectives(directives)) return
+            }
             if (directives.imgs.length > 0 || directives.assetAdd) {
               await runImageDirectives(directives.imgs, directives.assetAdd)
               directives.imgs = []
@@ -5000,6 +5006,53 @@ async function runImageDirectives(imgs: string[], assetAdd: boolean): Promise<vo
     }
   }
   if (assetAdd) addLastGeneratedImageToAssets()
+}
+
+/** 14.9 — [EDIT]: SON üretilmiş görseli img2img ile düzenle (referans + edit prompt). */
+async function runImageEdits(edits: string[]): Promise<void> {
+  const set = useAppStore.setState
+  const get = useAppStore.getState
+  // Sohbetteki son üretilmiş görselin adını bul → cache yolu.
+  const msgs = get().messages as Array<{ images?: Array<{ dataUrl: string; name: string }> }>
+  let lastName: string | null = null
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const im = msgs[i].images
+    if (im && im.length > 0) { lastName = im[im.length - 1].name; break }
+  }
+  if (!lastName) {
+    set((s) => ({ messages: [...s.messages, { id: nanoid(), role: 'assistant', content: '⚠️ Düzenlenecek üretilmiş bir görsel yok — önce bir görsel üretin.' }] }))
+    return
+  }
+  const refPath = `${window.nexora.home}/NexoraAI/cache/generated/${lastName}`
+  for (const promptEn of edits.slice(0, 2)) {
+    const statusId = nanoid()
+    set((s) => ({ messages: [...s.messages, { id: statusId, role: 'assistant', content: '🖌 Görsel düzenleniyor… (img2img)' }] }))
+    const unsub = window.nexora.images.onStatus((e: { msg: string }) => {
+      set((s) => ({ messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🖌 ${e.msg}` } : m)) }))
+    })
+    try {
+      const lm = await window.nexora.images.listModels?.().catch(() => null)
+      const hasLocal = !!(lm as { installed?: unknown[] } | null)?.installed?.length
+      const res = await window.nexora.images.generate({
+        prompt: promptEn,
+        aspect: get().imageAspect,
+        count: 1,
+        preferLocal: hasLocal,
+        localModelPath: useSettingsStore.getState().activeLocalImageModel ?? undefined,
+        referenceImagePath: refPath
+      })
+      unsub()
+      if (!res.ok || !res.images || res.images.length === 0) {
+        set((s) => ({ messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `⚠️ Düzenlenemedi: ${res.error ?? 'bilinmeyen hata'}` } : m)) }))
+        continue
+      }
+      set((s) => ({ messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: '', images: res.images, imagePrompt: promptEn } : m)) }))
+      void get().saveSessionNow()
+    } catch (err) {
+      unsub()
+      set((s) => ({ messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `⚠️ Düzenlenemedi: ${(err as Error).message}` } : m)) }))
+    }
+  }
 }
 
 // Onarım Merdiveni: runtime hata aboneliği İLK MESAJI BEKLEMEZ. Canlı test

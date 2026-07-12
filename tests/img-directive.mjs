@@ -124,6 +124,18 @@ const ok = (cond, label) => { if (cond) { pass++; console.log('✓', label) } el
   ok(UPDATE_MODE_RULES.includes('NO code files'), 'UPDATE kuralları: bu isteklerde kod dosyası yok')
 }
 
+// 14.9 — [EDIT] direktifi (son görseli img2img ile düzenle)
+{
+  const d = parseDirectives('Tamam.\n[EDIT] the same cat but at night, darker mood')
+  ok(d.edits.length === 1 && /night/.test(d.edits[0]), '[EDIT] promptu parse')
+  ok(hasDirectives(d), 'yalnız-EDIT turu hasDirectives=true')
+  ok(DIRECTIVE_LINE_RE.test('[EDIT] x'), '[EDIT] satırı balonda gizlenir')
+  ok(parseDirectives('edit hakkında konuşalım').edits.length === 0, 'düz metin [EDIT] sayılmaz')
+  const g = chatSystemPrompt('tr', 'chat', true)
+  ok(g.includes('[EDIT]') && g.includes('img2img'), 'grant [EDIT]/img2img tanıtır')
+  ok(g.includes('NOT create a brand-new one'), 'EDIT ≠ yeni IMG ayrımı grantta')
+}
+
 rmSync(work, { recursive: true, force: true })
 console.log(`\nimg-directive: ${pass} geçti, ${fail} kaldı`)
 if (fail > 0) { console.error(failures.join('\n')); process.exit(1) }

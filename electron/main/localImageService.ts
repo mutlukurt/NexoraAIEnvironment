@@ -334,7 +334,7 @@ export function stopImageServer(): void {
  */
 export async function generateImageLocal(
   prompt: string,
-  opts?: ImageGenOptions & { signal?: AbortSignal; onStatus?: (s: string) => void; n?: number; negativePrompt?: string; localModelPath?: string }
+  opts?: ImageGenOptions & { signal?: AbortSignal; onStatus?: (s: string) => void; n?: number; negativePrompt?: string; localModelPath?: string; referenceImageDataUrl?: string }
 ): Promise<GenImg[]> {
   const o = opts ?? {}
   const onStatus = o.onStatus ?? (() => undefined)
@@ -381,18 +381,33 @@ export async function generateImageLocal(
   // SD1.5 kalite güçlendiricileri: kısa prompt'larda belirgin fark yaratır.
   const fullPrompt = `${promptEn}, best quality, highly detailed${o.negativePrompt?.trim() ? `\n\nAvoid / do NOT include: ${o.negativePrompt.trim()}` : ''}`
   const n = Math.max(1, Math.min(o.n ?? 1, 4))
-  onStatus('Görsel üretiliyor… (yerel, offline)')
-  const res = await fetch(`http://127.0.0.1:${IMAGE_PORT}/v1/images/generations`, {
+  // 14.9 — img2img (düzenleme): referans görsel varsa /v1/images/edits'e init_image
+  // ile gönder; sd-server bu ucu desteklemezse normal üretime düşülür (edit
+  // prompt'uyla yeniden üretim yine geçerli bir "düzenleme"dir).
+  const refB64 = o.referenceImageDataUrl ? /base64,(.+)$/s.exec(o.referenceImageDataUrl)?.[1] : undefined
+  const useEdit = !!refB64
+  onStatus(useEdit ? 'Görsel düzenleniyor… (yerel, offline)' : 'Görsel üretiliyor… (yerel, offline)')
+  const body: Record<string, unknown> = useEdit
+    ? { prompt: fullPrompt, n, size: localImageSize(o.aspect), response_format: 'b64_json', init_image: refB64, strength: 0.65 }
+    : { prompt: fullPrompt, n, size: localImageSize(o.aspect), response_format: 'b64_json' }
+  const endpoint = useEdit ? '/v1/images/edits' : '/v1/images/generations'
+  let res = await fetch(`http://127.0.0.1:${IMAGE_PORT}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt: fullPrompt,
-      n,
-      size: localImageSize(o.aspect),
-      response_format: 'b64_json'
-    }),
+    body: JSON.stringify(body),
     signal: o.signal ?? AbortSignal.timeout(600_000)
-  })
+  }).catch(() => null as Response | null)
+  // img2img ucu yoksa (404/hata) normal üretime düş
+  if (useEdit && (!res || !res.ok)) {
+    onStatus('img2img yok — düzenleme prompt\'uyla yeniden üretiliyor…')
+    res = await fetch(`http://127.0.0.1:${IMAGE_PORT}/v1/images/generations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: fullPrompt, n, size: localImageSize(o.aspect), response_format: 'b64_json' }),
+      signal: o.signal ?? AbortSignal.timeout(600_000)
+    })
+  }
+  if (!res) throw new Error('Yerel görsel motoruna ulaşılamadı.')
   if (!res.ok) throw new Error(`Yerel görsel üretimi başarısız (HTTP ${res.status}): ${await res.text().catch(() => '')}`)
   const data = (await res.json()) as { data?: Array<{ b64_json?: string; url?: string }> }
   const out: GenImg[] = []
