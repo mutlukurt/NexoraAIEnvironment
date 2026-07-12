@@ -82,6 +82,21 @@ const REQUESTS = [
   ok(p.includes(ASSET) && p.includes('src/assets/ikinci.png') && p.includes('public/uc.webp'), 'çoklu asset tam listelenir')
 }
 
+// 3b) Faz 14.1 — repoMap (imza iskeleti) prompt'a girer + otherPaths ile yan yana yaşar.
+{
+  const skel = 'REPO MAP (other project files — signatures only...):\n- src/lib/utils.ts — fmt(s); interface Opts'
+  const p = composeTurnPrompt('logoyu değiştir', [HTML], [ASSET], skel)
+  ok(p.includes('REPO MAP') && p.includes('fmt(s)'), 'repoMap iskeleti UPDATE MODE promptuna girer')
+  ok(p.includes(ASSET), 'repoMap ile birlikte asset yolu da (otherPaths) korunur')
+  ok(p.indexOf('REPO MAP') < p.indexOf('UPDATE MODE'), 'repoMap dosya bağlamıyla UPDATE MODE arasında')
+  // currentFiles boşken bile repoMap gider (yalnız-harita turu)
+  const p2 = composeTurnPrompt('bir şey yap', [], [], skel)
+  ok(p2.includes('REPO MAP') && p2.includes('User request:'), 'currentFiles boşken repoMap yine gider')
+  // repoMap yoksa davranış birebir eski (regresyon yok)
+  const p3 = composeTurnPrompt('logoyu değiştir', [HTML], [ASSET])
+  ok(!p3.includes('REPO MAP'), 'repoMap verilmezse iskelet notu yok (eski davranış)')
+}
+
 // 4) Asset yokken not girmez (temiz sohbet/kod turu kirletilmez).
 {
   const p = composeTurnPrompt('merhaba nasılsın', [], [])

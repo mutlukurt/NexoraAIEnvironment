@@ -114,6 +114,9 @@ export interface ChatSendInput {
   currentFiles?: Array<{ path: string; content: string }>
   /** Bağlam diyeti: var olan ama içeriği gönderilmeyen proje dosyaları. */
   otherPaths?: string[]
+  /** Faz 14.1 — REPO MAP: içeriği gönderilmeyen kod dosyalarının imza iskeleti
+   *  (PageRank sıralı, gövde yok). Renderer hesaplar (typescript AST). */
+  repoMap?: string
   /**
    * FAZ 9.3 — Fidelity Mode: bu tur hiper-detaylı bir spec'e HARFİYEN uymalı
    * (prompt tokenize edilmiştir, __SLOT__ token'ları birebir korunur). Renderer,

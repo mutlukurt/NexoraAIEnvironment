@@ -189,8 +189,13 @@ RULES:
 export function composeTurnPrompt(
   userPrompt: string,
   currentFiles?: Array<{ path: string; content: string }>,
-  otherPaths?: string[]
+  otherPaths?: string[],
+  repoMap?: string
 ): string {
+  // Faz 14.1 — REPO MAP: içeriği gönderilmeyen KOD dosyalarının imza iskeleti
+  // (gövde yok, PageRank sıralı). Çıplak yol listesi yalnız iskelette YER ALMAYAN
+  // dosyaları (binary asset'ler, iskelete girmeyenler) taşır — çakışma yok.
+  const mapNote = repoMap && repoMap.trim() ? `\n\n${repoMap.trim()}` : ''
   const othersNote =
     otherPaths && otherPaths.length > 0
       ? `\n\nOther existing project files (content not shown — they EXIST, do NOT recreate them. Reference them by these EXACT paths — e.g. use an image asset in <img src> or import it; never invent placeholder URLs when a matching asset exists. Ask the user to mention @file if you need one's content): ${otherPaths.join(', ')}`
@@ -198,7 +203,7 @@ export function composeTurnPrompt(
   if (currentFiles && currentFiles.length > 0) {
     const filesContext = currentFiles.map((f) => `--- ${f.path} ---\n${f.content}`).join('\n\n')
     return `Current project files:
-${filesContext}${othersNote}
+${filesContext}${mapNote}${othersNote}
 
 ==================================================
 UPDATE MODE — the user wants a CHANGE in the existing project.
@@ -207,7 +212,7 @@ User request: ${userPrompt}
 ${UPDATE_MODE_RULES}
 ==================================================`
   }
-  if (othersNote) return othersNote.trimStart() + '\n\nUser request: ' + userPrompt
+  if (mapNote || othersNote) return (mapNote + othersNote).trimStart() + '\n\nUser request: ' + userPrompt
   return userPrompt
 }
 

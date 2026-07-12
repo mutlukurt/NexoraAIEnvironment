@@ -4227,6 +4227,8 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // içerik gitmez — plan için dosya LİSTESİ yeter, bağlam ucuz kalır.
     let currentFiles: Array<{ path: string; content: string }> = []
     let excludedPaths: string[] = []
+    // Faz 14.1 — içeriği gönderilmeyen kod dosyalarının imza iskeleti (repo-map).
+    let repoMapStr = ''
     // Planlı dosya turunda bağlam gönderilmez: gerekli sözleşmeler prompt'un
     // içinde, önceki dosyalar motorun sohbet geçmişinde (prompt cache ucuz).
     // 10.13: SOHBET turunda proje dosyaları GÖNDERİLMEZ — soru/sohbet, projeyi
@@ -4252,12 +4254,33 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       const selection = selectContextFiles(trimmed, textFiles, { charBudget, maxFiles })
       currentFiles = selection.included.map((f) => ({ path: f.path, content: f.content }))
       excludedPaths = [...selection.excludedPaths, ...binaryPaths]
+      // Faz 14.1 — REPO MAP: gönderilmeyen KOD dosyaları için imza iskeleti (gövde
+      // yok, mesaja göre kişiselleştirilmiş PageRank sıralı). Çıplak yol listesi
+      // yerine sembol imzalarını verir → model var olan bileşeni/fonksiyonu
+      // yeniden uydurmaz, yanlış imzayla çağırmaz. İskelete giren dosyalar çıplak
+      // listeden düşer (çakışma yok); binary asset'ler yolla listelenmeye devam eder.
+      if (selection.excludedPaths.length > 0) {
+        try {
+          const { buildRepoMap } = await import('@/lib/repoMap')
+          const rm = await buildRepoMap(
+            textFiles.map((f) => ({ path: f.path, content: f.content })),
+            { message: trimmed, inChatPaths: currentFiles.map((f) => f.path), charBudget: Math.min(6000, Math.floor(charBudget * 0.4)) }
+          )
+          repoMapStr = rm.skeleton
+          if (rm.skeletonPaths.length > 0) {
+            const inMap = new Set(rm.skeletonPaths)
+            excludedPaths = excludedPaths.filter((p) => !inMap.has(p))
+          }
+        } catch {
+          /* repo-map hesaplanamazsa çıplak yol listesine düş (mevcut davranış) */
+        }
+      }
       if (selection.trimmed) {
         // Bilgi satırı, akan yanıt balonunun ÜSTÜNDE dursun.
         const info: ChatMessage = {
           id: nanoid(),
           role: 'assistant',
-          content: `📎 Bağlam: ${selection.included.map((f) => f.path).join(', ')} (${selection.excludedPaths.length} dosya içerik gönderilmeden listelendi — @dosyaadı ile ekleyebilirsiniz)`
+          content: `📎 Bağlam: ${selection.included.map((f) => f.path).join(', ')} (${selection.excludedPaths.length} dosya${repoMapStr ? ' repo-haritasında imzalarıyla özetlendi' : ' içerik gönderilmeden listelendi'} — @dosyaadı ile tam içerik ekleyebilirsiniz)`
         }
         set((s) => ({
           messages: [...s.messages.slice(0, -1), info, s.messages[s.messages.length - 1]]
@@ -4615,6 +4638,7 @@ ${outgoing}`
         profileLock: enhanceResend || undefined,
         currentFiles: currentFiles.length > 0 ? currentFiles : undefined,
         otherPaths: excludedPaths.length > 0 ? excludedPaths : undefined,
+        repoMap: repoMapStr || undefined,
         expectFile: opts?.expectFile,
         expectPlan: isPlanTurn || undefined,
         options: sampling

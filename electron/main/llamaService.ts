@@ -316,7 +316,7 @@ export async function chat(
   // Faz 13 — tur prompt kurulumu TEK saf fonksiyonda (composeTurnPrompt,
   // shared/prompts.ts): asset listesi istek metninden/dilinden bağımsız her
   // tura girer; sözleşmeyi test:assetctx kilitler.
-  let prompt = composeTurnPrompt(input.prompt, input.currentFiles, input.otherPaths)
+  let prompt = composeTurnPrompt(input.prompt, input.currentFiles, input.otherPaths, input.repoMap)
 
   // Agent ipucu yalnızca istek gerektirdiğinde eklenir — kalıcı olarak sistem
   // prompt'una koymak küçük modellerin şablon satırlarını kopyalamasına yol
