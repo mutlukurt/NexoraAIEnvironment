@@ -133,7 +133,11 @@ const ok = (cond, label) => { if (cond) { pass++; console.log('✓', label) } el
   ok(parseDirectives('edit hakkında konuşalım').edits.length === 0, 'düz metin [EDIT] sayılmaz')
   const g = chatSystemPrompt('tr', 'chat', true)
   ok(g.includes('[EDIT]') && g.includes('img2img'), 'grant [EDIT]/img2img tanıtır')
-  ok(g.includes('NOT create a brand-new one'), 'EDIT ≠ yeni IMG ayrımı grantta')
+  // 14.9 düzeltmesi: EDIT ilk-sınıf niyet dalı — model önce "yeni mi düzenleme mi"
+  // karar verir, düzenlemede konuyu KORUR (canlı bug: balon→yeşil ejderha).
+  ok(g.includes('DECIDE FIRST'), 'grant önce yeni-mi-düzenleme-mi kararını dayatır')
+  ok(g.includes('KEEP THE LAST IMAGE') || g.includes('SAME subject as the last'), 'EDIT konu sadakati grantta')
+  ok(/NEVER invent a different subject/i.test(g), 'yeni konu uydurma yasağı grantta')
 }
 
 rmSync(work, { recursive: true, force: true })

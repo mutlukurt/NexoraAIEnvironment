@@ -115,8 +115,11 @@ const ok = (cond, label) => { if (cond) { pass++; console.log('✓', label) } el
     { role: 'user', content: 'ne üretmiştik?' }
   ])
   ok(h.length === 3, 'görsel mesajı tur olarak yaşar')
-  ok(h[1].role === 'assistant' && h[1].content.includes('Görsel üretildi'), 'görsel izi assistant turu')
+  ok(h[1].role === 'assistant' && /görsel/i.test(h[1].content), 'görsel izi assistant turu')
   ok(h[1].content.includes('mavi bir robot'), 'görsel izi promptu taşır')
+  // 14.9: iz artık konuyu AÇIKÇA verir + düzenlenebilir olduğunu söyler ki model
+  // "bunu düzenle" dendiğinde konuyu unutup kendi [IMG] şablonunu kopyalamasın.
+  ok(h[1].content.includes('[EDIT]') && h[1].content.includes('düzenle'), 'görsel izi düzenlenebilirliği bildirir')
 }
 
 // 5) Tek dev tur bütçeyi aşsa bile ASLA boş dönmez (en az o tur kalır).

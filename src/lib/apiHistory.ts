@@ -67,7 +67,16 @@ export function buildApiHistory(msgs: readonly MsgLike[], budget = HISTORY_CHAR_
       // sessizce düşünce model "görsel üretilmedi" sanıyordu (canlı bug).
       // Metin izi bırak ki sonraki text/API turu görseli bilsin.
       if (m.role === 'assistant' && Array.isArray(m.images) && m.images.length > 0) {
-        turns.push({ role: 'assistant', content: `[Görsel üretildi${m.imagePrompt ? ': ' + m.imagePrompt : ''}]` })
+        // 14.9 — SON görsel bağlamı: yalnız "üretildi" demek yetmiyordu; model
+        // düzenleme istendiğinde konuyu unutup kendi önceki [IMG] şablonunu
+        // kopyalıyordu (canlı bug: turuncu balon → "gece moduna çevir" → yeşil
+        // ejderha logosu). Konuyu AÇIKÇA ve düzenlenebilir olduğunu belirt.
+        turns.push({
+          role: 'assistant',
+          content: m.imagePrompt
+            ? `[Bu sohbette bir görsel ürettim — konusu: "${m.imagePrompt}". Sohbetteki güncel/son görsel bu; kullanıcı "bunu/bu görseli/şunu" der ya da bir değişiklik isterse TAM OLARAK bu görseli ([EDIT] ile) düzenle, konusunu koru.]`
+            : '[Görsel üretildi]'
+        })
       }
       continue
     }

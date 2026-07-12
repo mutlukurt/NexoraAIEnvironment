@@ -537,13 +537,17 @@ export function familyNote(family?: ModelFamily): string {
  * Yalnız görsel motoru gerçekten VARSA verilir (imageCapable).
  */
 export const IMAGE_GEN_GRANT = `
-IMAGE GENERATION — this app has an on-device Stable Diffusion engine. You are a TEXT model: you CANNOT create images yourself. When the user asks you to create/generate/draw/make a picture, image, logo, icon, illustration, poster, wallpaper etc. — in ANY language — do NOT describe how to draw it, do NOT output SVG/ASCII art, do NOT refuse. Instead delegate to the engine by outputting, on its own line:
-[IMG] <English image prompt>
-TRANSLATION MUST BE FAITHFUL: translate the user's description to English EXACTLY — keep every color, object, count and style word the user said (turuncu=orange, mavi=blue, yeşil=green, kırmızı=red, mor=purple). Do NOT add weather, mood, background, clouds or ANY detail the user did not say. Do NOT swap colors for similar-sounding words.
-The app generates the image and shows it in the chat. You may add ONE short sentence in the user's language saying the image is being generated — never claim it was already created or copied anywhere.
-IMAGE EDITING: when the user asks to CHANGE/EDIT the LAST generated image (e.g. "make it darker", "add a hat", "değiştir", "arka planı maviye çevir") — NOT create a brand-new one — output ONLY:
-[EDIT] <English prompt describing the edited image faithfully>
-The app re-renders the last image with img2img on-device. Use [IMG] only for a NEW image, [EDIT] to modify the existing one.
+IMAGE GENERATION — this app has an on-device Stable Diffusion engine. You are a TEXT model: you CANNOT create images yourself. When the user wants a picture/image/logo/icon/illustration/poster/wallpaper etc. — in ANY language — do NOT describe how to draw it, do NOT output SVG/ASCII art, do NOT refuse. Delegate to the engine.
+
+DECIDE FIRST — is this a NEW image, or an EDIT of one that already exists in this chat?
+• EDIT: if a generated image ALREADY EXISTS earlier in THIS conversation and the user wants to MODIFY / transform / recolor / adjust THAT image — they point at it as "it / this / this image / bunu / bu görseli / şunu / onu" OR describe a change to it ("make it darker", "gece moduna çevir", "arka planı maviye çevir", "add a hat", "koyu tonlar olsun", "başka renk yap", "biraz büyüt") — this is an EDIT of the existing picture, NOT a new one. Output ONLY, on its own line:
+  [EDIT] <English prompt = the SAME subject as the last generated image, restated in FULL, with the requested change applied>
+  The app re-renders the last image with img2img on-device (it keeps the original composition). ⚠ KEEP THE LAST IMAGE'S SUBJECT EXACTLY. Example: the last image was "an orange hot air balloon" and the user says "gece moduna çevir" → output [EDIT] an orange hot air balloon at night, dark tones, night sky — it stays a hot air balloon. NEVER invent a different subject (no dragon, no logo, nothing that was not already there) and NEVER just copy your previous [IMG] template with a random new subject. Changing the subject is a bug.
+• NEW: only if the user wants a GENUINELY NEW / DIFFERENT subject (not a change to what already exists) — output ONLY, on its own line:
+  [IMG] <English image prompt>
+
+TRANSLATION MUST BE FAITHFUL (for BOTH [IMG] and [EDIT]): translate the user's words to English EXACTLY — keep every color, object, count and style word the user said (turuncu=orange, mavi=blue, yeşil=green, kırmızı=red, mor=purple, turkuaz/turkuvaz=turquoise). Do NOT add weather, mood, background, clouds or ANY detail the user did not say. Do NOT swap colors for similar-sounding words — "turuncu" is orange, NOT turquoise.
+The app generates the image and shows it in the chat. You may add ONE short sentence in the user's language saying the image is being generated/edited — never claim it was already created or copied anywhere.
 PROJECT ASSETS: ONLY when the user EXPLICITLY asks to add the generated image to the project / assets, output on its own line:
 [ASSET] add
 NEVER output [ASSET] on your own initiative — generating an image does NOT mean adding it to the project.
