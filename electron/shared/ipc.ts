@@ -19,6 +19,8 @@ export interface ChatMessage {
   tasks?: { title: string; steps: TaskStep[]; active: boolean; note?: string }
   /** 10.11.1: bu turda dokunulan dosyaların +eklenen/−silinen satır dökümü. */
   diffStats?: Array<{ path: string; added: number; removed: number; isNew: boolean }>
+  /** 14.5: Intent Gate yorum kartları — tıklanınca o yorumla build başlar. */
+  intentOptions?: Array<{ title: string; preview: string }>
   /**
    * Görsel-üretme turu sonucu. dataUrl kendine-yeterlidir (base64) — oturum
    * kaydında kalıcı; önizleme + tam ekran + indirme + assets'e ekleme bundan
@@ -177,6 +179,7 @@ export const IPC = {
   CHAT_SEED_HISTORY: 'chat:seed-history',
   EMBED_HAS: 'embed:has',
   EMBED_EMBED: 'embed:embed',
+  MODEL_COMPLETE: 'model:complete',
   HF_SEARCH: 'hf:search',
   HF_DOWNLOAD: 'hf:download',
   HF_CANCEL: 'hf:cancel',

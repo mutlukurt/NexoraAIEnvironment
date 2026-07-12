@@ -1044,6 +1044,22 @@ export default function ChatPanel() {
                       language={language}
                     />
                   </div>
+                ) : m.intentOptions && m.intentOptions.length > 0 ? (
+                  <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
+                    <p className="mb-2.5 text-[15px] text-ink-text">{m.content}</p>
+                    <div className="flex flex-col gap-2">
+                      {m.intentOptions.map((o, oi) => (
+                        <button
+                          key={oi}
+                          onClick={() => void useAppStore.getState().sendMessage(`${o.title}${o.preview ? ' — ' + o.preview : ''}`, { gatePassed: true })}
+                          className="flex flex-col items-start rounded-xl border border-ink-line bg-ink-panel px-3.5 py-2.5 text-left transition hover:border-brand-500 hover:bg-ink-hi/40"
+                        >
+                          <span className="text-[13px] font-bold text-ink-text">{o.title}</span>
+                          {o.preview && <span className="mt-0.5 text-[11px] text-ink-dim">{o.preview}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ) : (
                   <div className="w-full max-w-[92%] rounded-2xl rounded-tl-none border border-ink-line bg-ink-card/70 px-5 py-3.5">
                     <AssistantMessage

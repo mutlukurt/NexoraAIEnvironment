@@ -268,6 +268,30 @@ function registerIpc(): void {
     return embed(texts.slice(0, 256).map((t) => String(t)))
   })
 
+  // 14.5 — genel tek-atış model completion (Intent Gate + gelecek meta-geçişler).
+  // Yerel model yüklüyse ONUNLA (yalıtık), yoksa aktif API modeliyle; ikisi de
+  // yoksa {ok:false}. Kısa, deterministik-eğilimli (düşük sıcaklık).
+  ipcMain.handle(IPC.MODEL_COMPLETE, async (_e, input: { prompt: string; maxTokens?: number; system?: string }) => {
+    const prompt = String(input?.prompt ?? '')
+    if (!prompt.trim()) return { ok: false, error: 'boş prompt' }
+    const maxTokens = Math.min(Math.max(input?.maxTokens ?? 400, 32), 2048)
+    try {
+      const svc = await import('./llamaService')
+      if (svc.isModelLoaded()) {
+        const text = await svc.generateForServe(prompt, { maxTokens, temperature: 0.2 }, () => undefined)
+        return { ok: true, text }
+      }
+      const api = await import('./apiEngine')
+      if (api.hasApiOverride()) {
+        const text = await api.promptApi(input?.system ?? 'You are a precise assistant. Follow the instructions exactly.', prompt, () => undefined, undefined, { maxTokens })
+        return { ok: true, text }
+      }
+      return { ok: false, error: 'model yok' }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
   ipcMain.handle(IPC.HF_SEARCH, async (_e, query: string) => {
     try {
       return { ok: true, results: await searchModels(query) }

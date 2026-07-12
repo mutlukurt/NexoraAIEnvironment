@@ -162,6 +162,9 @@ export interface NexoraApi {
     has: () => Promise<{ has: boolean }>
     embed: (texts: string[]) => Promise<{ ok: boolean; vectors?: number[][]; error?: string }>
   }
+  model2: {
+    complete: (input: { prompt: string; maxTokens?: number; system?: string }) => Promise<{ ok: boolean; text?: string; error?: string }>
+  }
   advisor: {
     detect: () => Promise<import('../shared/advisor').HardwareInfo>
     plan: () => Promise<import('../shared/advisor').AdvisorPlan>
@@ -314,6 +317,9 @@ const api: NexoraApi = {
   embed: {
     has: () => ipcRenderer.invoke(IPC.EMBED_HAS),
     embed: (texts: string[]) => ipcRenderer.invoke(IPC.EMBED_EMBED, texts)
+  },
+  model2: {
+    complete: (input: { prompt: string; maxTokens?: number; system?: string }) => ipcRenderer.invoke(IPC.MODEL_COMPLETE, input)
   },
   hf: {
     search: (query: string) => ipcRenderer.invoke(IPC.HF_SEARCH, query),

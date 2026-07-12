@@ -24,6 +24,7 @@ import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
+import { looksUnderspecified } from '@/lib/intentGate'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
@@ -167,7 +168,7 @@ interface AppState {
    * quiet=true → temiz taramada mesaj atılmaz (Run öncesi sessiz denetim).
    */
   runProjectScan: (opts?: { apply?: boolean; quiet?: boolean }) => Promise<void>
-  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean }) => Promise<void>
+  sendMessage: (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean; gatePassed?: boolean }) => Promise<void>
   abort: () => Promise<void>
   clearError: () => void
   setAutoApply: (v: boolean) => void
@@ -1786,6 +1787,16 @@ let forceBuildNext = false
 let retrievalRoundActive = false
 // 14.4 — bozuk-direktif onarım turu kilidi (tek atış, sonsuz onarım guard'ı).
 let directiveRepairActive = false
+// 14.5 — Intent Gate soru/kart sunuldu, kullanıcının cevabı bekleniyor.
+let pendingGateRequest: string | null = null
+
+/** 14.5 — ucuz yerel/API completion ile intent-gate kararı. */
+async function runIntentGate(request: string, lang: 'tr' | 'en'): Promise<import('@/lib/intentGate').IntentDecision> {
+  const { buildIntentPrompt, parseIntentDecision } = await import('@/lib/intentGate')
+  const r = await window.nexora.model2?.complete({ prompt: buildIntentPrompt(request, lang), maxTokens: 320 })
+  if (!r?.ok || !r.text) return { kind: 'proceed' }
+  return parseIntentDecision(r.text)
+}
 
 // Çok dilli "düzelt" tetikleyicisi: TR, EN, ES, PT, FR, DE, IT, PL, RU, NL
 // + genel "hata/error" göndermeleri.
@@ -3861,7 +3872,18 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     )
   },
 
-  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean }) => {
+  sendMessage: async (text: string, opts?: { expectFile?: string; hideUser?: boolean; creative?: boolean; escalate?: boolean; gatePassed?: boolean }) => {
+    // 14.5 — Intent Gate bekliyorsa (önceki turda soru/kartlar sunuldu), bu
+    // kullanıcı mesajı CEVAP/seçimdir: orijinal istekle birleştir + build (gate
+    // tekrar açılmaz). Tıklanan kart zaten birleşik metinle gatePassed geldiği
+    // için pendingGateRequest'i temizler.
+    if (pendingGateRequest && !opts?.hideUser && !opts?.gatePassed) {
+      const orig = pendingGateRequest
+      pendingGateRequest = null
+      const combined = `${orig}\n\n[User clarification]: ${text}`
+      return get().sendMessage(combined, { ...opts, gatePassed: true })
+    }
+    if (opts?.gatePassed) pendingGateRequest = null
     const trimmed = text.trim()
     if (!trimmed || get().sending) return
     // 10.10 — yerel model YOKSA bile AÇIK seçili bir API modeli varsa gönderilebilir.
@@ -4277,6 +4299,56 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       !opts?.hideUser
     ) {
       ensureProjectIdentity(trimmed)
+    }
+
+    // 14.5 — INTENT GATE: YENİ-proje build isteği MUĞLAK ise, tek byte yazmadan
+    // önce ucuz bir yerel geçişle netleştir. Net görevlerde SESSİZ (looksUnder-
+    // specified ön-filtresi çoğunu eler). clarify → soru sor + bekle; options →
+    // yorum kartları (tek tık) + bekle; proceed → build. Kullanıcı cevabı/seçimi
+    // sonraki turda gatePassed ile gelir → tekrar sorulmaz. (Zeytin/Volta'daki
+    // sessiz-varsay-sonra-tamir döngüsünü kökten bitirir.)
+    if (
+      buildReq &&
+      allFiles.length === 0 &&
+      !isChatTurn &&
+      !isEnhanceTurn &&
+      !opts?.expectFile &&
+      !opts?.hideUser &&
+      !opts?.gatePassed &&
+      looksUnderspecified(trimmed)
+    ) {
+      try {
+        const decision = await runIntentGate(trimmed, get().language === 'tr' ? 'tr' : 'en')
+        if (decision.kind === 'clarify' && decision.question) {
+          pendingGateRequest = trimmed
+          set((s) => ({
+            sending: false,
+            messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `❓ ${decision.question}` }]
+          }))
+          void get().saveSessionNow()
+          return
+        }
+        if (decision.kind === 'options' && decision.options && decision.options.length >= 2) {
+          pendingGateRequest = trimmed
+          set((s) => ({
+            sending: false,
+            messages: [
+              ...s.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: get().language === 'tr' ? 'Bunu birkaç şekilde anlayabilirim — hangisi?' : 'This could mean a few things — which one?',
+                intentOptions: decision.options
+              }
+            ]
+          }))
+          void get().saveSessionNow()
+          return
+        }
+        // proceed → normal build (aşağı devam)
+      } catch {
+        /* gate başarısızsa sessizce build et (mevcut davranış) */
+      }
     }
 
     // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
