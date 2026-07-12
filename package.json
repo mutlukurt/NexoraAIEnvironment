@@ -16,6 +16,7 @@
     "copy-vendor": "node scripts/copy-vendor.js && node scripts/gen-lucide.js",
     "gen-lucide": "node scripts/gen-lucide.js",
     "dist": "npm run build && electron-builder --linux deb",
+    "dist:snap": "npm run build && electron-builder --linux snap",
     "dist:dir": "npm run build && electron-builder --linux --dir",
     "test:scan": "node tests/debug-scan.mjs",
     "test:locate": "node tests/fault-locate.mjs",
@@ -106,10 +107,30 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "snap",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "Development",
       "maintainer": "NexoraAI"
+    },
+    "snap": {
+      "base": "core22",
+      "grade": "devel",
+      "confinement": "devmode",
+      "summary": "Local-first, agent-first desktop AI dev environment",
+      "plugs": [
+        "default",
+        "network-bind",
+        "removable-media",
+        "hardware-observe",
+        "system-observe",
+        "process-control"
+      ]
     },
     "deb": {
       "depends": [
