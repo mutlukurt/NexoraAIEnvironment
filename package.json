@@ -4,6 +4,7 @@
   "description": "NexoraAI - Local GGUF, agent-first desktop app",
   "main": "./out/main/index.js",
   "author": "NexoraAI",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },
@@ -16,7 +17,7 @@
     "copy-vendor": "node scripts/copy-vendor.js && node scripts/gen-lucide.js",
     "gen-lucide": "node scripts/gen-lucide.js",
     "dist": "npm run build && electron-builder --linux deb",
-    "dist:snap": "npm run build && electron-builder --linux snap",
+    "dist:snap": "npm run build && electron-builder --linux snap && bash scripts/fix-snap.sh",
     "dist:dir": "npm run build && electron-builder --linux --dir",
     "test:scan": "node tests/debug-scan.mjs",
     "test:locate": "node tests/fault-locate.mjs",
