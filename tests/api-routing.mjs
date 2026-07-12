@@ -18,7 +18,7 @@ const work = mkdtempSync(join(tmpdir(), 'nexora-routing-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
 writeFileSync(entry, `export { shouldUseApi, setApiConfig } from '${join(repo, 'electron/main/apiEngine.ts')}'\n`)
-await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
+await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['node-llama-cpp', '@node-llama-cpp/*'] })
 const { shouldUseApi, setApiConfig } = await import(pathToFileURL(outfile).href)
 
 const CASES = [

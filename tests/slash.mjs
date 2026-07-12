@@ -27,7 +27,12 @@ export { parseMemories } from '${join(repo, 'src/lib/agentActions.ts')}'
 await build({
   entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile,
   // agentActions zustand store'ları import ediyor; test yalnız saf parseMemories'e bakar → stub'la.
-  alias: { '@/store/artifactsStore': join(work, 'stub.mjs'), '@/store/termStore': join(work, 'stub.mjs') }
+  alias: { '@/store/artifactsStore': join(work, 'stub.mjs'), '@/store/termStore': join(work, 'stub.mjs') },
+  // Entry /tmp'de olduğundan esbuild @shared/@ tsconfig-path'lerini bulamıyor →
+  // açıkça çöz (agentActions @shared/fileOps import ediyor).
+  plugins: [{ name: 'nx-alias', setup(b) {
+    b.onResolve({ filter: /^@shared\// }, (a) => ({ path: join(repo, 'electron/shared', a.path.slice(8)) + '.ts' }))
+  } }]
 })
 const mod = await import(pathToFileURL(outfile).href)
 const { expandSlashCommand, matchSlash, isSlashInvocation, parseMemories } = mod

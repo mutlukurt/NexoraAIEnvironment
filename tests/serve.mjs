@@ -19,7 +19,7 @@ const work = mkdtempSync(join(tmpdir(), 'nexora-serve-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
 writeFileSync(entry, `export * from '${join(repo, 'electron/main/serveEngine.ts')}'\n`)
-await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['node:*'] })
+await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['node:*', 'node-llama-cpp', '@node-llama-cpp/*'] })
 const serve = await import(pathToFileURL(outfile).href)
 
 let pass = 0

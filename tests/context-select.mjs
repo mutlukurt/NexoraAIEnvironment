@@ -17,7 +17,7 @@ const work = mkdtempSync(join(tmpdir(), 'nexora-ctx-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
 writeFileSync(entry, `export { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '${join(repo, 'src/lib/contextSelect.ts')}'\n`)
-await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
+await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['node-llama-cpp', '@node-llama-cpp/*'] })
 const { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } = await import(pathToFileURL(outfile).href)
 
 let pass = 0

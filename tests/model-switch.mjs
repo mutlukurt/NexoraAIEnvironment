@@ -18,7 +18,7 @@ const work = mkdtempSync(join(tmpdir(), 'nexora-mswitch-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
 writeFileSync(entry, `export { shouldUseApi, setApiConfig, setActiveOverride, getApiConfig } from '${join(repo, 'electron/main/apiEngine.ts')}'\n`)
-await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['node:*'] })
+await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile, external: ['node:*', 'node-llama-cpp', '@node-llama-cpp/*'] })
 const { shouldUseApi, setApiConfig, setActiveOverride } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
