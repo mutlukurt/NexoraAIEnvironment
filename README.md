@@ -22,7 +22,7 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
-3. [Release Scorecards (newest → oldest)](#offline-image-generation--the-intent-based-agent--the-v019-scorecard) → [VOLTA output](#volta-output)
+3. [Release Scorecards (newest → oldest)](#the-intent-brain--model-only-repair--the-v020-scorecard-phase-14) → [VOLTA output](#volta-output)
 4. [Feature Overview](#feature-overview)
 5. [Screenshots](#screenshots)
 6. [Getting Started](#getting-started)
@@ -42,7 +42,7 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 **In plain words:** NexoraAI is a desktop app where you type *"build me a modern portfolio website"* and an AI model — running on **your own computer** — writes the project, shows you every file it creates, runs it on localhost in your browser, and lets you refine it by chatting ("make the About section longer", "add framer-motion", "download the Outfit font"). When you're happy, one click exports a complete, professional, ready-to-run project folder.
 
-**In technical words:** NexoraAI is an Electron desktop application that hosts GGUF-format LLMs via `node-llama-cpp` in an isolated Node.js worker process (or an opt-in OpenAI-compatible API from 157 providers), orchestrates them with **capability-adaptive** system prompts — a sectioned, grammar-guarded pipeline for small models and a one-shot **frontier** path for capable ones (a strong API or a ≥ 13B GGUF) — parses their streamed output into a virtual file workspace, iterates by **complete-file rewrites** verified by a deterministic debug engine, exposes real side-effect tools to the model (shell, HTTP fetch, Google Fonts, npm, Vite dev server, MCP), and deterministically scaffolds the generated files into a complete Vite + React + TypeScript + Tailwind project on export.
+**In technical words:** NexoraAI is an Electron desktop application that hosts GGUF-format LLMs via `node-llama-cpp` in an isolated Node.js worker process (or an opt-in OpenAI-compatible API from 157 providers), orchestrates them with **capability-adaptive** system prompts — a sectioned, grammar-guarded pipeline for small models and a one-shot **frontier** path for capable ones (a strong API or a ≥ 13B GGUF) — parses their streamed output into a virtual file workspace, iterates by **complete-file rewrites** verified by a debug engine that **detects** issues deterministically (compiler diagnostics, scan, runtime capture) and hands **every fix to the model** (as of v0.20 — the old deterministic "tool" repair layer was removed), exposes real side-effect tools to the model (shell, HTTP fetch, Google Fonts, npm, Vite dev server, MCP), and deterministically scaffolds the generated files into a complete Vite + React + TypeScript + Tailwind project on export.
 
 Everything — inference, file generation, package installation, the dev server — happens locally. The status bar says it honestly: *"tüm işlemler cihazınızda local olarak gerçekleşir"* (all operations run locally on your device).
 
@@ -57,6 +57,36 @@ Cloud AI builders (Bolt, Lovable, v0) are excellent, but they have three structu
 | **Control** | One fixed model, one fixed pipeline | Any GGUF you want — swap models like cartridges |
 
 NexoraAI is **model-agnostic by design**: on a modest laptop it drives a 3B/7B model with a strategy tuned for small models (sectioned generation, format grammars, tight caps); plug a **≥ 13B GGUF** on a workstation — or opt into a frontier **API** — and the *same app* automatically switches to the **unleashed** path: one-shot, multi-file, elite-persona project generation with none of the small-model crutches. The tool's value grows every time the open-model ecosystem improves, with zero code changes. *(An optional BYO-key API mode — 157 providers, keys in the OS keychain — exists for those who want a frontier cloud model; the local, nothing-leaves-your-machine path stays the default.)*
+
+## The Intent Brain & Model-Only Repair — the v0.20 Scorecard (Phase 14)
+
+v0.19 made the app fully intent-based. **v0.20 gives it a brain to match** — Phase 14 "Intent Brain": it retrieves the *right* context instead of dumping whole files, it **asks before it spends minutes building the wrong thing**, and it exploits the engine it already runs (KV-slot resume, embeddings, triggered grammars). And one owner decision made mid-test reshaped the whole repair pipeline: **the deterministic "tool" repair layer (rung 0) was removed — every fix now goes to the model**, intent-based, and it's *more* reliable for it.
+
+**🧭 A retrieval brain, not a file-dump (14.1–14.3).** A repo-map replaces the old whole-file dump: a TypeScript-AST **signature skeleton** with personalized-PageRank ranking, so the model sees *what exists and how to call it* within budget (`📎 …5 files summarized in the repo-map with their signatures`). When it needs more, it emits **`[SEARCH]`** / **`[SYMBOL]`** retrieval directives and the app feeds real results back (live-proven: *"find where CheckCircle is used, then change it"* → `🔎 Search: CheckCircle` → the model grounded its answer on the real result instead of guessing). An **opt-in offline semantic index** (GGUF embeddings on the engine's own `--embedding` server) is the third retrieval layer.
+
+**❓ Ask before you build (14.5).** A calibrated **Intent Gate** runs before any write: a vague *"build me an app"* now gets a clarifying question or up to five clickable interpretation cards — *not* a wrong three-minute build. Net, detailed requests skip it entirely. Live-proven: *"bana bir uygulama yap"* → *"❓ What is the app's purpose?"* instead of a guess.
+
+**📐 Fidelity, conventions & engine turbo (14.4/14.6/14.7).** A **triggered directive grammar** + one bounded repair turn keep directive payloads valid on small models; **AGENTS.md / CLAUDE.md** project conventions are read and obeyed (live-proven: a rule *"every component must start with `// NEXORA-RULE-OK`"* → the next generated component started with exactly that). The engine gained **KV-slot instant-resume** (`--slot-save-path`, always-on — verified live in the running llama-server) for ~93 % faster session resume.
+
+**🩹 Repair is now 100 % model-based — and it's better for it.** The deterministic rung-0 "tool" repair (`autoRepair`) is **gone**. Every diagnosis — post-build, runtime, or scan — goes straight to the model, which fixes it **intent-based across every affected file in one turn**, with an identity-pinned regenerate that can't wander off-task. Live-proven on the exact build that used to fail: a multi-component landing page with duplicate React imports across files that previously **rolled back** now gets **fixed in one model round and verified** (`🩹 error fixed — output verified`, 8 clean files). Detection stays (the scanner still finds bugs and hands them over); only the tool-fix was removed.
+
+**🖌 Edit the last image, in place (14.9).** A new **`[EDIT]`** directive re-renders the last generated image with on-device img2img — *"turn this into night mode"* keeps the **same subject** (an autoregressive-stickiness bug that turned a balloon into a green dragon was found live and fixed with an intent-first grant).
+
+**🔎 "Renders" ≠ "works" (14.10) & history parity.** A static **behavior check** flags Potemkin UI after a build — dead buttons, dead links (`href="#"`, `href=""`), no-op handlers (live-proven catching a whole Navbar of dead links). And a subtle parity gap closed: on a model switch, a **strong local model now carries over as much conversation as the API would** (the seed budget scales to the model's context window instead of a flat 12 k) — the local and API history paths are the same builder, now proven byte-identical by test.
+
+| What was true (≤ v0.19) | What v0.20 brings |
+| --- | --- |
+| Context = whole files dumped, with a silent ~400-file cliff | **Repo-map signature skeleton** (TS-AST + personalized PageRank) within budget; `[SEARCH]`/`[SYMBOL]` retrieval + opt-in semantic index |
+| It guessed at vague requests and built for minutes | **Intent Gate** asks a clarifying question or offers interpretation cards *before* writing a byte |
+| Project conventions ignored; directive payloads a 3B mangled | **AGENTS.md/CLAUDE.md obeyed**; triggered grammar + one repair turn keep directives valid |
+| Session/project resume re-processed the whole prompt | **KV-slot instant-resume** (`--slot-save-path`, always-on) |
+| **Fixes tried a deterministic "tool" first — which couldn't, then rolled back** | **Removed.** Every fix goes to the model — multi-file-aware, identity-pinned regenerate; the duplicate-import build that rolled back now fixes in one round |
+| No way to edit a generated image | **`[EDIT]`** img2img — modify the last image on-device, subject preserved |
+| "It renders" was treated as "it works" | **Behavior check** flags dead buttons/links/handlers after every build |
+| A strong local model carried less history than the API on a switch | **History parity** — seed carryover scales to the model's context window (proven byte-identical to the API path) |
+| Engine test suites | **`test:engine` — 57 suites green**; 8 new Phase-14 suites; repair suites repurposed to detection |
+
+---
 
 ## Offline Image Generation & the Intent-Based Agent — the v0.19 Scorecard
 
