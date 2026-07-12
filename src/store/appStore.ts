@@ -25,6 +25,7 @@ import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/li
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
 import { looksUnderspecified } from '@/lib/intentGate'
+import { extractAgentDocs } from '@/lib/specDocs'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
@@ -4446,6 +4447,17 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // kullanıcı düzeltme istiyorsa, hatanın tamamı (dosya+satır+kod çerçevesi)
     // modele otomatik iliştirilir — kullanıcının teknik tarif yapması gerekmez.
     let outgoing = trimmed
+    // 14.6 — AGENTS.md / CLAUDE.md interop: projedeki (artifacts) çapraz-araç
+    // kural dosyalarını build/iterasyon turlarına bağlayıcı proje kuralı olarak
+    // enjekte et (sohbet/plan/prose turları hariç — gürültü). En yakın kazanır.
+    if (!isChatTurn && !isPlanTurn && !isEnhanceTurn && allFiles.length > 0) {
+      try {
+        const agentDocs = extractAgentDocs(allFiles.map((f) => ({ path: f.path, content: f.content })))
+        if (agentDocs) outgoing = `${agentDocs}\n\n${outgoing}`
+      } catch {
+        /* interop opsiyonel */
+      }
+    }
     // Enhance sonrası brief yeniden gönderimi: brief'i çıplak göndermek 3B'yi
     // "devam eden brief yazımı" sanıp tekrarlamaya itiyordu (0 dosya vakası).
     // Kod turuna düşen yeniden gönderim, açık bir üretim emriyle sarılır
