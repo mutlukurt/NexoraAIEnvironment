@@ -83,6 +83,52 @@ async function readAll(projectName: string): Promise<ParsedItem[]> {
  * Deterministik öğrenme: aynı tür+başlık aynı maddeye düşer (hits artar,
  * tarih tazelenir — şişme yok); tavan aşılırsa EN AZ vurulan en eski düşer.
  */
+/** 19.1 — başlığı normalize et (küçük harf, alnum-sözcükler sıralı) → yakın-kopya anahtarı. */
+function normTitle(t: string): string {
+  return (t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).sort().join(' ')
+}
+
+/**
+ * 19.1 — "dream" konsolidasyonu (saf): YAKIN-kopya başlıklı maddeleri (aynı kind +
+ * normalize-başlık) tek maddeye birleştir. learnKnowledge zaten TAM-başlık kopyalarını
+ * birleştirir (aynı dosya); bu, "Hero fix" ↔ "fix hero" ↔ "Hero-fix" gibi FARKLI yazımları
+ * yakalar. Kazanan = en çok hits; hits TOPLANIR, en yeni updatedAt + en uzun gövde korunur.
+ */
+export function consolidateItems(items: ParsedItem[]): { items: ParsedItem[]; mergedFiles: string[] } {
+  const groups = new Map<string, ParsedItem[]>()
+  for (const it of items) {
+    const key = it.kind + '|' + normTitle(it.title)
+    const g = groups.get(key) ?? []
+    g.push(it)
+    groups.set(key, g)
+  }
+  const merged: ParsedItem[] = []
+  const mergedFiles: string[] = []
+  for (const g of groups.values()) {
+    if (g.length === 1) {
+      merged.push(g[0])
+      continue
+    }
+    const winner = [...g].sort((a, b) => b.hits - a.hits || b.updatedAt - a.updatedAt)[0]
+    const totalHits = g.reduce((s, x) => s + x.hits, 0)
+    const bestBody = [...g].sort((a, b) => (b.body?.length ?? 0) - (a.body?.length ?? 0))[0].body
+    merged.push({ ...winner, hits: totalHits, updatedAt: Math.max(...g.map((x) => x.updatedAt)), body: bestBody })
+    for (const x of g) if (x.file !== winner.file) mergedFiles.push(x.file)
+  }
+  return { items: merged, mergedFiles }
+}
+
+/** 19.1 — diskte dream konsolidasyonu koştur: yakın-kopyaları birleştir, kaybedenleri sil. */
+export async function dreamConsolidate(projectName: string): Promise<{ merged: number }> {
+  const all = await readAll(projectName)
+  const { items, mergedFiles } = consolidateItems(all)
+  if (mergedFiles.length === 0) return { merged: 0 }
+  const dir = dirOf(projectName)
+  for (const it of items) await fs.writeFile(join(dir, it.file), serialize(it), 'utf8').catch(() => undefined)
+  for (const f of mergedFiles) await fs.unlink(join(dir, f)).catch(() => undefined)
+  return { merged: mergedFiles.length }
+}
+
 export async function learnKnowledge(
   projectName: string,
   input: { kind: KnowledgeItemMeta['kind']; title: string; body: string; sig?: string }
@@ -103,11 +149,16 @@ export async function learnKnowledge(
     updatedAt: Date.now()
   }
   await fs.writeFile(join(dir, file), serialize(item), 'utf8')
-  // Tavan: en az güvenilen (hits), eşitlikte en eski madde düşer.
+  // Tavan: önce 19.1 dream konsolidasyonu (yakın-kopyaları birleştirerek VERİ KAYBETMEDEN
+  // yer aç); hâlâ taşıyorsa en az güvenilen (hits), eşitlikte en eski madde düşer.
   const all = await readAll(projectName)
   if (all.length > MAX_ITEMS) {
-    const victim = [...all].sort((a, b) => a.hits - b.hits || a.updatedAt - b.updatedAt)[0]
-    if (victim && victim.file !== file) await fs.unlink(join(dir, victim.file)).catch(() => undefined)
+    const cons = await dreamConsolidate(projectName)
+    const after = cons.merged > 0 ? await readAll(projectName) : all
+    if (after.length > MAX_ITEMS) {
+      const victim = [...after].sort((a, b) => a.hits - b.hits || a.updatedAt - b.updatedAt)[0]
+      if (victim && victim.file !== file) await fs.unlink(join(dir, victim.file)).catch(() => undefined)
+    }
   }
   return { ok: true, file, hits: item.hits }
 }

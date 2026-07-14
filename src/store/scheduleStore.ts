@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
-import { makeScheduled, advanceAfterRun, dueTasks, type ScheduledTask } from '@/lib/schedule'
+import { makeScheduled, advanceAfterRun, dueTasks, pruneSpent, type ScheduledTask } from '@/lib/schedule'
 
 const KEY = 'nexora.scheduled'
 
@@ -25,7 +25,7 @@ function load(): ScheduledTask[] {
 
 interface ScheduleState {
   tasks: ScheduledTask[]
-  add: (label: string, prompt: string, everyMinutes: number, jitterSec?: number) => void
+  add: (label: string, prompt: string, everyMinutes: number, jitterSec?: number, maxRuns?: number) => void
   update: (id: string, patch: Partial<Pick<ScheduledTask, 'label' | 'prompt' | 'everyMinutes' | 'jitterSec' | 'enabled'>>) => void
   remove: (id: string) => void
   /** Vadesi gelenleri kuyruğa koy + ilerlet. Fırlatılan görev sayısını döndürür. */
@@ -42,9 +42,9 @@ function persist(tasks: ScheduledTask[]): void {
 
 export const useScheduleStore = create<ScheduleState>((set, get) => ({
   tasks: load(),
-  add: (label, prompt, everyMinutes, jitterSec = 30) => {
+  add: (label, prompt, everyMinutes, jitterSec = 30, maxRuns = 0) => {
     if (!prompt.trim()) return
-    const t = makeScheduled(nanoid(), label, prompt, everyMinutes, Date.now(), jitterSec)
+    const t = makeScheduled(nanoid(), label, prompt, everyMinutes, Date.now(), jitterSec, maxRuns)
     const tasks = [...get().tasks, t]
     persist(tasks)
     set({ tasks })
@@ -64,7 +64,8 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     if (due.length === 0) return 0
     const dueIds = new Set(due.map((d) => d.id))
     for (const t of due) enqueue(t.prompt)
-    const tasks = get().tasks.map((t) => (dueIds.has(t.id) ? advanceAfterRun(t, now, Math.random()) : t))
+    // 19.3: koşanları ilerlet (runCount++), sonra maxRuns'a ulaşıp öz-sonlananları temizle.
+    const tasks = pruneSpent(get().tasks.map((t) => (dueIds.has(t.id) ? advanceAfterRun(t, now, Math.random()) : t)))
     persist(tasks)
     set({ tasks })
     return due.length

@@ -19,6 +19,7 @@ export default function SchedulePanel({ language }: { language: Lang }) {
   const [label, setLabel] = useState('')
   const [prompt, setPrompt] = useState('')
   const [every, setEvery] = useState(60)
+  const [oneShot, setOneShot] = useState(false) // 19.3: tek-atış — 1 koşudan sonra kendini siler
 
   const fmtNext = (ts: number) => {
     if (!ts) return '—'
@@ -28,10 +29,11 @@ export default function SchedulePanel({ language }: { language: Lang }) {
 
   const submit = () => {
     if (!prompt.trim()) return
-    add(label, prompt, every)
+    add(label, prompt, every, undefined, oneShot ? 1 : 0)
     setLabel('')
     setPrompt('')
     setEvery(60)
+    setOneShot(false)
   }
 
   return (
@@ -104,6 +106,14 @@ export default function SchedulePanel({ language }: { language: Lang }) {
             className="w-20 rounded-lg border border-ink-line bg-ink-card px-2.5 py-1.5 text-xs text-ink-text focus:border-amber-500 focus:outline-none"
           />
           <span className="text-[11px] font-bold text-ink-mut">{tr ? 'dakika' : 'min'}</span>
+          {/* 19.3: tek-atış — görev 1 kez koşup kendini siler (öz-sonlandırma). */}
+          <label
+            className="flex items-center gap-1 text-[11px] font-bold text-ink-mut"
+            title={tr ? 'Bir kez koşup kendini siler (öz-sonlandırma)' : 'Run once, then self-remove'}
+          >
+            <input type="checkbox" checked={oneShot} onChange={(e) => setOneShot(e.target.checked)} className="h-3.5 w-3.5 accent-amber-500" />
+            {tr ? 'tek atış' : 'once'}
+          </label>
           <button
             onClick={submit}
             disabled={!prompt.trim()}
