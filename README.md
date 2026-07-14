@@ -93,6 +93,29 @@ sudo snap install nexora-ai --edge --devmode
 
 ---
 
+## Session Integrity, Radical Transparency & Context Economy — the v0.21 Scorecard (Phases 15–17.3)
+
+Three phases distilled from a 7-agent study of Piebald AI + the `claude-code-system-prompts` corpus — every one **local-first, opt-in, and verified live in the real app** (real Electron + CDP).
+
+**🔐 Phase 15 — Session Integrity & Config Profiles.** A `[RUN]`/git-push permission ask used to live only in memory — a crash mid-approval **lost it silently**. Now it serializes into the session (`pendingApprovals`) and the **PermissionModal comes back on relaunch**; approving re-runs the exact structured actions (live-proven: a staged session reopened with the `npm install` prompt intact). **Config Profiles** add a selectable work mode — `{trust tier + blocked directives + system-prompt nudge + sampling}` — with three presets (**Ideation** = read-only, no build; **Coding** = full; **Frontend build** = ask-first). And the sidebar grew **per-session status badges** (working / awaiting-approval / verified / needs-review / error) — live for the active session, persisted for the rest.
+
+**🔎 Phase 16 — Radical Transparency.** Piebald's paywalled HTTP-inspector, reframed for local-first: an **opt-in Transparency Inspector** (Settings → Engine) captures each turn's **exact system prompt, the prompt sent to the model, sampling, and WHERE it ran** — **🔒 "Local — nothing left your machine"** vs **☁ "Sent to \<provider\>"**. Directive docs became **auditable-by-design** (prefer transparent `[SEARCH]`/`[MCP]` over an opaque shell one-liner), the hardest constraints are now **bookended** at the head *and* tail of the system prompt (U-shaped attention for small models), and a one-click **local export** writes the conversation + change summary to Markdown — the honest local answer to a cloud share-link.
+
+**🧠 Phase 17.3 — Memory-attach precision.** The project knowledge base used to attach its top-hit items **regardless of what the turn was actually about** — burning precious context on a 4–8K-window model. Now knowledge is **scored against the turn's real query** and only relevant items attach; when nothing is relevant, that's a **valid ZERO-result** (attach nothing, not noise). Live-proven: a "hero" query returned only the Hero item, a "kubernetes" query returned **nothing**.
+
+| What was true (≤ v0.20) | What v0.21 brings |
+| --- | --- |
+| A permission ask lived only in memory — a crash lost it silently | **Reboot-resilient `pendingApprovals`** — the modal returns on relaunch, approved actions re-run |
+| One global trust/behavior config | **Config Profiles** — Ideation / Coding / Frontend build, selectable; profile overrides trust tier + blocks directives |
+| No per-session status at a glance | **Sidebar status badges** — working / awaiting-approval / verified / needs-review / error |
+| No proof of what the model saw or where it ran | **Transparency Inspector** — exact system prompt + sampling + route (🔒 local / ☁ provider), opt-in |
+| Directives were opaque; long prompts drifted mid-context | **Auditable-by-design docs** + **U-shaped attention** bookend |
+| No way to save/share a session locally | **Local Markdown export** — conversation + diff summary, nothing uploaded |
+| Knowledge attached top-hit items regardless of the query | **Query-scored memory** + **valid ZERO-result** — relevant items only, or nothing |
+| Engine test suites | **`test:engine` green** — 6 new suites (sessionstatus · approvalpersist · profiles · transparency · export · memory) |
+
+---
+
 ## The Intent Brain & Model-Only Repair — the v0.20 Scorecard (Phase 14)
 
 > **🩹 v0.20.1 → v0.20.2 patch:** fixed a startup bug where a leftover queued or scheduled task could auto-fire the moment the app opened — before any model was ready — producing a red *"no model loaded, API turn failed"* error even though the user did nothing. v0.20.1 guarded the queue and paused restored queues; **v0.20.2 closes the real root cause**: the send path swallowed the failure and painted the red banner before the queue's own handler could run, so an auto (queued/scheduled) turn that fails on a not-yet-ready engine now reverts the task, pauses the queue quietly, and shows a soft *"engine not ready — send a message to resume"* instead of a scary error (manual turns still show errors normally).
