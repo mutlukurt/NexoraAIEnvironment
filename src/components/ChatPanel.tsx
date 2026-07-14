@@ -9,6 +9,8 @@ import { useHfStore } from '@/store/hfStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
 import RewindMenu from '@/components/RewindMenu'
+import RecordButton from '@/components/RecordButton'
+import { appendDictation } from '@shared/whisperParse'
 import { expandSlashCommand, matchSlash, type SlashCommand } from '@/lib/slashCommands'
 import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles, Download, Maximize2, FolderPlus, GitBranch } from 'lucide-react'
 import { createPortal } from 'react-dom'
@@ -829,6 +831,12 @@ export default function ChatPanel() {
                     >
                       <ImagePlus className="h-4.5 w-4.5" />
                     </button>
+                    {/* 20.3 — offline dikte (hero girişinde de). */}
+                    <RecordButton
+                      language={language}
+                      disabled={sending}
+                      onText={(d) => setText((prev) => appendDictation(prev, d))}
+                    />
                     <ModelSelect />
                     {isImageModel ? <ImageOptions /> : <ComposerOptions />}
                     {pendingImage && (
@@ -1219,6 +1227,12 @@ export default function ChatPanel() {
               >
                 <ImagePlus className="h-4.5 w-4.5" />
               </button>
+              {/* 20.3 — offline dikte: mikrofon → whisper.cpp → composer'a metin. */}
+              <RecordButton
+                language={language}
+                disabled={sending}
+                onText={(d) => setText((prev) => appendDictation(prev, d))}
+              />
               <ModelSelect />
               {isImageModel ? <ImageOptions /> : <ComposerOptions />}
               <div className="ml-auto shrink-0">

@@ -219,6 +219,11 @@ export const IPC = {
   IMAGE_MODEL_SEARCH: 'image:model-search',
   IMAGE_MODEL_DOWNLOAD_URL: 'image:model-download-url',
   IMAGE_DL_STATUS: 'image:dl-status',
+  // 20.3 — yerel Whisper dikte (offline ses→metin).
+  WHISPER_STATUS: 'whisper:status',
+  WHISPER_TRANSCRIBE: 'whisper:transcribe',
+  WHISPER_MODEL_DOWNLOAD: 'whisper:model-download',
+  WHISPER_PROGRESS: 'whisper:progress',
   ADVISOR_DETECT: 'advisor:detect',
   ADVISOR_PLAN: 'advisor:plan',
   SESSIONS_LIST: 'sessions:list',

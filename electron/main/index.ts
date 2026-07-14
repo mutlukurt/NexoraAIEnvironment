@@ -143,6 +143,12 @@ function createWindow(): void {
 
   mainWindow = win
 
+  // 20.3 — mikrofon (dikte) izni: yalnız 'media' (getUserMedia audio) verilir; ses
+  // cihazda kalır, whisper.cpp offline yazıya çevirir. Diğer tüm izinler reddedilir.
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => {
+    cb(permission === 'media')
+  })
+
   // ready-to-show ilk boyamaya bağlıdır; GPU/compositor aksarsa hiç ateşlenmeyebilir.
   // Pencere hiçbir koşulda gizli kalmasın diye kısa bir emniyet zamanlayıcısı var.
   const showFallback = setTimeout(() => {
@@ -656,6 +662,38 @@ function registerIpc(): void {
   ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD_URL, async (_e, input: { url: string; file: string }) => {
     const li = await import('./localImageService')
     return li.downloadImageUrl(input.url, input.file, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
+  })
+
+  // 20.3 — Yerel Whisper dikte: durum (binary+model hazır mı) + katalog.
+  ipcMain.handle(IPC.WHISPER_STATUS, async () => {
+    try {
+      const ws = await import('./whisperService')
+      return { ok: true, ...(await ws.whisperStatus()) }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // Renderer'ın yakaladığı WAV'ı offline yazıya çevir (ses cihazda kalır).
+  ipcMain.handle(IPC.WHISPER_TRANSCRIBE, async (_e, input: { wav: ArrayBuffer; lang?: string; modelPath?: string }) => {
+    try {
+      const ws = await import('./whisperService')
+      return await ws.transcribe(input.wav, { lang: input.lang, modelPath: input.modelPath }, (msg) =>
+        mainWindow?.webContents.send(IPC.WHISPER_PROGRESS, { msg })
+      )
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // Katalogdan whisper ggml modelini tek-tık indir (ilerleme WHISPER_PROGRESS ile).
+  ipcMain.handle(IPC.WHISPER_MODEL_DOWNLOAD, async (_e, id: string) => {
+    try {
+      const ws = await import('./whisperService')
+      return await ws.downloadWhisperModel(id, (msg) => mainWindow?.webContents.send(IPC.WHISPER_PROGRESS, { msg }))
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   ipcMain.handle(IPC.ADVISOR_DETECT, async () => {

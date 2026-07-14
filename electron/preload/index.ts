@@ -165,6 +165,12 @@ export interface NexoraApi {
   model2: {
     complete: (input: { prompt: string; maxTokens?: number; system?: string }) => Promise<{ ok: boolean; text?: string; error?: string }>
   }
+  whisper: {
+    status: () => Promise<{ ok: boolean; binary?: boolean; model?: boolean; ready?: boolean; catalog?: Array<{ id: string; label: string; sizeMb: number; note: string }>; error?: string }>
+    transcribe: (input: { wav: ArrayBuffer; lang?: string; modelPath?: string }) => Promise<{ ok: boolean; text?: string; error?: string }>
+    downloadModel: (id: string) => Promise<{ ok: boolean; path?: string; error?: string }>
+    onProgress: (cb: (event: { msg: string }) => void) => () => void
+  }
   advisor: {
     detect: () => Promise<import('../shared/advisor').HardwareInfo>
     plan: () => Promise<import('../shared/advisor').AdvisorPlan>
@@ -323,6 +329,16 @@ const api: NexoraApi = {
   },
   model2: {
     complete: (input: { prompt: string; maxTokens?: number; system?: string }) => ipcRenderer.invoke(IPC.MODEL_COMPLETE, input)
+  },
+  whisper: {
+    status: () => ipcRenderer.invoke(IPC.WHISPER_STATUS),
+    transcribe: (input: { wav: ArrayBuffer; lang?: string; modelPath?: string }) => ipcRenderer.invoke(IPC.WHISPER_TRANSCRIBE, input),
+    downloadModel: (id: string) => ipcRenderer.invoke(IPC.WHISPER_MODEL_DOWNLOAD, id),
+    onProgress: (cb: (event: { msg: string }) => void) => {
+      const handler = (_e: unknown, data: { msg: string }) => cb(data)
+      ipcRenderer.on(IPC.WHISPER_PROGRESS, handler as never)
+      return () => ipcRenderer.off(IPC.WHISPER_PROGRESS, handler as never)
+    }
   },
   hf: {
     search: (query: string) => ipcRenderer.invoke(IPC.HF_SEARCH, query),
