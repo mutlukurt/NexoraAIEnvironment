@@ -38,7 +38,9 @@ function toMeta(d: SessionData): SessionMeta {
     projectName: d.projectName,
     // 15.3: son-bilinen durum rozetini listeye taşı — pasif oturum kartı için (yoksa
     // kenar çubuğu rozeti asla görünmezdi: canlı test bulgusu).
-    statusBadge: d.statusBadge
+    statusBadge: d.statusBadge,
+    // 20.1: dal kökenini listeye taşı — sidebar "🌿 <ebeveyn>" rozeti diskteki metadan.
+    branchedFrom: d.branchedFrom
   }
 }
 

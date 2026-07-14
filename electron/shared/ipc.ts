@@ -450,6 +450,8 @@ export interface SessionMeta {
   projectName?: string
   /** 15.3: son-bilinen oturum durumu — pasif oturumların kenar çubuğu rozeti (aktif oturum canlı türetilir). */
   statusBadge?: 'working' | 'awaiting-approval' | 'verified' | 'needs-review' | 'error'
+  /** 20.1: bu oturum başka bir oturumun bir turundan DALLANDIYSA köken işareti (DAG). */
+  branchedFrom?: { id: string; title: string; messageId: string; ts: number }
 }
 
 /**

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { tt, localeOf } from '@/lib/i18n'
 import { useAppStore, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
-import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command, Download } from 'lucide-react'
+import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command, Download, GitBranch } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { splitSessions, groupByProject } from '@/lib/sessionGroups'
 import { computeSessionStatus, type SessionStatus } from '@/lib/sessionStatus'
@@ -87,6 +87,16 @@ export default function Sidebar() {
             {new Date(sess.updatedAt).toLocaleDateString(localeOf(language), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             {project ? ` · ${sess.fileCount} ${t.filesCount}` : ''}
           </p>
+          {/* 20.1: dal göstergesi — bu oturum başka bir turdan dallandıysa kökeni. */}
+          {sess.branchedFrom && (
+            <p
+              title={tt(language, 'Branched from') + ': ' + sess.branchedFrom.title}
+              className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-medium text-amber-600 dark:text-amber-400"
+            >
+              <GitBranch className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate">{sess.branchedFrom.title}</span>
+            </p>
+          )}
         </div>
         {status && (
           <span

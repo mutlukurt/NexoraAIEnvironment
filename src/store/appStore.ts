@@ -40,6 +40,7 @@ import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories, detectMalformedDirectives } from '@/lib/agentActions'
 import { reconstructDirectives } from '@/lib/pendingApprovals'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
+import { branchMessages, branchTitle, makeBranchOrigin, type BranchOrigin } from '@/lib/branch'
 import { turnDiffStats } from '@/lib/diffStat'
 import { buildApiHistory, seedHistoryBudget } from '@/lib/apiHistory'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
@@ -137,6 +138,11 @@ interface AppState {
   checkpoints: import('@shared/ipc').CheckpointEntry[]
   /** 10.4: bir checkpoint'e geri sar — kod / sohbet / ikisi. */
   rewindTo: (id: string, mode: 'code' | 'chat' | 'both') => Promise<void>
+  /** 20.1: bu oturum bir daldan doğduysa köken (banner + sidebar rozeti); yoksa null. */
+  branchOrigin: BranchOrigin | null
+  /** 20.1: bir turdan YENİ dal aç — o noktaya kadarki mesaj+dosya durumundan türetilmiş
+   *  yeni oturum; orijinale dokunulmaz, yeni dala geçilir. */
+  branchFromMessage: (messageId: string) => Promise<void>
 
   autoApply: boolean
   // Görsel üretme seçenekleri — görsel-üretme modeli aktifken composer'da.
@@ -2923,6 +2929,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   profileId: DEFAULT_PROFILE_ID,
   profileLabel: getProfile(DEFAULT_PROFILE_ID).label,
   checkpoints: [],
+  branchOrigin: null,
   rewindTo: async (id, mode) => {
     const cp = get().checkpoints.find((c) => c.id === id)
     if (!cp) return
@@ -2968,6 +2975,56 @@ export const useAppStore = create<AppState>((set, get) => ({
       }))
     }
     scheduleSessionSave()
+  },
+  // 20.1 — bir turdan YENİ DAL: o noktaya kadarki mesaj + dosya durumundan TÜRETİLMİŞ
+  // yeni bir oturum doğar (checkpoint altyapısı yeniden kullanılır); orijinal oturuma
+  // DOKUNULMAZ, yeni dala geçilir. "Bu turda farklı sorsam?" ana thread'i bozmadan yaşar.
+  branchFromMessage: async (messageId: string) => {
+    if (get().sending || get().generating) return
+    await get().saveSessionNow() // ebeveyni diske sabitle (dalı ondan türeteceğiz)
+    const parentId = get().currentSessionId
+    if (!parentId) return
+    const parent = (await window.nexora.sessions.load(parentId)) as SessionData | null
+    if (!parent) return
+    // Fork noktası: checkpoint (bu kullanıcı mesajından ÖNCEki durum) ya da mesaj indeksi.
+    const cp = (parent.checkpoints ?? []).find((c) => c.id === messageId)
+    const idx = cp ? cp.messageIndex : parent.messages.findIndex((m) => m.id === messageId)
+    if (idx < 0) return
+    const branchMsgs = branchMessages(parent.messages, idx).map((m) => ({ ...m, streaming: false }))
+    // Dosyalar: checkpoint snapshot'ı varsa onu (updatedAt eklenir), yoksa ebeveynin dosyaları.
+    const files: Record<string, SessionFileEntry> = cp
+      ? Object.fromEntries(
+          Object.entries(cp.files).map(([p, f]) => [p, { path: f.path, content: f.content, language: f.language, updatedAt: Date.now() }])
+        )
+      : parent.files
+    const existingTitles = get().sessions.map((x) => x.title)
+    const newId = nanoid()
+    const now = Date.now()
+    const data: SessionData = {
+      ...parent,
+      id: newId,
+      title: branchTitle(parent.title, existingTitles),
+      createdAt: now,
+      updatedAt: now,
+      messages: branchMsgs,
+      files,
+      msgCount: branchMsgs.length,
+      fileCount: Object.keys(files).length,
+      // Yalnız fork noktasına kadarki checkpoint'ler dala taşınır.
+      checkpoints: (parent.checkpoints ?? []).filter((c) => c.messageIndex <= idx),
+      comments: [],
+      queuedTasks: [],
+      pendingApprovals: undefined,
+      statusBadge: undefined,
+      branchedFrom: makeBranchOrigin({ id: parent.id, title: parent.title }, messageId, now)
+    }
+    try {
+      await window.nexora.sessions.save(data)
+      await get().refreshSessions()
+      await get().openSession(newId) // yeni dala geç (branchOrigin openSession'da geri yüklenir)
+    } catch {
+      /* dal yazılamadıysa ebeveyn sohbeti bozulmaz — kullanıcı olduğu yerde kalır */
+    }
   },
   activeTab: 'chat',
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -3127,6 +3184,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       messages: [],
       currentSessionId: null,
+      branchOrigin: null, // 20.1: temiz sayfa dal değildir
+
       profileId: DEFAULT_PROFILE_ID,
       profileLabel: getProfile(DEFAULT_PROFILE_ID).label
     })
@@ -3587,7 +3646,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       pendingApprovals: s.pendingApprovals,
       // 15.3: son-bilinen durum rozeti — pasif oturum için kenar çubuğunda gösterilir
       // (üretim sırasında saveSessionNow zaten atlar → dinlenme durumu yakalanır).
-      statusBadge: computeSessionStatus(s) ?? undefined
+      statusBadge: computeSessionStatus(s) ?? undefined,
+      // 20.1: dal kökeni oturumla yaşar (sidebar rozeti + banner kalıcı).
+      branchedFrom: s.branchOrigin ?? undefined
     }
     try {
       await window.nexora.sessions.save(data)
@@ -3688,6 +3749,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 10.11.2: açılan oturumun türü + bağlı projesi geri yüklenir.
     currentSessionKind = data.kind ?? (data.fileCount > 0 ? 'project' : 'chat')
     currentSessionProject = data.projectName ?? null
+    // 20.1: açılan oturum bir dalsa köken geri gelir (banner + sidebar rozeti).
+    set({ branchOrigin: data.branchedFrom ?? null })
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
     // 7.4: açılan oturumun KENDİ yorum kuyruğu geri gelir — çapalar o
     // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.

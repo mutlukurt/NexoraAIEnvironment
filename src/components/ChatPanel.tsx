@@ -10,7 +10,7 @@ import { useSettingsStore } from '@/store/settingsStore'
 import logoImg from '@/assets/logo.png'
 import RewindMenu from '@/components/RewindMenu'
 import { expandSlashCommand, matchSlash, type SlashCommand } from '@/lib/slashCommands'
-import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles, Download, Maximize2, FolderPlus } from 'lucide-react'
+import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles, Download, Maximize2, FolderPlus, GitBranch } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { translations } from '@/lib/translations'
 import ModelSelect from './ModelSelect'
@@ -451,6 +451,7 @@ function relTime(ms: number, lang: Lang): string {
 
 export default function ChatPanel() {
   const messages = useAppStore((s) => s.messages)
+  const branchOrigin = useAppStore((s) => s.branchOrigin)
   const sending = useAppStore((s) => s.sending)
   const error = useAppStore((s) => s.error)
   const modelInfo = useAppStore((s) => s.modelInfo)
@@ -1014,6 +1015,14 @@ export default function ChatPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full py-4">
+            {/* 20.1: bu oturum bir daldan doğduysa köken banner'ı. */}
+            {branchOrigin && (
+              <div className="flex items-center gap-2 self-center rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                {language === 'tr' ? 'Dal — kökeni: ' : 'Branch — from: '}
+                <span className="max-w-[220px] truncate">{branchOrigin.title}</span>
+              </div>
+            )}
             {messages.map((m, i) => (
               <div
                 key={m.id}

@@ -7,12 +7,13 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { Lang } from '@/lib/i18n'
-import { RotateCcw, Code2, MessageSquare, Layers } from 'lucide-react'
+import { RotateCcw, Code2, MessageSquare, Layers, GitBranch } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 
 export default function RewindMenu({ messageId, language }: { messageId: string; language: Lang }) {
   const checkpoints = useAppStore((s) => s.checkpoints)
   const rewindTo = useAppStore((s) => s.rewindTo)
+  const branchFromMessage = useAppStore((s) => s.branchFromMessage)
   const busy = useAppStore((s) => s.sending || s.generating)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -35,6 +36,10 @@ export default function RewindMenu({ messageId, language }: { messageId: string;
   const act = (mode: 'code' | 'chat' | 'both') => {
     setOpen(false)
     void rewindTo(messageId, mode)
+  }
+  const branch = () => {
+    setOpen(false)
+    void branchFromMessage(messageId)
   }
 
   return (
@@ -63,6 +68,11 @@ export default function RewindMenu({ messageId, language }: { messageId: string;
           <button onClick={() => act('chat')} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-semibold text-ink-text transition hover:bg-ink-hi/60">
             <MessageSquare className="h-3.5 w-3.5 text-sky-500" />
             {tr ? 'Sadece sohbet' : 'Chat only'}
+          </button>
+          {/* 20.1 — bu noktadan YENİ DAL (orijinal oturuma dokunmaz). */}
+          <button onClick={branch} className="flex w-full items-center gap-2.5 border-t border-ink-line px-3 py-2 text-left text-[12px] font-semibold text-ink-text transition hover:bg-brand-500/10">
+            <GitBranch className="h-3.5 w-3.5 text-amber-500" />
+            {tr ? 'Buradan yeni dal' : 'Branch from here'}
           </button>
         </div>
       )}
