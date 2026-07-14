@@ -1,11 +1,12 @@
 /**
  * 20.3 — Yerel Whisper dikte servisi (offline ses→metin, whisper.cpp).
  *
- * localImageService (sd-server) desenini yansıtır: binary + ggml model TALEP ÜZERİNE
- * hazırlanır, cihazda çalışır, hiçbir ses buluta gitmez. Binary çözümü kademeli:
- * (1) ~/NexoraAI/bin/whisper-*, (2) sistem PATH (brew/apt/nix ile kurulu whisper-cli),
- * (3) platform paketi (Windows). Model HF'den (ggerganov/whisper.cpp) indirilir.
- * Binary/model yoksa ZARİF DÜŞÜŞ: mikrofon düğmesi kullanıcıyı indirmeye yönlendirir.
+ * localImageService (sd-server) / llama-server desenini yansıtır: binary + ggml model
+ * TALEP ÜZERİNE indirilir, cihazda çalışır, hiçbir ses buluta gitmez. Binary çözümü
+ * kademeli: (1) sistem PATH (brew/apt/nix ile kurulu whisper-cli), (2) ~/NexoraAI/bin,
+ * (3) whisper.cpp GitHub release paketi OTOMATİK indirilir — Linux (ubuntu-x64/arm64)
+ * VE Windows (x64) için hazır CLI var; yalnız macOS'ta release'de CLI yok → PATH/brew.
+ * Model HF'den (ggerganov/whisper.cpp). Yoksa ZARİF DÜŞÜŞ: kurulum yönlendirmesi.
  */
 import { spawn, execFile } from 'child_process'
 import { homedir, tmpdir } from 'os'
@@ -17,12 +18,20 @@ import { parseWhisperOutput } from '../shared/whisperParse'
 
 const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
 const MODELS_DIR = join(homedir(), 'NexoraAI', 'models')
-const WHISPER_TAG = 'v1.7.4'
-// whisper.cpp yalnız bazı platformlarda hazır CLI yayınlar (Windows). Linux/macOS'ta
-// PATH'te kurulu whisper-cli aranır (brew/apt/nix). Liste ileride genişleyebilir.
-const WIN_ASSET = `https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_TAG}/whisper-bin-x64.zip`
+const WHISPER_TAG = 'v1.9.1'
 const EXE = process.platform === 'win32' ? '.exe' : ''
 const BIN_NAMES = [`whisper-cli${EXE}`, `whisper-cpp${EXE}`, `whisper${EXE}`, `main${EXE}`]
+
+/** Bu platform için whisper.cpp release CLI paketi (yoksa null → PATH/brew). */
+function whisperBinaryAsset(): string | null {
+  const base = `https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_TAG}/`
+  const p = process.platform
+  const a = process.arch
+  if (p === 'linux' && a === 'x64') return base + 'whisper-bin-ubuntu-x64.tar.gz'
+  if (p === 'linux' && a === 'arm64') return base + 'whisper-bin-ubuntu-arm64.tar.gz'
+  if (p === 'win32' && a === 'x64') return base + 'whisper-bin-x64.zip'
+  return null // macOS: release'de hazır CLI yok → brew install whisper-cpp (PATH)
+}
 
 export type WhisperStatusCallback = (msg: string) => void
 
@@ -30,13 +39,32 @@ function whisperBinDir(): string {
   return join(BIN_ROOT, 'whisper-' + WHISPER_TAG)
 }
 
-/** İndirilmiş bin dizininde bir whisper binary'si var mı? */
-function localBinary(): string | null {
+/** Dizinde whisper binary'sini ÖZYİNELEMELİ ara (arşiv nested klasöre açılır). */
+function findBinaryInDir(dir: string, depth = 3): string | null {
+  let entries: import('fs').Dirent[]
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  // ÖNCELİK sırası: whisper-cli önce (v1.9.1'de `main` deprecated → exit 1 verir).
+  const fileNames = new Set(entries.filter((e) => e.isFile()).map((e) => e.name))
   for (const n of BIN_NAMES) {
-    const p = join(whisperBinDir(), n)
-    if (existsSync(p)) return p
+    if (fileNames.has(n)) return join(dir, n)
+  }
+  if (depth <= 0) return null
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      const found = findBinaryInDir(join(dir, e.name), depth - 1)
+      if (found) return found
+    }
   }
   return null
+}
+
+/** İndirilmiş bin dizininde bir whisper binary'si var mı? (nested klasör dahil.) */
+function localBinary(): string | null {
+  return findBinaryInDir(whisperBinDir())
 }
 
 /** Sistem PATH'inde whisper-cli/whisper var mı? (brew/apt/nix ile kurulmuş olabilir.) */
@@ -89,32 +117,36 @@ async function downloadFile(url: string, dest: string, onStatus: WhisperStatusCa
   await rename(tmp, dest)
 }
 
-/** Windows'ta whisper paketini indir + aç. Diğer platformlarda PATH gerekir. */
+/** Binary'yi hazırla: PATH/indirilmiş varsa onu; yoksa platform paketini OTOMATİK indir+aç.
+ *  Linux (ubuntu-x64/arm64) + Windows (x64) hazır CLI; macOS'ta PATH/brew gerekir. */
 async function ensureBinary(onStatus: WhisperStatusCallback): Promise<{ ok: boolean; path?: string; error?: string }> {
   const found = await resolveBinary()
   if (found) return { ok: true, path: found }
-  if (process.platform !== 'win32') {
+  const asset = whisperBinaryAsset()
+  if (!asset) {
     return {
       ok: false,
-      error:
-        'Whisper CLI bulunamadı. Kur: macOS `brew install whisper-cpp`, Linux `apt/nix ile whisper.cpp`, sonra PATH’e ekle.'
+      error: 'Whisper CLI bulunamadı — macOS: `brew install whisper-cpp` (sonra tekrar deneyin).'
     }
   }
   try {
     onStatus('Dikte motoru (whisper.cpp) indiriliyor…')
     const dir = whisperBinDir()
     await mkdir(dir, { recursive: true })
-    const zip = join(dir, 'whisper-download.zip')
-    await downloadFile(WIN_ASSET, zip, onStatus, 'Dikte motoru')
+    const isZip = asset.endsWith('.zip')
+    const archive = join(dir, 'whisper-download.' + (isZip ? 'zip' : 'tar.gz'))
+    await downloadFile(asset, archive, onStatus, 'Dikte motoru')
     onStatus('Dikte motoru açılıyor…')
+    // tar hem Linux'ta .tar.gz'yi hem Windows 10+'da .zip'i açar.
     await new Promise<void>((res, rej) => {
-      const p = spawn(`tar -xf "${zip}" -C "${dir}"`, { shell: true })
+      const p = spawn(`tar -xf "${archive}" -C "${dir}"`, { shell: true })
       p.on('close', (c) => (c === 0 ? res() : rej(new Error('arşiv açılamadı'))))
       p.on('error', rej)
     })
-    await rm(zip, { force: true })
+    await rm(archive, { force: true })
     const bin = localBinary()
     if (!bin) return { ok: false, error: 'whisper binary çıkarılamadı.' }
+    if (process.platform !== 'win32') await chmod(bin, 0o755).catch(() => undefined)
     return { ok: true, path: bin }
   } catch (e) {
     return { ok: false, error: (e as Error).message }
@@ -208,7 +240,11 @@ export async function transcribe(
 function runWhisper(bin: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const posix = process.platform !== 'win32'
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: posix })
+    // whisper.cpp paketinde .so'lar binary'nin YANINDADIR → dinamik yükleyici onları
+    // bulsun diye LD_LIBRARY_PATH'e binary dizinini ekle (canlı doğrulandı).
+    const env = { ...process.env }
+    if (posix) env.LD_LIBRARY_PATH = dirname(bin) + (env.LD_LIBRARY_PATH ? ':' + env.LD_LIBRARY_PATH : '')
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: posix, env })
     let out = ''
     let err = ''
     let settled = false
