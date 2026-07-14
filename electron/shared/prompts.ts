@@ -608,6 +608,16 @@ ${TURN_TAIL_REMINDER}`
  * Çıktı formatı parseStreaming'in beklediği şekildedir: her dosya, fence
  * başlığında dilden sonra TAM YOLU olan ayrı bir kod bloğu.
  */
+/**
+ * NİYET KÖPRÜSÜ (TERS YÖN) — build/edit/fix personalarına verilir. Model "bu aslında
+ * soru/sohbet, üretim değil" derse [CHAT] basıp işi sohbet hattına geri devreder.
+ * [BUILD]'in simetriği: keyword yanlış "build" dese bile model geri çevirebilir →
+ * keyword her iki yönde de YALNIZ ipucu, SON SÖZ modelde (intent-based invariant).
+ */
+export const CHAT_ESCAPE_GRANT = `INTENT — YOU HAVE THE FINAL SAY (this is the reverse of [BUILD]): the app routed this turn to the build/edit pipeline from a keyword hint, but YOU judge the real intent. If this message is actually a QUESTION, a chat, or an explanation/opinion request — NOT a request to build or change the project — do NOT output any files or code. Instead output, on its own line, exactly:
+[CHAT]
+and nothing else. The app will then answer it as a normal chat message. Use this ONLY for genuine questions/chat; if the user truly wants something built or changed, ignore this and proceed normally.`
+
 export function frontierBuildSystemPrompt(lang?: 'tr' | 'en'): string {
   const langLine =
     `Write ALL user-facing copy (headings, descriptions, button labels) in the SAME language the user wrote their request in — detect it from their message, not from any app setting. English request → English copy, Turkish → Turkish, German → German, French → French, etc. NEVER default to Turkish for a non-Turkish request. Only if the request has no detectable language may you use ${lang === 'tr' ? 'Turkish' : 'English'}.`
@@ -638,6 +648,8 @@ OUTPUT FORMAT — STRICT (NexoraAI parses this exactly):
 - Every file must be complete and immediately runnable — no ellipses, no "rest of code here".
 ${COMPUTER_ACCESS_GRANT}
 
+${CHAT_ESCAPE_GRANT}
+
 ${langLine}
 
 ${TURN_TAIL_REMINDER}`
@@ -667,6 +679,8 @@ Apply the user's requested change with taste and precision:
 
 Output ONLY the file(s) you actually change (INCLUDING App.tsx when you add/remove/reorder a section) as COMPLETE files — a normal fenced block with the exact path, the whole file top to bottom, every line written out. Do NOT use SEARCH/REPLACE or "edit" blocks, and never elide with "…". Do not re-output unchanged files.
 ${COMPUTER_ACCESS_GRANT}
+
+${CHAT_ESCAPE_GRANT}
 
 ${langLine}
 
@@ -715,6 +729,10 @@ export function buildSystemPrompt(
   // eklenir: 3B/7B build turunda örnek [RUN] satırlarını dosya içeriğine sızdırma
   // riski var; küçük model bu yeteneği SOHBET yolundan (chatSystemPrompt) alır.
   if (!smallModel) parts.push(COMPUTER_ACCESS_GRANT.trim())
+  // NİYET KÖPRÜSÜ (ters): build personası "bu aslında soru/sohbet" derse [CHAT] ile
+  // sohbete geri devreder — KÜÇÜK modele de verilir (3B'de yanlış-yönlendirme geri
+  // alınabilsin; keyword yalnız ipucu, SON SÖZ modelde = intent-based invariant).
+  parts.push(CHAT_ESCAPE_GRANT.trim())
   // Aileye özel huy düzeltmesi (roadmap 2.5) — boyut-uyarlı prompt'un yanında.
   const fam = familyNote(family)
   if (fam) parts.push(fam)

@@ -22,7 +22,7 @@ const outfile = join(work, 'bundle.mjs')
 writeFileSync(
   entry,
   `export { parseDirectives, hasDirectives, DIRECTIVE_LINE_RE } from '${join(repo, 'src/lib/agentActions.ts')}'
-export { chatSystemPrompt, UPDATE_MODE_RULES } from '${join(repo, 'electron/shared/prompts.ts')}'\n`
+export { chatSystemPrompt, UPDATE_MODE_RULES, frontierBuildSystemPrompt, frontierEditSystemPrompt } from '${join(repo, 'electron/shared/prompts.ts')}'\n`
 )
 const stub = join(work, 'stub.ts')
 writeFileSync(
@@ -42,7 +42,7 @@ await build({
     }
   }]
 })
-const { parseDirectives, hasDirectives, DIRECTIVE_LINE_RE, chatSystemPrompt, UPDATE_MODE_RULES } = await import(pathToFileURL(outfile).href)
+const { parseDirectives, hasDirectives, DIRECTIVE_LINE_RE, chatSystemPrompt, UPDATE_MODE_RULES, frontierBuildSystemPrompt, frontierEditSystemPrompt } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -70,6 +70,19 @@ ok(DIRECTIVE_LINE_RE.test('[BUILD]'), '[BUILD] satırı balonda gizlenir')
 
 // ── üretim→sohbet yönü: build tarafında ANSWER: kaçışı (kural 7)
 ok(UPDATE_MODE_RULES.includes('ANSWER:'), 'build personası soru turunu ANSWER: ile sohbete düşürür')
+
+// ── [CHAT] TERS köprü (intent-invariant düzeltmesi): build/edit personası "bu aslında
+//    soru" derse [CHAT] basıp SOHBET hattına GERİ yönlendirir (yeni-build turunu da kapsar).
+ok(parseDirectives('Bunu inşa etmeye gerek yok.\n[CHAT]').chat === true, '[CHAT] yakalanır')
+ok(parseDirectives('[CHAT]').chat === true, 'yalnız [CHAT] satırı yakalanır')
+ok(parseDirectives('chat about it').chat === false, 'düz metin [CHAT] sayılmaz')
+ok(hasDirectives(parseDirectives('[CHAT]')), 'yalnız-CHAT turu hasDirectives=true')
+ok(DIRECTIVE_LINE_RE.test('[CHAT]'), '[CHAT] satırı balonda gizlenir')
+ok(parseDirectives('[BUILD]').chat === false && parseDirectives('[CHAT]').build === false, '[BUILD]/[CHAT] birbirine karışmaz')
+// build/edit personaları [CHAT] kaçışını (ters köprü) bilir — YENİ build turu dahil
+ok(frontierBuildSystemPrompt('tr').includes('[CHAT]'), 'yeni-build personası [CHAT] ters köprüsünü bilir')
+ok(frontierBuildSystemPrompt('tr').includes('FINAL SAY'), 'build personası: SON SÖZ modelde (keyword yalnız ipucu)')
+ok(frontierEditSystemPrompt('tr').includes('[CHAT]'), 'edit personası [CHAT] ters köprüsünü bilir')
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nintent-bridge: ${pass} geçti, ${fail} kaldı`)

@@ -1815,6 +1815,12 @@ let enhanceBypassNext = false
 // plan hiç gelmedi; önceki testte brief'teki "Giriş Yap" ifadesi şans eseri
 // kapıyı geçirmişti).
 let forceBuildNext = false
+// NİYET KÖPRÜSÜ (ters yön): model [CHAT] bastıysa sonraki tur SOHBET'e zorlanır.
+let forceChatNext = false
+// Döngü guard'ı: bir kullanıcı mesajı için hangi köprü ateşlendi ('build' = chat→build,
+// 'chat' = build→chat). Ters köprü aynı mesaj-turunda TEKRAR ateşlenemez (tek flip) →
+// chat→build→chat→build sonsuz döngüsü imkânsız. Taze kullanıcı mesajında sıfırlanır.
+let lastIntentBridge: 'build' | 'chat' | null = null
 // 14.2 — retrieval continuation kilidi: [SEARCH]/[SYMBOL] geri-besleme turu
 // koşarken bir daha retrieval tetiklenmesin (sonsuz arama döngüsü guard'ı).
 let retrievalRoundActive = false
@@ -2642,17 +2648,45 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             // Yönlendirme sezgisi (looksLikeChatIntent) yalnız performans ipucu;
             // SON SÖZ modelde. (Build personaları [BUILD] yetkisi almaz → döngü yok.)
             if (directives.build) {
-              directives.build = false
-              const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
-              if (lastUser) {
-                const buildText = lastUser.content
-                set((s) => ({
-                  messages: [...s.messages, { id: nanoid(), role: 'assistant', content: '🏗️ Üretim isteği olarak anlaşıldı — üretim hattına alınıyor…' }]
-                }))
-                forceBuildNext = true
-                setTimeout(() => {
-                  void useAppStore.getState().sendMessage(buildText, { hideUser: true })
-                }, 250)
+              directives.build = false // her hâlde tüket
+              // Döngü guard'ı: az önce build→chat yaptıysak (lastIntentBridge==='chat')
+              // chat personasının [BUILD]'ini YOK SAY (tek flip); aksi hâlde yükselt.
+              if (lastIntentBridge !== 'chat') {
+                const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
+                if (lastUser) {
+                  const buildText = lastUser.content
+                  set((s) => ({
+                    messages: [...s.messages, { id: nanoid(), role: 'assistant', content: '🏗️ Üretim isteği olarak anlaşıldı — üretim hattına alınıyor…' }]
+                  }))
+                  forceBuildNext = true
+                  lastIntentBridge = 'build'
+                  setTimeout(() => {
+                    void useAppStore.getState().sendMessage(buildText, { hideUser: true })
+                  }, 250)
+                }
+              }
+              if (!hasDirectives(directives)) return
+            }
+            // NİYET KÖPRÜSÜ (TERS): build/edit/fix personası "bu aslında SORU/sohbet"
+            // dedi → [CHAT] → son kullanıcı mesajı SOHBET hattına geri yönlenir.
+            // [BUILD]'in simetriği; keyword her iki yönde de yalnız ipucu = SON SÖZ modelde.
+            if (directives.chat) {
+              directives.chat = false // her hâlde tüket
+              // Döngü guard'ı: az önce chat→build yaptıysak build personasının [CHAT]'ini
+              // YOK SAY (tek flip → sonsuz döngü imkânsız); aksi hâlde sohbete indir.
+              if (lastIntentBridge !== 'build') {
+                const lastUser = [...useAppStore.getState().messages].reverse().find((m) => m.role === 'user' && (m.content ?? '').trim())
+                if (lastUser) {
+                  const chatText = lastUser.content
+                  set((s) => ({
+                    messages: [...s.messages, { id: nanoid(), role: 'assistant', content: '💬 Soru/sohbet olarak anlaşıldı — sohbette yanıtlanıyor…' }]
+                  }))
+                  forceChatNext = true
+                  lastIntentBridge = 'chat'
+                  setTimeout(() => {
+                    void useAppStore.getState().sendMessage(chatText, { hideUser: true })
+                  }, 250)
+                }
               }
               if (!hasDirectives(directives)) return
             }
@@ -4275,6 +4309,9 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     // 8.1: gerçek bir KULLANICI turu kuyruğu yeniden etkinleştirir (Durdur'un
     // koyduğu duraklama kalkar). Gizli/makine turları duraklamayı kaldırmaz.
     if (!opts?.hideUser && !opts?.expectFile) queuePaused = false
+    // NİYET KÖPRÜSÜ döngü guard'ı: TAZE kullanıcı mesajı (köprü re-send'i değil) →
+    // flip sayacını sıfırla; böylece her yeni mesaj için model tek flip hakkı alır.
+    if (!opts?.hideUser && !opts?.expectFile) lastIntentBridge = null
 
     ensureStream(get, set)
     cancelScheduledApply()
@@ -4484,7 +4521,11 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
 
     const allFiles = Object.values(useArtifactsStore.getState().files)
     const buildErr = get().lastBuildError
-    const fixFlow = !!buildErr && FIX_WORDS.test(trimmed)
+    // NİYET KÖPRÜSÜ (ters): model [CHAT] bastı → BU tur mutlak SOHBET (keyword ne
+    // derse desin). fixFlow/buildReq zorla kapanır, isChatTurn zorla açılır. One-shot.
+    const chatForced = forceChatNext
+    forceChatNext = false
+    const fixFlow = !chatForced && !!buildErr && FIX_WORDS.test(trimmed)
     // 5.5: "düzelt api" — kullanıcı bu düzeltmeyi açıkça hibrit API'ye
     // gönderiyor (yazması onaydır; apiAsk açıkken tırmanışın kapısı budur).
     const apiRequested = fixFlow && /\bapi\b/i.test(trimmed)
@@ -4519,7 +4560,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // heuristiğine bağlama. CANLI BUG: "Create a premium ... website" → MAKE_RE
     // `creat\b` "Create"i kaçırdı (creat+e), VOLTA build sayılmadı, fidelity hiç
     // tetiklenmedi. Sözleşme fidelity ise buildReq zorlanır.
-    const buildReq = forceBuildNext || looksLikeBuildRequest(trimmed) || !!turnContract?.fidelity
+    const buildReq = !chatForced && (forceBuildNext || looksLikeBuildRequest(trimmed) || !!turnContract?.fidelity)
     forceBuildNext = false
     // 10.14/10.16 "API UNLEASHED": GÜÇLÜ bir model (API modeli VEYA büyük yerel
     // GGUF ≥9GB ≈13B+) + YENİ build isteği → frontier modu. NexoraAI'nın tüm 3B
@@ -4601,14 +4642,15 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // build turu sanılıp tüm dosyalar+kod personasıyla gidiyordu. Artık: net bir
     // sohbet/soru (looksLikeChatIntent — düzenleme fiili YOK) projede de chat'tir.
     const isChatTurn =
-      !isEnhanceTurn &&
-      !isPlanTurn &&
-      !fixFlow &&
-      !visionAnalysis &&
-      !opts?.expectFile &&
-      !opts?.hideUser &&
-      !buildReq &&
-      (allFiles.length === 0 || looksLikeChatIntent(trimmed))
+      chatForced || // model [CHAT] ile geri yönlendi → mutlak sohbet (hideUser olsa da)
+      (!isEnhanceTurn &&
+        !isPlanTurn &&
+        !fixFlow &&
+        !visionAnalysis &&
+        !opts?.expectFile &&
+        !opts?.hideUser &&
+        !buildReq &&
+        (allFiles.length === 0 || looksLikeChatIntent(trimmed)))
 
     // 8.5 GENELLEME: HER yeni-proje build turunda (yalnız PLANLI değil) proje
     // kimliğini kur. Zayıf yerel model (3B) sectioned build package.json ÜRETMEZ

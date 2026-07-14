@@ -36,6 +36,11 @@ export interface AgentDirectives {
    *  basar → istek üretim pipeline'ına yeniden yönlenir. Yönlendirme sezgisi
    *  (looksLikeChatIntent) böylece yalnız performans ipucudur; SON SÖZ modelde. */
   build: boolean
+  /** NİYET KÖPRÜSÜ (ters yön): build/edit/fix personası "bu aslında SORU/sohbet,
+   *  üretim/değişiklik değil" derse [CHAT] basar → mesaj sohbet hattına GERİ yönlenir.
+   *  [BUILD]'in simetriği: keyword yanlış "build" derse model geri çevirebilir →
+   *  keyword her iki yönde de yalnız ipucu, SON SÖZ modelde (intent-based invariant). */
+  chat: boolean
   /** 14.2: [SEARCH] <sorgu> — model projede gerçek arama İSTER; app koşar ve
    *  sonucu geri besler (bounded tek continuation). */
   searches: string[]
@@ -49,6 +54,7 @@ const RUN_RE = /^\s*\[RUN\]\s+(.+?)\s*$/gm
 const IMG_RE = /^\s*\[IMG\]\s+(.+?)\s*$/gm
 const ASSET_RE = /^\s*\[ASSET\](?:\s+add)?\s*$/im
 const BUILD_RE = /^\s*\[BUILD\]\s*$/im
+const CHAT_RE = /^\s*\[CHAT\]\s*$/im
 const SEARCH_RE = /^\s*\[SEARCH\]\s+(.+?)\s*$/gim
 const SYMBOL_RE = /^\s*\[SYMBOL\]\s+(find|refs)\s+([\w$.-]+)\s*$/gim
 const EDIT_RE = /^\s*\[EDIT\]\s+(.+?)\s*$/gim
@@ -62,7 +68,7 @@ const MCP_RE = /^\s*\[MCP\]\s+(\S+)\s+(\S+)[ \t]*(\{.*\})?[ \t]*$/gm
 const REMEMBER_RE = /^\s*\[REMEMBER\]\s+(.+?)\s*$/gim
 
 /** Chat balonunda gizlenecek direktif satırları. */
-export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP|REMEMBER|IMG|ASSET|BUILD|SEARCH|SYMBOL|EDIT)\]/i
+export const DIRECTIVE_LINE_RE = /^\s*\[(RUN|FETCH|FONT|PKG|DEV|DELETE|MCP|REMEMBER|IMG|ASSET|BUILD|CHAT|SEARCH|SYMBOL|EDIT)\]/i
 
 /**
  * 10.8 — Onaylı-hafıza: modelin "[REMEMBER] ..." önerilerini çıkarır. Oto-yazMAZ;
@@ -101,7 +107,7 @@ export function isPlaceholderValue(v: string): boolean {
 }
 
 export function parseDirectives(text: string): AgentDirectives {
-  const d: AgentDirectives = { pkgs: [], fonts: [], fetches: [], runs: [], dev: false, mcp: [], imgs: [], assetAdd: false, build: false, searches: [], symbols: [], edits: [] }
+  const d: AgentDirectives = { pkgs: [], fonts: [], fetches: [], runs: [], dev: false, mcp: [], imgs: [], assetAdd: false, build: false, chat: false, searches: [], symbols: [], edits: [] }
   if (!text) return d
   for (const m of text.matchAll(EDIT_RE)) {
     const p = m[1].trim()
@@ -113,6 +119,7 @@ export function parseDirectives(text: string): AgentDirectives {
   }
   d.assetAdd = ASSET_RE.test(text)
   d.build = BUILD_RE.test(text)
+  d.chat = CHAT_RE.test(text)
   for (const m of text.matchAll(SEARCH_RE)) {
     const q = m[1].trim()
     if (q && q.length >= 2 && q.length <= 120 && !isPlaceholderValue(q)) d.searches.push(q)
@@ -192,7 +199,7 @@ export function detectMalformedDirectives(text: string): string[] {
 export function hasDirectives(d: AgentDirectives): boolean {
   return (
     d.pkgs.length > 0 || d.fonts.length > 0 || d.fetches.length > 0 || d.runs.length > 0 || d.dev || d.mcp.length > 0 ||
-    d.imgs.length > 0 || d.assetAdd || d.build || d.searches.length > 0 || d.symbols.length > 0 || d.edits.length > 0
+    d.imgs.length > 0 || d.assetAdd || d.build || d.chat || d.searches.length > 0 || d.symbols.length > 0 || d.edits.length > 0
   )
 }
 

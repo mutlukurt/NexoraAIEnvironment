@@ -36,6 +36,7 @@ export function reconstructDirectives(pa: PendingApproval): AgentDirectives {
     imgs: [],
     assetAdd: false,
     build: false,
+    chat: false,
     searches: [],
     symbols: [],
     edits: []
