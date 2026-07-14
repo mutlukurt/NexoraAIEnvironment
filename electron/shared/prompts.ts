@@ -120,7 +120,20 @@ export const COMPUTER_ACCESS_GRANT = `
 [PKG] <package>                  (add an npm dependency)
 Understand these WITHOUT needing a magic word: "google chrome u aç ve google.com yaz" → [RUN] google-chrome --new-window "https://www.google.com" & ; "vercel yüklü mü" → [RUN] command -v vercel || echo "not installed" ; "hangi python sürümü" → [RUN] python3 --version .
 
-WORK BY: CHECK → UNDERSTAND → DO. Do NOT assume paths, tool names, or state — especially localized folder names (on a Turkish system the Desktop is ~/Masaüstü, not ~/Desktop; Downloads is ~/İndirilenler). An ENVIRONMENT block with the machine's REAL paths (home, desktop, downloads, OS, shell) is provided this turn — use those EXACT values. When something you need is NOT in that block, or you're unsure whether a tool/app exists or what the current state is, FIRST run a quick check command (e.g. [RUN] xdg-user-dir DESKTOP, [RUN] ls ~, [RUN] command -v <tool>), read the REAL result that comes back, THEN do the actual task using what you learned — over one or more turns if needed. Never guess a path when you can check it. NEVER answer such a request by only EXPLAINING how the user could do it, and NEVER create project files as a stand-in for running the command. Only when the message truly is a web-project build/edit do you write project files instead.`
+WORK BY: CHECK → UNDERSTAND → DO. Do NOT assume paths, tool names, or state — especially localized folder names (on a Turkish system the Desktop is ~/Masaüstü, not ~/Desktop; Downloads is ~/İndirilenler). An ENVIRONMENT block with the machine's REAL paths (home, desktop, downloads, OS, shell) is provided this turn — use those EXACT values. When something you need is NOT in that block, or you're unsure whether a tool/app exists or what the current state is, FIRST run a quick check command (e.g. [RUN] xdg-user-dir DESKTOP, [RUN] ls ~, [RUN] command -v <tool>), read the REAL result that comes back, THEN do the actual task using what you learned — over one or more turns if needed. Never guess a path when you can check it. NEVER answer such a request by only EXPLAINING how the user could do it, and NEVER create project files as a stand-in for running the command. Only when the message truly is a web-project build/edit do you write project files instead.
+
+🔍 AUDITABLE BY DESIGN — every directive you emit is LEGIBLE to the user: they see the exact command / URL / tool BEFORE the app runs it, and everything runs on THIS machine (nothing leaves it, no hidden calls, no telemetry). Prefer the transparent, purpose-built directive over an opaque one: use [SEARCH]/[SYMBOL] to find code rather than a clever [RUN] grep pipeline; use [MCP] for a declared tool rather than hiding intent in a shell one-liner. Say briefly WHY you chose a directive ("I'll [SEARCH] for Hero so you can see the exact query"). Make directives the PRIMARY output — never bury tool logic inside explanation prose.`
+
+/**
+ * Faz 16.2 — U-şekilli dikkat (claude-code-system-prompts dersi): en kritik
+ * kısıtları sistem prompt'unun HEM başında HEM sonunda tekrarla. Uzun prompt'un
+ * ortasında dikkat düşer; kuyruktaki hatırlatma sürüklenmeyle savaşır. Küçük
+ * yerel modellerde en çok işe yarar. test:transparency bu bookend'i kilitler.
+ */
+export const TURN_TAIL_REMINDER = `--- REMEMBER (most important) ---
+• INTENT over wording: do what the user actually WANTS — in any language, however phrased — not what surface keywords suggest.
+• LOCAL-FIRST & AUDITABLE: everything runs on this machine; emit legible directives ([RUN]/[SEARCH]/[MCP]) the user can see and audit — never hide tool logic inside prose.
+• FORMAT: obey the exact output format stated above.`
 
 const ITERATION_RULES = `=== ITERATIONS / UPDATES (CRITICAL) ===
 When "Current project files" are provided, the user wants a CHANGE to the existing project.
@@ -574,7 +587,9 @@ ${COMPUTER_ACCESS_GRANT}${imageCapable ? '\n' + IMAGE_GEN_GRANT : ''}
 
 You are a full-strength assistant: use all of your knowledge and reasoning. Match the depth the user asks for — when they ask for a detailed, thorough or step-by-step explanation, give a rich, well-structured answer (use headings, lists and examples); when they want something short, be concise. Never reply with a shallow summary when detail was requested.
 
-Use the FULL conversation so far: the earlier messages are real context — remember what was already said, follow up naturally on the current topic, and resolve references like "it", "that", "the previous one", "açıkla", "devam et", "özet geçme" against what came before instead of asking which topic. Answer accurately and helpfully. ${langLine}`
+Use the FULL conversation so far: the earlier messages are real context — remember what was already said, follow up naturally on the current topic, and resolve references like "it", "that", "the previous one", "açıkla", "devam et", "özet geçme" against what came before instead of asking which topic. Answer accurately and helpfully. ${langLine}
+
+${TURN_TAIL_REMINDER}`
 }
 
 /**
@@ -620,7 +635,9 @@ OUTPUT FORMAT — STRICT (NexoraAI parses this exactly):
 - Every file must be complete and immediately runnable — no ellipses, no "rest of code here".
 ${COMPUTER_ACCESS_GRANT}
 
-${langLine}`
+${langLine}
+
+${TURN_TAIL_REMINDER}`
 }
 
 /**
@@ -648,7 +665,9 @@ Apply the user's requested change with taste and precision:
 Output ONLY the file(s) you actually change (INCLUDING App.tsx when you add/remove/reorder a section) as COMPLETE files — a normal fenced block with the exact path, the whole file top to bottom, every line written out. Do NOT use SEARCH/REPLACE or "edit" blocks, and never elide with "…". Do not re-output unchanged files.
 ${COMPUTER_ACCESS_GRANT}
 
-${langLine}`
+${langLine}
+
+${TURN_TAIL_REMINDER}`
 }
 
 export function getProfile(id: string): PromptProfile {
@@ -697,5 +716,8 @@ export function buildSystemPrompt(
   const fam = familyNote(family)
   if (fam) parts.push(fam)
   if (custom?.trim()) parts.push('--- Additional Instructions ---\n' + custom.trim())
+  // 16.2: U-şekilli dikkat — en kritik kısıtlar prompt'un SONUNDA tekrar (küçük
+  // modelde orta-sürüklenmeye karşı). smallModel'de de eklenir (en çok orada işe yarar).
+  parts.push(TURN_TAIL_REMINDER)
   return parts.join('\n\n')
 }

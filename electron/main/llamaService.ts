@@ -35,7 +35,8 @@ import { toolsForPrompt as mcpToolsForPrompt } from './mcpService'
 import { serverEngine } from './llamaServerEngine'
 import { workerEngine } from './llamaWorkerEngine'
 import { buildFileGrammar, buildPlanGrammar } from '../shared/editGrammar'
-import { shouldUseApi, promptApi, getLastApiUsage, hasApiOverride } from './apiEngine'
+import { shouldUseApi, promptApi, getLastApiUsage, hasApiOverride, getActiveModelId } from './apiEngine'
+import type { TurnInspection } from '../shared/ipc'
 import { getLastServerUsage } from './llamaServerEngine'
 import type { UsageSample } from '../shared/ipc'
 import { appendRepairLog } from './agentService'
@@ -493,6 +494,12 @@ export async function chat(
         imageDataUrl
       })
       recordTurn('api', prompt.length, apiText.length) // 10.12.2
+      recordInspection({
+        ts: Date.now(), route: 'api', model: getActiveModelId() || undefined,
+        systemPrompt: apiSys, outgoingPrompt: prompt,
+        sampling: { temperature: input.options?.temperature, topP: input.options?.topP, maxTokens: input.options?.maxTokens, purpose: input.options?.purpose },
+        responseChars: apiText.length
+      })
       return apiText
     } catch (err) {
       // API başarısızsa sessizce yerele düş — kullanıcı asla motorsuz kalmaz.
@@ -508,6 +515,12 @@ export async function chat(
   if (!engine) throw new Error('Model yüklü değil ve API turu başarısız oldu.')
   const localText = await engine.prompt(prompt, options, onChunk)
   recordTurn(engine === serverEngine ? 'server' : 'worker', prompt.length, localText.length) // 10.12.2
+  recordInspection({
+    ts: Date.now(), route: 'local', model: getLoadedInfo()?.name,
+    systemPrompt: options.systemOverride ?? getFullSystemPrompt(), outgoingPrompt: prompt,
+    sampling: { temperature: input.options?.temperature, topP: input.options?.topP, maxTokens: input.options?.maxTokens, purpose: input.options?.purpose },
+    responseChars: localText.length
+  })
   return localText
 }
 
@@ -559,6 +572,23 @@ export function getLastTurnUsage(): UsageSample | null {
       : estimate('estimate', getLoadedInfo()?.contextSize ?? 4096)
   }
   return estimate('llama-native', getLoadedInfo()?.contextSize ?? 4096)
+}
+
+// ── 16.1 Tur şeffaflık denetçisi (opt-in) ────────────────────────────────────
+// Her tur için turun GERÇEK sistem prompt'u + gönderilen prompt + örnekleme +
+// NEREDE koştuğu (local/api) yakalanır; done olayıyla renderer'a gider. Prompt'lar
+// tavanlanır (bellek/IPC bounded). Renderer yalnız denetçi AÇIKKEN saklar/gösterir.
+let lastInspection: TurnInspection | null = null
+function recordInspection(i: TurnInspection): void {
+  lastInspection = {
+    ...i,
+    systemPrompt: i.systemPrompt.slice(0, 4000),
+    outgoingPrompt: i.outgoingPrompt.slice(0, 8000)
+  }
+}
+/** Son turun şeffaflık kaydı (Motor denetçisi için). */
+export function getLastTurnInspection(): TurnInspection | null {
+  return lastInspection
 }
 
 export async function abortChat(): Promise<void> {

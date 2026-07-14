@@ -10,6 +10,7 @@ import ServePanel from './ServePanel'
 import SchedulePanel from './SchedulePanel'
 import ProviderHub from './ProviderHub'
 import ProfilesPanel from './ProfilesPanel'
+import InspectorPanel from './InspectorPanel'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -167,6 +168,10 @@ export default function SettingsModal() {
           {/* 15.2: Config Profiller — seçilen çalışma kipi (güven + direktif + prompt). */}
           <div className={section === 'profiles' ? '' : 'hidden'}>
             <ProfilesPanel />
+          </div>
+          {/* 16.1: Motor şeffaflık denetçisi — Motor bölümünde (opt-in ham-prompt). */}
+          <div className={section === 'engine' ? '' : 'hidden'}>
+            <InspectorPanel />
           </div>
           {/* Görünüm: Tema + Dil — sidebar'dan buraya taşındı (orada gereksiz yer
               kaplıyordu). Segmentli kontrol: Açık/Koyu ve TR/EN. */}

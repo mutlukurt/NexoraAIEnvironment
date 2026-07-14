@@ -174,6 +174,8 @@ export interface NexoraApi {
     save: (data: import('../shared/ipc').SessionData) => Promise<{ ok: boolean }>
     load: (id: string) => Promise<import('../shared/ipc').SessionData | null>
     remove: (id: string) => Promise<{ ok: boolean }>
+    /** 16.3: oturumu markdown olarak yerel dosyaya dışa aktar (save-as diyaloğu). */
+    exportMarkdown: (input: { name: string; markdown: string }) => Promise<{ ok: boolean; savedPath?: string; error?: string }>
   }
   artifactDocs: {
     save: (input: { sessionId: string; name: string; content: string }) => Promise<{ ok: boolean; version?: number; error?: string }>
@@ -421,7 +423,8 @@ const api: NexoraApi = {
     list: () => ipcRenderer.invoke(IPC.SESSIONS_LIST),
     save: (data) => ipcRenderer.invoke(IPC.SESSIONS_SAVE, data),
     load: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_LOAD, id),
-    remove: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_DELETE, id)
+    remove: (id: string) => ipcRenderer.invoke(IPC.SESSIONS_DELETE, id),
+    exportMarkdown: (input: { name: string; markdown: string }) => ipcRenderer.invoke(IPC.SESSIONS_EXPORT, input)
   },
   artifactDocs: {
     save: (input: { sessionId: string; name: string; content: string }) =>

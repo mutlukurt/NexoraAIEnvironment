@@ -14,6 +14,7 @@ import {
   debugHasFamilyNote,
   generateForServe,
   getLastTurnUsage,
+  getLastTurnInspection,
   imageToDataUrl
 } from './llamaService'
 import {
@@ -232,7 +233,7 @@ function registerIpc(): void {
         mainWindow?.webContents.send(IPC.CHAT_STREAM, { token, done: false })
       })
       // 10.12.2: turun token kullanımını done olayıyla ilet (motor usage'ı / tahmin).
-      mainWindow.webContents.send(IPC.CHAT_STREAM, { done: true, full, usage: getLastTurnUsage() })
+      mainWindow.webContents.send(IPC.CHAT_STREAM, { done: true, full, usage: getLastTurnUsage(), inspection: getLastTurnInspection() })
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -681,6 +682,23 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_e, id: string) => {
     await deleteSession(id)
     return { ok: true }
+  })
+
+  // 16.3: oturumu markdown olarak dışa aktar — YEREL kaydet-farklı-kaydet (dosya
+  // kullanıcının seçtiği yere iner, hiçbir yere yüklenmez). Renderer markdown'ı
+  // composeSessionMarkdown ile üretir; main yalnız güvenli diyalog + yazımı yapar.
+  ipcMain.handle(IPC.SESSIONS_EXPORT, async (_e, input: { name: string; markdown: string }) => {
+    try {
+      const res = await dialog.showSaveDialog({
+        defaultPath: join(homedir(), 'Masaüstü', (input.name || 'nexora-oturum') + '.md'),
+        filters: [{ name: 'Markdown', extensions: ['md'] }]
+      })
+      if (res.canceled || !res.filePath) return { ok: false, error: 'iptal' }
+      await writeFile(res.filePath, input.markdown, 'utf8')
+      return { ok: true, savedPath: res.filePath }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   // Proje bilgi tabanı (7.8): deterministik öğrenme + karşı-kanıt emekliliği.

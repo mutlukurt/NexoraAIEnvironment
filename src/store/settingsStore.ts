@@ -13,6 +13,8 @@ export interface CustomCommand {
 export interface Settings {
   customSystemPrompt: string
   enableGpu: boolean
+  /** 16.1: Motor ham-prompt/çıkarım denetçisi (opt-in şeffaflık — "hiçbir şey makineden çıkmadı"). */
+  transparencyInspectorEnabled: boolean
   /** Faz 13 — yerel (offline) görsel üretimi açık mı? (sd-server, ~/NexoraAI/models). */
   localImageEnabled: boolean
   /** Seçili yerel görsel-üretim modelinin yolu (null = en büyük yüklü, otomatik). */
@@ -101,6 +103,7 @@ export function uiScaleInitial(): number {
 const DEFAULT_SETTINGS: Settings = {
   customSystemPrompt: '',
   enableGpu: false,
+  transparencyInspectorEnabled: false,
   localImageEnabled: false,
   activeLocalImageModel: null,
   gpuLayers: 0,
@@ -133,6 +136,7 @@ function loadSettings(): Settings {
     return {
       customSystemPrompt: parsed.customSystemPrompt ?? '',
       enableGpu: parsed.enableGpu ?? false,
+      transparencyInspectorEnabled: parsed.transparencyInspectorEnabled ?? false,
       localImageEnabled: parsed.localImageEnabled === true,
       activeLocalImageModel: typeof parsed.activeLocalImageModel === 'string' ? parsed.activeLocalImageModel : null,
       gpuLayers: typeof parsed.gpuLayers === 'number' ? parsed.gpuLayers : 0,
@@ -171,6 +175,7 @@ function loadSettings(): Settings {
 interface SettingsState extends Settings {
   setCustomSystemPrompt: (v: string) => void
   setEnableGpu: (v: boolean) => void
+  setTransparencyInspector: (v: boolean) => void
   setGpuLayers: (v: number) => void
   setVisionModelPath: (v: string | null) => void
   setLocalImageEnabled: (v: boolean) => void
@@ -199,6 +204,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...loadSettings(),
   setCustomSystemPrompt: (v) => set({ customSystemPrompt: v }),
   setEnableGpu: (v) => set({ enableGpu: v }),
+  setTransparencyInspector: (v) => { set({ transparencyInspectorEnabled: v }); get().save() },
   setGpuLayers: (v) => set({ gpuLayers: Math.max(0, Math.round(v)) }),
   setVisionModelPath: (v) => {
     set({ visionModelPath: v })
@@ -269,6 +275,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         JSON.stringify({
           customSystemPrompt: get().customSystemPrompt,
           enableGpu: get().enableGpu,
+          transparencyInspectorEnabled: get().transparencyInspectorEnabled,
           gpuLayers: get().gpuLayers,
           visionModelPath: get().visionModelPath,
           // Boş satırlar (etiket ve prompt ikisi de boş) kaydedilmez.

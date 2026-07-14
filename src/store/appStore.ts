@@ -9,7 +9,8 @@ import type {
   SessionMeta,
   SessionData,
   SessionFileEntry,
-  TaskStep
+  TaskStep,
+  TurnInspection
 } from '@shared/ipc'
 import type { ImageAspect } from '@shared/imageModels'
 import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
@@ -31,6 +32,7 @@ import { extractAgentDocs } from '@/lib/specDocs'
 import { collectFullRewrites } from '@/lib/afterEdit'
 import { detectDeadInteractions, formatBehaviorReport } from '@/lib/behaviorCheck'
 import { computeSessionStatus } from '@/lib/sessionStatus'
+import { composeSessionMarkdown } from '@/lib/composeSessionMarkdown'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
@@ -114,6 +116,8 @@ interface AppState {
   lastBuildError: string | null
   /** 6.8 Debug Paneli: motorun canlı olay akışı (logRepair'den beslenir). */
   engineEvents: Array<{ id: string; ts: number; layer: string; detail: string }>
+  /** 16.1: tur şeffaflık kayıtları — opt-in denetçi açıkken dolar ("hiçbir şey makineden çıkmadı"). */
+  turnInspections: TurnInspection[]
   /** Sohbete iliştirilmiş referans görsel (bir sonraki mesajla işlenir). */
   pendingImage: { path: string; name: string } | null
   attachImage: () => Promise<void>
@@ -195,6 +199,8 @@ interface AppState {
   currentSessionId: string | null
   refreshSessions: () => Promise<void>
   saveSessionNow: () => Promise<void>
+  /** 16.3: bu oturumu markdown olarak yerel dosyaya dışa aktar (bulut share-link'in dürüst yereli). */
+  exportSession: () => Promise<void>
   openSession: (id: string) => Promise<void>
   removeSession: (id: string) => Promise<void>
   /** 10.11.3: silme onay istemi (kazayla silmeye karşı). */
@@ -1939,6 +1945,13 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         }))
       }
 
+      // 16.1: tur şeffaflık kaydı — denetçi AÇIKKEN sakla (kapalıysa payload'ı yok say).
+      // "hiçbir şey makineden çıkmadı" (route:'local') vs "şu sağlayıcıya gitti" (route:'api').
+      const inspection = (event as ChatStreamEvent & { inspection?: TurnInspection }).inspection
+      if (inspection && useSettingsStore.getState().transparencyInspectorEnabled) {
+        set((s) => ({ turnInspections: [...s.turnInspections.slice(-29), inspection] }))
+      }
+
       // 8.1 MUTLAK DURDUR: bu done, kullanıcı Durdur'u ya da "tur öldü" hükmüyle
       // GEÇERSİZ KILINMIŞ bir tura mı ait? abort()/declareStreamDead epoku
       // artırır; o yüzden currentTurnEpoch güncel epoktan farklıysa bu done bir
@@ -2773,6 +2786,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastBuildError: null,
   pendingImage: null,
   engineEvents: [],
+  turnInspections: [],
 
   attachImage: async () => {
     const res = await window.nexora.vision.pickImage()
@@ -3500,6 +3514,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch {
         /* geçmiş çekirdeklenemezse sorun değil */
       }
+    }
+  },
+
+  // 16.3: bu oturumu markdown'a çevirip kullanıcının seçtiği yere kaydet — YEREL,
+  // hiçbir yere yüklenmez (bulut share-link'in dürüst karşılığı). Konuşma + değişiklik özeti.
+  exportSession: async () => {
+    const s = get()
+    if (s.messages.length === 0) return
+    const title = s.messages.find((m) => m.role === 'user')?.content.split('\n')[0].slice(0, 60) || 'NexoraAI'
+    const md = composeSessionMarkdown(s.messages, {
+      title,
+      language: s.language === 'tr' ? 'tr' : 'en',
+      exportedAt: new Date().toLocaleString(s.language === 'tr' ? 'tr-TR' : 'en-US')
+    })
+    const name = (s.currentSessionId ?? 'nexora').slice(0, 12) + '-oturum'
+    try {
+      const res = await window.nexora.sessions.exportMarkdown({ name, markdown: md })
+      if (res.ok) {
+        set((st) => ({ messages: [...st.messages, { id: nanoid(), role: 'assistant', content: `📄 Oturum dışa aktarıldı (yerel): ${res.savedPath}` }] }))
+      } else if (res.error && res.error !== 'iptal') {
+        set({ error: 'Dışa aktarma başarısız: ' + res.error })
+      }
+    } catch (err) {
+      set({ error: (err as Error).message })
     }
   },
 

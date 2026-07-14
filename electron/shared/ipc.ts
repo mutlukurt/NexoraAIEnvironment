@@ -87,6 +87,10 @@ export interface ChatStreamChunk {
 export interface ChatStreamDone {
   done: true
   full: string
+  /** 10.12.2: turun token kullanımı. */
+  usage?: UsageSample
+  /** 16.1: tur şeffaflık kaydı (opt-in denetçi açıksa dolar). */
+  inspection?: TurnInspection
 }
 
 export type ChatStreamEvent = ChatStreamChunk | ChatStreamDone
@@ -221,6 +225,8 @@ export const IPC = {
   SESSIONS_SAVE: 'sessions:save',
   SESSIONS_LOAD: 'sessions:load',
   SESSIONS_DELETE: 'sessions:delete',
+  /** 16.3: oturumu markdown olarak kullanıcının seçtiği dosyaya dışa aktar (yerel — hiçbir yere yüklenmez). */
+  SESSIONS_EXPORT: 'sessions:export',
   TERM_OUTPUT: 'term:output',
   KNOWLEDGE_LEARN: 'knowledge:learn',
   KNOWLEDGE_LIST: 'knowledge:list',
@@ -292,6 +298,23 @@ export interface UsageSample {
   cachedTokens?: number
   contextSize: number
   exact: boolean
+}
+
+/**
+ * 16.1 — Tur şeffaflık kaydı (Radical Transparency). Opt-in denetçi açıkken her tur
+ * için doldurulur: turun GERÇEK sistem prompt'u, gönderilen prompt, örnekleme ve
+ * NEREDE koştuğu. route='local' → "hiçbir şey makineden çıkmadı" kanıtı; 'api' →
+ * "şu sağlayıcıya gitti" etiketi. Yanıt METNİ taşınmaz (renderer'da zaten var).
+ */
+export interface TurnInspection {
+  ts: number
+  route: 'local' | 'api'
+  /** API ise sağlayıcı/model kimliği; yerelse model adı. */
+  model?: string
+  systemPrompt: string
+  outgoingPrompt: string
+  sampling: { temperature?: number; topP?: number; maxTokens?: number; purpose?: string }
+  responseChars: number
 }
 
 /** 10.6 — genel arama sonuçları (oturum/proje/bilgi/kod). */
