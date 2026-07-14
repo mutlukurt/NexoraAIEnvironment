@@ -4359,7 +4359,9 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
       const apiModelActive = !!useSettingsStore.getState().activeApiModel
       const activeModel = useSettingsStore.getState().activeApiModel?.model ?? ''
       const { isBuildIntent, isVisionCapableModel } = await import('@/lib/visionIntent')
-      const isBuild = isBuildIntent(trimmed)
+      // NİYET-TABANLI: keyword yalnız İPUCU (default çerçeve); GÖRSELİ GÖREN VL modeli
+      // her iki yönde override eder ([BUILD]=inşa, [CHAT]=soru). SON SÖZ modelde.
+      const buildHint = isBuildIntent(trimmed)
 
       // Metin-modeli görseli GÖREMEZ → analiz de yapamaz. Uyar + ham gönder.
       if (apiModelActive && !isVisionCapableModel(activeModel)) {
@@ -4396,8 +4398,7 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
             messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: `🖼 ${e.msg}` } : m))
           }))
         })
-        const visionPrompt = isBuild
-          ? `Bu bir web sitesi tasarım referansı. Bir geliştiricinin SENİN TARİFİNLE bu sayfayı yeniden inşa edeceğini unutma — belirsiz sıfatlar değil, ölçülebilir detaylar ver:
+        const buildSpecPrompt = `Bu bir web sitesi tasarım referansı. Bir geliştiricinin SENİN TARİFİNLE bu sayfayı yeniden inşa edeceğini unutma — belirsiz sıfatlar değil, ölçülebilir detaylar ver:
 
 1) SAYFA ÇERÇEVESİ: sayfanın genel zemini ne renk (hex)? İçerik bir çerçeve/kutu içinde mi (kenar boşluğu, köşe yuvarlaklığı)? Maksimum içerik genişliği dar mı geniş mi?
 2) RENKLER (hex tahminleri): zemin, ikincil zemin(ler), birincil vurgu, metin, açık/koyu bölge geçişleri. HANGİ BÖLGE HANGİ RENK — "her yer X" deme, bölge bölge yaz.
@@ -4409,7 +4410,12 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
 ÖNEMLİ RENK KURALI: Renkleri YALNIZCA bu görselden oku. Görselde OLMAYAN bir rengi asla yazma; web şablonlarından ezber renk (#007BFF, #FF5733 gibi) yazmak YASAK. Bir bölgenin renginden emin olamıyorsan o renge "belirsiz" yaz.
 
 Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (üstten alta) eksiksiz bitir.`
-          : trimmed
+        // NİYET-TABANLI çerçeve: default keyword ipucundan; ama VL modeli görseli görüp
+        // TERS yönü seçebilir → build ipucunda [CHAT] ile soruya, soru ipucunda [BUILD]
+        // ile inşaya geçebilir. Keyword yalnız ipucu, SON SÖZ görseli GÖREN modelde.
+        const visionPrompt = buildHint
+          ? `${buildSpecPrompt}\n\n(AMA kullanıcı aslında bu görsel HAKKINDA bir SORU soruyorsa — yeniden inşa istemiyorsa — yukarıdakini yok say ve cevabına ilk satırda [CHAT] yazıp soruyu doğrudan yanıtla.)`
+          : `${trimmed}\n\n(Kullanıcının bu görsel hakkındaki mesajını yanıtla. AMA kullanıcı aslında bu tasarımı bir web sitesi/uygulama olarak YENİDEN İNŞA etmeni istiyorsa, bunun yerine cevabına ilk satırda [BUILD] yazıp ardından tasarımın ölçülebilir ayrıntılı bir spec'ini ver.)`
         const vres = await window.nexora.vision.analyze({
           imagePath: image.path,
           prompt: visionPrompt,
@@ -4424,16 +4430,23 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
           }))
           return
         }
+        // SON SÖZ MODELDE: görseli GÖREN VL modeli [BUILD]/[CHAT] ile kararı verir;
+        // sinyal yoksa keyword ipucu (buildHint) geçerli. [BUILD] inşayı ZORLAR,
+        // [CHAT] soruyu ZORLAR → keyword her iki yönde de yalnız ipucu (intent-invariant).
+        const saidBuild = /^\s*\[BUILD\]/im.test(vres.text)
+        const saidChat = /^\s*\[CHAT\]/im.test(vres.text)
+        const isBuild = saidBuild || (buildHint && !saidChat)
+        const cleanText = vres.text.replace(/^\s*\[(BUILD|CHAT)\]\s*/im, '').trim()
         if (!isBuild) {
           // Soru-cevap modu: modelin cevabı doğrudan gösterilir, build'e gidilmez.
           set((s) => ({
-            messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: vres.text! } : m))
+            messages: s.messages.map((m) => (m.id === statusId ? { ...m, content: cleanText || vres.text! } : m))
           }))
           return
         }
         // 2. AŞAMA girişi: analiz build'e aktarılır. API vision modelinde bu tur
         // FRONTIER build olur (apiVisionSpec) + görsel de referans olarak gider.
-        visionAnalysis = vres.text
+        visionAnalysis = cleanText || vres.text
         if (apiModelActive) {
           apiVisionSpec = true
           apiImagePath = image.path
