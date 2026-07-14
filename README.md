@@ -93,6 +93,29 @@ sudo snap install nexora-ai --edge --devmode
 
 ---
 
+## Discipline, Self-Managing Memory & Hardening — the v0.22 Scorecard (Phases 18–20.2)
+
+More Piebald-study phases, all **local-first and verified by tests on the exact functions the app runs**.
+
+**✍️ Phase 18 — Prompt-Engineering Discipline** *(claude-code-system-prompts wins)*. Chat now **leads with the outcome** — the direct answer in the first sentence, no "Great question! Let me…" preamble. The agent **narrates first, then acts** (one line of what + why before a multi-step action) and reasons from the **principle behind a rule, not a keyword recipe**. And the trust classifier is **stripped-context**: `decideCommand` judges the *command*, never the model's own justification — so it structurally cannot self-rationalize a dangerous action. (U-shaped attention + auditable-by-design already landed in v0.21.)
+
+**🧠 Phase 19 — Scaling Memory & Self-Managing Automation.** The knowledge base gained a **"dream" consolidation cycle**: near-duplicate items ("Hero fix" ↔ "fix hero" ↔ "Hero-Fix!") are merged into one — hits summed, the richest body kept — *before* anything is dropped on overflow, so learning compounds instead of thrashing. And scheduled tasks can now **self-terminate**: a "run once" (or N-times) task increments a run counter and removes itself when spent — no orphaned recurring jobs.
+
+**🔒 Phase 20.2 — Security review with a confidence filter.** After each build, a deterministic pass scans the touched code for embedded provider keys (`sk-`/`ghp_`/`AKIA`/`AIza`/`xox…`), key-like constants, `eval`/`new Function`/`dangerouslySetInnerHTML`, and insecure `http://`. The key is the **confidence filter** — only **high + medium** findings surface; low-confidence noise is suppressed, so you see real risks, not a wall of false positives.
+
+| What was true (≤ v0.21) | What v0.22 brings |
+| --- | --- |
+| Chat could bury the answer under preamble | **Outcome-first** — the answer in the first sentence |
+| Rules were procedural; trust could see the model's justification | **Principle-over-procedure** + **stripped-context** classifier (judges the command, not the excuse) |
+| Knowledge dropped items on overflow | **"Dream" consolidation** — merge near-duplicates first, then drop only if still over |
+| Recurring tasks ran forever | **Self-terminating** scheduled tasks ("run once / N times") |
+| No security pass on generated code | **Security review** with a **confidence filter** (high+medium only) |
+| Engine suites | **`test:engine` green** — 3 new suites (promptdiscipline · automation · security) |
+
+> Phase 17's engine-level parts (subagent distillation, reduction, KV-slot) and Phase 20's large features (DAG conversation branching, local Whisper dictation) are substantial standalone efforts landing in later releases.
+
+---
+
 ## Session Integrity, Radical Transparency & Context Economy — the v0.21 Scorecard (Phases 15–17.3)
 
 Three phases distilled from a 7-agent study of Piebald AI + the `claude-code-system-prompts` corpus — every one **local-first, opt-in, and verified live in the real app** (real Electron + CDP).
