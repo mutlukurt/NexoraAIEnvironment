@@ -93,6 +93,31 @@ sudo snap install nexora-ai --edge --devmode
 
 ---
 
+## Context Economy, Branching & Offline Dictation — the v0.23 Scorecard (completes Phases 15–20)
+
+The release that **finishes the Piebald roadmap**. Four more phases — every one local-first, adversarially verified, and live-tested on the real desktop app.
+
+**🧠 Phase 17 — Context Economy for small local models.** The single biggest lever for on-device 4–8K-window models: a large `[SEARCH]`/`[SYMBOL]` result is now **deduped, ranked against the turn's query, per-block capped and budget-fitted** before it reaches the model (sub-budget results pass through untouched — zero regression). Optionally, a still-large block is **distilled in an isolated one-shot pass** (local or API) into a terse brief, so the raw scan never bloats the parent context. And a **byte-stability guard** locks the system-prompt prefix so `--cache-reuse` stays effective — a silent perf regression can no longer sneak in.
+
+**🌿 Phase 20.1 — Conversation branching (DAG).** **Branch from any turn** into a new derived session — a cheap, non-destructive alternative to linear checkpoints. The conversation + file state up to that point seed a fresh session; the original is never touched. A sidebar 🌿 indicator and a chat banner show each branch's origin.
+
+**🎙️ Phase 20.3 — Local Whisper dictation.** A mic button in the composer: speak, and **whisper.cpp transcribes on your device** — audio never leaves the machine. Staged binary resolution (bundled → system PATH → download) with graceful guidance when it isn't installed, plus on-demand ggml model download.
+
+**✨ Phase 20.4 — Smooth streaming.** An optional eased, typewriter-like reveal for streamed replies (Settings → Engine).
+
+| What was true (≤ v0.22) | What v0.23 brings |
+| --- | --- |
+| Raw retrieval dumps burned the small context window | **Cheap reduction** (dedup + query-rank + cap) → optional **isolated distillation** |
+| System-prompt prefix could silently drift and bust the KV cache | **Byte-stability guard** keeps `--cache-reuse` effective |
+| Checkpoints were linear (rewind mutates in place) | **Branch from any turn** into a new session — original untouched |
+| Dictation meant a cloud speech API | **Offline whisper.cpp** dictation — audio stays on device |
+| Streamed text appeared in raw bursts | Optional **smooth (eased) streaming** |
+| Engine suites | **`test:engine` green** — 4 new suites (reduce · promptcache · branch · whisper); **9 adversarial findings fixed** |
+
+> **Piebald roadmap complete** (Phases 15–20). Every phase shipped local-first, adversarially verified, and live-tested on the real Electron app.
+
+---
+
 ## Discipline, Self-Managing Memory & Hardening — the v0.22 Scorecard (Phases 18–20.2)
 
 More Piebald-study phases, all **local-first and verified by tests on the exact functions the app runs**.
@@ -112,7 +137,7 @@ More Piebald-study phases, all **local-first and verified by tests on the exact 
 | No security pass on generated code | **Security review** with a **confidence filter** (high+medium only) |
 | Engine suites | **`test:engine` green** — 3 new suites (promptdiscipline · automation · security) |
 
-> Phase 17's engine-level parts (subagent distillation, reduction, KV-slot) and Phase 20's large features (DAG conversation branching, local Whisper dictation) are substantial standalone efforts landing in later releases.
+> Phase 17's engine-level parts (subagent distillation, reduction, KV-slot) and Phase 20's large features (DAG conversation branching, local Whisper dictation) shipped in **v0.23** — see the scorecard above.
 
 ---
 
