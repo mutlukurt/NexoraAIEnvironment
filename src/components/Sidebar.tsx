@@ -5,7 +5,17 @@ import { useArtifactsStore } from '@/store/artifactsStore'
 import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { splitSessions, groupByProject } from '@/lib/sessionGroups'
+import { computeSessionStatus, type SessionStatus } from '@/lib/sessionStatus'
 import logoImg from '@/assets/logo.png'
+
+// 15.3: oturum durum rozeti stilleri — nokta rengi + tooltip etiketi.
+const STATUS_STYLE: Record<SessionStatus, { dot: string; label: string }> = {
+  'working': { dot: 'bg-brand-500 animate-pulse', label: 'Working' },
+  'awaiting-approval': { dot: 'bg-amber-500', label: 'Awaiting approval' },
+  'verified': { dot: 'bg-green-500', label: 'Verified' },
+  'needs-review': { dot: 'bg-orange-500', label: 'Needs review' },
+  'error': { dot: 'bg-red-500', label: 'Error' }
+}
 
 export default function Sidebar() {
   const newSession = useAppStore((s) => s.newSession)
@@ -22,6 +32,14 @@ export default function Sidebar() {
   const [projects] = useProjectsList()
   const language = useAppStore((s) => s.language)
   const t = translations[language]
+
+  // 15.3: aktif oturumun rozeti CANLI store'dan türetilir (bu alanlar değişince
+  // kenar çubuğu yeniden render olur); pasif oturumlar diskteki statusBadge'i gösterir.
+  const sending = useAppStore((s) => s.sending)
+  const generating = useAppStore((s) => s.generating)
+  const permissionRequest = useAppStore((s) => s.permissionRequest)
+  const queuedTasks = useAppStore((s) => s.queuedTasks)
+  const errorState = useAppStore((s) => s.error)
 
   // 10.11.2: oturumları türe göre ayır — proje oturumları projelerin altında,
   // sohbet oturumları ayrı listede. Eski oturumlarda çıkarım (dosya varsa proje).
@@ -41,6 +59,10 @@ export default function Sidebar() {
   // 10.11.2/3: buton-benzeri, daha görünür oturum kartı (küçük satır değil).
   const sessionCard = (sess: (typeof sessions)[number], project: boolean) => {
     const active = sess.id === currentSessionId
+    // 15.3: aktif oturum → canlı durum; pasif oturum → diske yazılı son durum.
+    const status: SessionStatus | null = active
+      ? computeSessionStatus({ sending, generating, permissionRequest, queuedTasks, error: errorState })
+      : (sess.statusBadge ?? null)
     return (
       <div
         key={sess.id}
@@ -64,6 +86,13 @@ export default function Sidebar() {
             {project ? ` · ${sess.fileCount} ${t.filesCount}` : ''}
           </p>
         </div>
+        {status && (
+          <span
+            title={tt(language, STATUS_STYLE[status].label)}
+            aria-label={tt(language, STATUS_STYLE[status].label)}
+            className={'h-2 w-2 shrink-0 rounded-full ' + STATUS_STYLE[status].dot}
+          />
+        )}
         <button
           onClick={(e) => {
             e.stopPropagation()

@@ -9,6 +9,7 @@ import McpPanel from './McpPanel'
 import ServePanel from './ServePanel'
 import SchedulePanel from './SchedulePanel'
 import ProviderHub from './ProviderHub'
+import ProfilesPanel from './ProfilesPanel'
 
 export default function SettingsModal() {
   const open = useSettingsStore((s) => (s as unknown as { _settingsOpen: boolean })._settingsOpen)
@@ -62,7 +63,7 @@ export default function SettingsModal() {
   // Sol menülü Ayarlar: her kategori solda; kişi tıklayarak gezinir (tek uzun
   // scroll yerine). Aktif kategori dışındaki bölümler gizlenir.
   const [section, setSection] = useState<
-    'general' | 'providers' | 'models' | 'permissions' | 'prompt' | 'knowledge' | 'tools' | 'commands' | 'engine'
+    'general' | 'providers' | 'models' | 'permissions' | 'profiles' | 'prompt' | 'knowledge' | 'tools' | 'commands' | 'engine'
   >('general')
   const [projectName, setProjectName] = useState('nexora-projesi')
   // 7.8: proje bilgi tabanı — motorun bu projede öğrendikleri
@@ -139,6 +140,7 @@ export default function SettingsModal() {
                 ['providers', tt(language, "Providers")],
                 ['models', tt(language, "Models")],
                 ['permissions', tt(language, "Trust & Permissions")],
+                ['profiles', tt(language, "Profiles")],
                 ['prompt', tt(language, "Prompt & Rules")],
                 ['knowledge', tt(language, "Knowledge")],
                 ['tools', tt(language, "Tools")],
@@ -162,6 +164,10 @@ export default function SettingsModal() {
           </nav>
 
           <div className="flex flex-1 flex-col gap-5 overflow-y-auto bg-ink-card px-5 py-5">
+          {/* 15.2: Config Profiller — seçilen çalışma kipi (güven + direktif + prompt). */}
+          <div className={section === 'profiles' ? '' : 'hidden'}>
+            <ProfilesPanel />
+          </div>
           {/* Görünüm: Tema + Dil — sidebar'dan buraya taşındı (orada gereksiz yer
               kaplıyordu). Segmentli kontrol: Açık/Koyu ve TR/EN. */}
           <div className={(section === 'general' ? '' : 'hidden ') + 'rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>

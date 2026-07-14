@@ -425,6 +425,8 @@ export interface SessionMeta {
   kind?: 'chat' | 'project'
   /** 10.11.2: proje oturumları bir projeye bağlıdır (slug); sidebar'da altında görünür. */
   projectName?: string
+  /** 15.3: son-bilinen oturum durumu — pasif oturumların kenar çubuğu rozeti (aktif oturum canlı türetilir). */
+  statusBadge?: 'working' | 'awaiting-approval' | 'verified' | 'needs-review' | 'error'
 }
 
 /**
@@ -472,6 +474,20 @@ export interface SessionData extends SessionMeta {
   queuedTasks?: QueuedTask[]
   /** 10.4: prompt-başı checkpoint'ler — kod+sohbet durumunu geri sarma. */
   checkpoints?: CheckpointEntry[]
+  /**
+   * 15.1: reboot-dayanıklı bekleyen izinler. Bir [RUN]/[FETCH]/[MCP] onay istemi
+   * yalnız bellekteydi; çökme/kapanma onu SESSİZCE kaybediyordu. Artık diske iner:
+   * relaunch'ta PermissionModal geri gelir, onaylanırsa yapılandırılmış eylemler
+   * (runs/fetches/mcp) yeniden çalışır (items yalnız gösterim içindir).
+   */
+  pendingApprovals?: Array<{
+    id: string
+    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string }>
+    runs: string[]
+    fetches: Array<{ url: string; path: string }>
+    mcp: Array<{ server: string; tool: string; args: Record<string, unknown> }>
+    createdAt: number
+  }>
 }
 
 /** 10.4 — bir kullanıcı prompt'undan HEMEN ÖNCEki durum (kod + sohbet konumu). */

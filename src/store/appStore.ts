@@ -20,6 +20,8 @@ import { makeTask, nextRunnable, transition, clearFinished, deactivateTasks, typ
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { applyLangDir, ALL_LANGS, type Lang } from '@/lib/i18n'
 import { useSettingsStore } from './settingsStore'
+import { useProfilesStore } from './profilesStore'
+import { directiveAllowed, effectiveTrustTier } from '@shared/configProfiles'
 import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
@@ -28,16 +30,21 @@ import { looksUnderspecified } from '@/lib/intentGate'
 import { extractAgentDocs } from '@/lib/specDocs'
 import { collectFullRewrites } from '@/lib/afterEdit'
 import { detectDeadInteractions, formatBehaviorReport } from '@/lib/behaviorCheck'
+import { computeSessionStatus } from '@/lib/sessionStatus'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
 import { fixNextJsCode } from '@/lib/codeFixer'
 import { fixTurkishApostrophes } from '@/lib/autoRepair'
 import { parseDirectives, hasDirectives, executeDirectives, isDirectiveOnlyContent, getProjectName, deriveProjectName, resetIdentityWarning, parseMemories, detectMalformedDirectives } from '@/lib/agentActions'
+import { reconstructDirectives } from '@/lib/pendingApprovals'
 import { pushCheckpoint, dropAfter, truncateMessages, snapshotFiles } from '@/lib/checkpoints'
 import { turnDiffStats } from '@/lib/diffStat'
 import { buildApiHistory, seedHistoryBudget } from '@/lib/apiHistory'
 import { DEFAULT_PROFILE_ID, detectProfile, getProfile } from '@shared/prompts'
 import { extractContract, tokenizeForFidelity, rehydrate, enforceClassSlots, type ProjectContract } from '@shared/projectContract'
 import { specVerify, type SpecVerifyResult } from '@shared/specVerify'
+
+/** 15.1: reboot-dayanıklı bekleyen izin kaydı — tek kaynak SessionData şeması. */
+type PendingApproval = NonNullable<SessionData['pendingApprovals']>[number]
 
 const AUTO_APPLY_KEY = 'nexora.autoApply'
 
@@ -201,6 +208,10 @@ interface AppState {
     items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string }>
     resolve: (d: 'once' | 'always' | 'deny') => void
   } | null
+  /** 15.1: reboot-dayanıklı bekleyen izinler — diske serileşir (SessionData), çökmede kaybolmaz. */
+  pendingApprovals: PendingApproval[]
+  /** 15.1: bekleyen izinleri HEMEN diske yaz (saveSessionNow'un generating guard'ını atlar). */
+  flushPendingApprovals: () => Promise<void>
 
   // Plan modu ("Önce Plan"): istekler önce plana çevrilir, onayla koda döner.
   planFirst: boolean
@@ -2539,6 +2550,34 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             // işi SD motoruna devreder; [ASSET] son görseli projeye ekler. Güven
             // kapısından bağımsız (yerel SD + bellek-içi asset — zararsız sınıf);
             // kalan direktifler mevcut trust akışında yaşamaya devam eder.
+            // 15.2: aktif config profili belirli direktif türlerini engelleyebilir
+            // (Ideation kip = hiçbir üretim/komut/görsel). Engellenenler yürütmeden
+            // ÖNCE burada SÖKÜLÜR + kullanıcı bilgilendirilir. Profil yoksa no-op.
+            const activeProfile = useProfilesStore.getState().getActive()
+            if (activeProfile && activeProfile.blockedDirectives.length > 0) {
+              const blk = (k: string): boolean => !directiveAllowed(activeProfile, k)
+              const stripped: string[] = []
+              if (blk('RUN') && directives.runs.length) { stripped.push(`${directives.runs.length}×RUN`); directives.runs = [] }
+              if (blk('FETCH') && directives.fetches.length) { stripped.push(`${directives.fetches.length}×FETCH`); directives.fetches = [] }
+              if (blk('MCP') && directives.mcp.length) { stripped.push(`${directives.mcp.length}×MCP`); directives.mcp = [] }
+              if (blk('PKG') && directives.pkgs.length) { stripped.push(`${directives.pkgs.length}×PKG`); directives.pkgs = [] }
+              if (blk('FONT') && directives.fonts.length) { stripped.push(`${directives.fonts.length}×FONT`); directives.fonts = [] }
+              if (blk('DEV') && directives.dev) { stripped.push('DEV'); directives.dev = false }
+              if (blk('BUILD') && directives.build) { stripped.push('BUILD'); directives.build = false }
+              if (blk('IMG') && directives.imgs.length) { stripped.push(`${directives.imgs.length}×IMG`); directives.imgs = [] }
+              if (blk('EDIT') && directives.edits.length) { stripped.push(`${directives.edits.length}×EDIT`); directives.edits = [] }
+              if (blk('ASSET') && directives.assetAdd) { stripped.push('ASSET'); directives.assetAdd = false }
+              if (stripped.length > 0) {
+                logRepair({ layer: 'profile-block', notes: [activeProfile.name, ...stripped.slice(0, 4)] })
+                set((s) => ({
+                  messages: [
+                    ...s.messages,
+                    { id: nanoid(), role: 'assistant', content: `🎛 "${activeProfile.name}" profili şu direktifleri engelledi: ${stripped.join(', ')}. (Ayarlar → Profiller'den kipi değiştir.)` }
+                  ]
+                }))
+                if (!hasDirectives(directives)) return
+              }
+            }
             // 14.9 — [EDIT]: SON üretilmiş görseli img2img ile düzenle (sd-server).
             if (directives.edits.length > 0) {
               await runImageEdits(directives.edits)
@@ -2557,7 +2596,8 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             // Katman 2 (onay): Salt Okunur hiçbir şey koşturmaz; Otomatik
             // yalnız 'ask' için sorar; Tam Erişim 'ask'ı onaysız koşturur.
             const trust = useSettingsStore.getState()
-            const tier = trust.trustTier
+            // 15.2: aktif profil güven seviyesini EZER (Ideation=read → hiçbir komut koşmaz).
+            const tier = effectiveTrustTier(activeProfile, trust.trustTier)
             const lists = { allowList: trust.trustAllowList, denyList: trust.trustDenyList }
             let effective = directives
 
@@ -2628,10 +2668,27 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                     reason: get().language === 'tr' ? 'yerel MCP aracı — süreç dışı eylem' : 'local MCP tool call'
                   }))
                 ]
+                // 15.1: onay istemini diske serileştir — çökme/kapanma onu SESSİZCE
+                // kaybetmesin; reboot'ta modal geri gelir, onaylanırsa eylemler yeniden koşar.
+                const paId = nanoid()
+                const paRecord: PendingApproval = {
+                  id: paId,
+                  items,
+                  runs: askRuns.map((r) => r.text),
+                  fetches: fetchesAsk,
+                  mcp: mcpAsk,
+                  createdAt: Date.now()
+                }
+                set((s) => ({ pendingApprovals: [...s.pendingApprovals, paRecord] }))
                 const decision = await new Promise<'once' | 'always' | 'deny'>((resolve) => {
                   set({ permissionRequest: { items, resolve } })
+                  void get().flushPendingApprovals()
                 })
-                set({ permissionRequest: null })
+                set((s) => ({
+                  permissionRequest: null,
+                  pendingApprovals: s.pendingApprovals.filter((p) => p.id !== paId)
+                }))
+                void get().flushPendingApprovals()
                 logRepair({ layer: 'trust-ask', notes: [decision, ...items.slice(0, 3).map((i) => i.text)] })
                 if (decision === 'always') setAgentAllowed()
                 approvedAsk = decision !== 'deny'
@@ -2746,6 +2803,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
   permissionRequest: null,
+  pendingApprovals: [],
   planFirst: planFirstInitial(),
   planPending: null,
   enhancePrompts: enhanceInitial(),
@@ -2847,8 +2905,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const customPrompt = useSettingsStore.getState().customSystemPrompt
-      if (customPrompt) {
-        await window.nexora.model.setSystemPrompt(customPrompt)
+      // 15.2: aktif config profilinin kip yönergesi sistem prompt'una eklenir.
+      const profileAdd = useProfilesStore.getState().getActive()?.systemPromptAddition ?? ''
+      const sysPrompt = [customPrompt, profileAdd].filter(Boolean).join('\n\n')
+      if (sysPrompt) {
+        await window.nexora.model.setSystemPrompt(sysPrompt)
       }
       const enableGpu = useSettingsStore.getState().enableGpu
       // 0 = otomatik: node-llama-cpp boş VRAM'i ölçüp sığan katman sayısını seçer.
@@ -3090,7 +3151,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       )
       return
     }
-    if (quiet) {
+    if (opts?.quiet) {
       // Run öncesi sessiz tarama: görünür bir model turu AÇMAZ (sürpriz olur).
       // Gerçek sorunlar Run'da runtime/derleme onarımıyla (model) çözülür.
       logRepair({ layer: 'scan-detected', notes: report.findings.map((f) => `${f.cls}@${f.path}`) })
@@ -3410,7 +3471,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 7.7: görev kuyruğu + gelen kutusu da oturumla yaşar.
       queuedTasks: s.queuedTasks,
       // 10.4: prompt-başı checkpoint'ler oturumla yaşar.
-      checkpoints: s.checkpoints
+      checkpoints: s.checkpoints,
+      // 15.1: bekleyen izinler oturumla yaşar — çökme/kapanma onay istemini kaybetmesin.
+      pendingApprovals: s.pendingApprovals,
+      // 15.3: son-bilinen durum rozeti — pasif oturum için kenar çubuğunda gösterilir
+      // (üretim sırasında saveSessionNow zaten atlar → dinlenme durumu yakalanır).
+      statusBadge: computeSessionStatus(s) ?? undefined
     }
     try {
       await window.nexora.sessions.save(data)
@@ -3434,6 +3500,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch {
         /* geçmiş çekirdeklenemezse sorun değil */
       }
+    }
+  },
+
+  // 15.1: bekleyen izinleri HEMEN diske yaz — generating guard'ını atlar. Diskteki
+  // oturumun YALNIZ pendingApprovals alanını günceller (mesaj/dosya durumuna dokunmaz),
+  // yani üretim ortasında bile güvenle çağrılır. Oturum henüz diske yazılmadıysa atlar.
+  flushPendingApprovals: async () => {
+    const s = get()
+    const id = s.currentSessionId
+    if (!id) return
+    try {
+      const existing = (await window.nexora.sessions.load(id)) as SessionData | null
+      if (!existing) return
+      existing.pendingApprovals = s.pendingApprovals
+      existing.updatedAt = Date.now()
+      await window.nexora.sessions.save(existing)
+    } catch {
+      /* diske yazılamadıysa sohbeti bozma */
     }
   },
 
@@ -3501,6 +3585,48 @@ export const useAppStore = create<AppState>((set, get) => ({
       profileId: DEFAULT_PROFILE_ID,
       profileLabel: getProfile(DEFAULT_PROFILE_ID).label
     })
+    // 15.1: reboot-dayanıklı bekleyen izinler — çökme/kapanma bir [RUN]/[FETCH]/[MCP]
+    // onay istemini yakalamışsa, oturum açılınca PermissionModal GERİ GELİR (eskiden
+    // sessizce kaybolurdu). Onaylanırsa (once/always) yapılandırılmış eylemler yeniden
+    // koşar; reddedilirse atlanır. Pratikte en fazla 1 bekleyen olur (await bloklar).
+    const pending = data.pendingApprovals ?? []
+    set({ pendingApprovals: pending })
+    if (pending.length > 0) {
+      const pa = pending[0]
+      set({
+        permissionRequest: {
+          items: pa.items,
+          resolve: (decision) => {
+            set((st) => ({
+              permissionRequest: null,
+              pendingApprovals: st.pendingApprovals.filter((p) => p.id !== pa.id)
+            }))
+            void get().flushPendingApprovals()
+            if (decision === 'always') setAgentAllowed()
+            if (decision === 'deny') {
+              set((s) => ({
+                messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `⛔ Kapanışta bekleyen ${pa.items.length} eylem reddedildi — çalıştırılmadı.` }]
+              }))
+              void get().saveSessionNow()
+              return
+            }
+            // Onaylandı → yapılandırılmış eylemleri (runs/fetches/mcp) yeniden koştur.
+            const eff = reconstructDirectives(pa)
+            const logId = nanoid()
+            const lines = ['⚙️ Kapanışta onay bekleyen eylemler çalışıyor…']
+            set((s) => ({ messages: [...s.messages, { id: logId, role: 'assistant', content: lines[0] }] }))
+            void executeDirectives(eff, (line) => {
+              lines.push(line)
+              set((s) => ({ messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m)) }))
+            }).then(() => {
+              lines[0] = '⚙️ Bekleyen eylemler tamamlandı.'
+              set((s) => ({ messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m)) }))
+              void get().saveSessionNow()
+            })
+          }
+        }
+      })
+    }
   },
 
   removeSession: async (id: string) => {
@@ -4738,6 +4864,13 @@ ${outgoing}`
         sampling.maxTokens = 2048
       }
     }
+    // 15.2: aktif config profili örnekleme sıcaklığını YUMUŞAK override eder — ama
+    // HASSAS turlar (fix/fidelity/expectFile) determinizm ister, profil onları EZMEZ.
+    const activeSamplingProfile = useProfilesStore.getState().getActive()
+    if (activeSamplingProfile && !fixFlow && !fidelityActive && !opts?.expectFile) {
+      sampling.temperature = activeSamplingProfile.sampling.temperature
+      if (activeSamplingProfile.sampling.topP) sampling.topP = activeSamplingProfile.sampling.topP
+    }
 
     // FAZ 9.3 — Fidelity turu: outgoing prompt'taki slot literallerini __SLOT__
     // token'larıyla değiştir (plan + expectFile turlarında). Model yalnız yapıyı
@@ -5015,3 +5148,9 @@ async function runImageEdits(edits: string[]): Promise<void> {
 // atmadan Çalıştır'a basarsa sayfanın hata POST'ları boşluğa düşüyordu
 // (içe aktarılan bozuk proje vakası). Uygulama açılır açılmaz dinle.
 ensureRuntimeErrorSub(useAppStore.getState, useAppStore.setState)
+
+// CDP canlı-test / hata ayıklama köprüsü: renderer store'unu window'a bağla —
+// zararsız referans, gerçek-Electron+CDP test akışını (Faz 10+ geleneği) mümkün kılar.
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { useAppStore?: typeof useAppStore }).useAppStore = useAppStore
+}

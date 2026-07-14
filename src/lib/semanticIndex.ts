@@ -19,7 +19,7 @@ async function embedAvailable(): Promise<boolean> {
       hasModel = false
     }
   }
-  return hasModel
+  return hasModel ?? false
 }
 
 /** Değişen dosyaları yeniden parçala+embed et (artımlı). En çok `maxChunks` parça. */

@@ -35,7 +35,10 @@ function toMeta(d: SessionData): SessionMeta {
     fileCount: d.fileCount,
     // 10.11.2: türü taşı; eski oturumlarda çıkarım (dosya varsa proje, yoksa sohbet).
     kind: d.kind ?? (d.fileCount > 0 ? 'project' : 'chat'),
-    projectName: d.projectName
+    projectName: d.projectName,
+    // 15.3: son-bilinen durum rozetini listeye taşı — pasif oturum kartı için (yoksa
+    // kenar çubuğu rozeti asla görünmezdi: canlı test bulgusu).
+    statusBadge: d.statusBadge
   }
 }
 
