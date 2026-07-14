@@ -15,6 +15,10 @@ export interface Settings {
   enableGpu: boolean
   /** 16.1: Motor ham-prompt/çıkarım denetçisi (opt-in şeffaflık — "hiçbir şey makineden çıkmadı"). */
   transparencyInspectorEnabled: boolean
+  /** 17.1: büyük [SEARCH]/[SYMBOL] sonucunu izole bir tek-atış turda damıt (küçük-pencere kaldıracı; opt-in — model turu maliyeti). */
+  contextOffloadEnabled: boolean
+  /** 20.4: akış token'larını yumuşatılmış (eased) hızda göster — polish (opt-in). */
+  smoothStreamingEnabled: boolean
   /** Faz 13 — yerel (offline) görsel üretimi açık mı? (sd-server, ~/NexoraAI/models). */
   localImageEnabled: boolean
   /** Seçili yerel görsel-üretim modelinin yolu (null = en büyük yüklü, otomatik). */
@@ -104,6 +108,8 @@ const DEFAULT_SETTINGS: Settings = {
   customSystemPrompt: '',
   enableGpu: false,
   transparencyInspectorEnabled: false,
+  contextOffloadEnabled: false,
+  smoothStreamingEnabled: false,
   localImageEnabled: false,
   activeLocalImageModel: null,
   gpuLayers: 0,
@@ -137,6 +143,8 @@ function loadSettings(): Settings {
       customSystemPrompt: parsed.customSystemPrompt ?? '',
       enableGpu: parsed.enableGpu ?? false,
       transparencyInspectorEnabled: parsed.transparencyInspectorEnabled ?? false,
+      contextOffloadEnabled: parsed.contextOffloadEnabled ?? false,
+      smoothStreamingEnabled: parsed.smoothStreamingEnabled ?? false,
       localImageEnabled: parsed.localImageEnabled === true,
       activeLocalImageModel: typeof parsed.activeLocalImageModel === 'string' ? parsed.activeLocalImageModel : null,
       gpuLayers: typeof parsed.gpuLayers === 'number' ? parsed.gpuLayers : 0,
@@ -176,6 +184,8 @@ interface SettingsState extends Settings {
   setCustomSystemPrompt: (v: string) => void
   setEnableGpu: (v: boolean) => void
   setTransparencyInspector: (v: boolean) => void
+  setContextOffload: (v: boolean) => void
+  setSmoothStreaming: (v: boolean) => void
   setGpuLayers: (v: number) => void
   setVisionModelPath: (v: string | null) => void
   setLocalImageEnabled: (v: boolean) => void
@@ -205,6 +215,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setCustomSystemPrompt: (v) => set({ customSystemPrompt: v }),
   setEnableGpu: (v) => set({ enableGpu: v }),
   setTransparencyInspector: (v) => { set({ transparencyInspectorEnabled: v }); get().save() },
+  setContextOffload: (v) => { set({ contextOffloadEnabled: v }); get().save() },
+  setSmoothStreaming: (v) => { set({ smoothStreamingEnabled: v }); get().save() },
   setGpuLayers: (v) => set({ gpuLayers: Math.max(0, Math.round(v)) }),
   setVisionModelPath: (v) => {
     set({ visionModelPath: v })
@@ -276,6 +288,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           customSystemPrompt: get().customSystemPrompt,
           enableGpu: get().enableGpu,
           transparencyInspectorEnabled: get().transparencyInspectorEnabled,
+          contextOffloadEnabled: get().contextOffloadEnabled,
+          smoothStreamingEnabled: get().smoothStreamingEnabled,
           gpuLayers: get().gpuLayers,
           visionModelPath: get().visionModelPath,
           // Boş satırlar (etiket ve prompt ikisi de boş) kaydedilmez.

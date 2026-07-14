@@ -1352,6 +1352,44 @@ let currentStreamingContent = ''
 let lastApplyAt = 0
 let applyTimer: ReturnType<typeof setTimeout> | null = null
 
+// 20.4 — smooth-streaming (opt-in polish): görünen metni yumuşatılmış (eased)
+// hızda açar. currentStreamingContent (uygulama gerçeği) YİNE anında tam kalır;
+// yalnız EKRANA yansıyan metin tampondan rAF ile boşalır. done her dalda içeriği
+// `full`'a sabitlediğinden her gecikme done'da otomatik kapanır (asla kayıp yok).
+let smoothBuf = ''
+let smoothRAF: number | null = null
+function drainSmooth(): void {
+  if (smoothRAF != null) return
+  const tick = () => {
+    smoothRAF = null
+    if (!smoothBuf) return
+    const streaming = useAppStore.getState().messages.find((m) => m.streaming)
+    if (!streaming) {
+      smoothBuf = '' // tur bitti/değişti — done zaten tam metni yazdı, tamponu at
+      return
+    }
+    const n = Math.max(2, Math.ceil(smoothBuf.length / 6)) // geride kalınca hızlan
+    const chunk = smoothBuf.slice(0, n)
+    smoothBuf = smoothBuf.slice(n)
+    useAppStore.setState((s) => {
+      const m0 = s.messages.find((m) => m.streaming)
+      if (!m0) return {}
+      return { messages: s.messages.map((m) => (m.id === m0.id ? { ...m, content: m.content + chunk } : m)) }
+    })
+    if (smoothBuf) smoothRAF = requestAnimationFrame(tick)
+  }
+  smoothRAF = requestAnimationFrame(tick)
+}
+/** 20.4 — akış zorla bitince (Durdur / ölü-tur) tamponu iptal et + at. Görünen içerik
+ *  currentStreamingContent'e mutabık kılınmalı (aksi hâlde eased kuyruk kaybolurdu). */
+function stopSmooth(): void {
+  if (smoothRAF != null) {
+    cancelAnimationFrame(smoothRAF)
+    smoothRAF = null
+  }
+  smoothBuf = ''
+}
+
 // Cerrahi düzenleme bekçisi — İTERASYONDA BAŞTAN YAZMAK YASAK.
 // İki ihlal türü yakalanır: (1) SEARCH bloğuna komple bölüm kopyalamak,
 // (2) mevcut bir dosyayı tam dosya olarak yeniden göndermek. İlk ihlalde
@@ -1551,12 +1589,15 @@ function declareStreamDead(turnEpoch: number, silentSec: number): void {
   clearLiveness()
   void window.nexora.chat.abort() // gerçek sunucu-iptali main sürecinde
   cancelScheduledApply()
+  stopSmooth() // 20.4 — eased tamponu iptal et (kuyruk kaybını önle)
   const lang = useAppStore.getState().language
   useAppStore.setState((s) => ({
     sending: false,
     generating: false,
     messages: [
-      ...s.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+      ...s.messages.map((m) =>
+        m.streaming ? { ...m, content: currentStreamingContent || m.content, streaming: false } : m
+      ),
       {
         id: nanoid(),
         role: 'assistant' as const,
@@ -2542,11 +2583,48 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 /* embed yoksa leksikal+sembol yeter */
               }
               if (block && lastUser) {
+                // 17.2 + 17.1 — CONTEXT ECONOMY: küçük yerel pencerede ham retrieval
+                // bloğu değerli token yakar. Önce UCUZ deterministik azaltma
+                // (dedup + alaka-sıralama + tavan; sıfır gecikme), sonra OPT-IN ise
+                // hâlâ büyük bloğu İZOLE tek-atış turda (yerel isolate VEYA API) damıt.
+                // Bütçe-altı bloklar DOKUNULMADAN geçer → yaygın durumda sıfır regresyon.
+                const queryText = [...directives.searches, ...directives.symbols.map((x) => x.name)].join(' ')
+                let ctxBlock = block
+                const CTX_BUDGET = 2400
+                if (block.length > CTX_BUDGET) {
+                  try {
+                    const { reduceText } = await import('@shared/contextReduce')
+                    ctxBlock = reduceText(block, { charBudget: CTX_BUDGET, perBlockCap: 1200, query: queryText }).text || block
+                  } catch {
+                    /* azaltma opsiyonel — ham blok durur */
+                  }
+                }
+                if (useSettingsStore.getState().contextOffloadEnabled) {
+                  try {
+                    const { shouldDistill, composeDistillPrompt, parseDistilled, formatDistilled, DISTILL_SYSTEM } =
+                      await import('@shared/distill')
+                    if (shouldDistill(ctxBlock)) {
+                      const before = ctxBlock.length
+                      const res = await window.nexora.model2.complete({
+                        prompt: composeDistillPrompt(ctxBlock, queryText),
+                        system: DISTILL_SYSTEM,
+                        maxTokens: 512
+                      })
+                      if (res?.ok && res.text) {
+                        const p = parseDistilled(res.text)
+                        if (!p.none && p.text.length < before)
+                          ctxBlock = formatDistilled(p.text, { fromChars: before, toChars: p.text.length })
+                      }
+                    }
+                  } catch {
+                    /* damıtma best-effort; azaltılmış blok aynen durur */
+                  }
+                }
                 set((s) => ({
                   messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `🔎 Arama: ${[...directives.searches, ...directives.symbols.map((x) => x.op + ' ' + x.name)].join(', ')} — sonuçlar modele verildi` }]
                 }))
                 retrievalRoundActive = true
-                const augmented = `${block}\n\n--- Original request ---\n${lastUser.content}`
+                const augmented = `${ctxBlock}\n\n--- Original request ---\n${lastUser.content}`
                 setTimeout(() => {
                   void useAppStore.getState().sendMessage(augmented, { hideUser: true }).finally(() => { retrievalRoundActive = false })
                 }, 200)
@@ -2770,15 +2848,21 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
     // 10.15 — CERRAHİ DÜZENLEME KALDIRILDI: eskiden burada açık SEARCH bloğu
     // sınırı aşınca akış kesilir, model "küçük bloklarla yeniden yaz" diye
     // zorlanırdı. Bu köstek tamamen söküldü — model komple dosya yazar, kesme yok.
-    set((s) => {
-      const streaming = s.messages.find((m) => m.streaming)
-      if (!streaming) return {}
-      return {
-        messages: s.messages.map((m) =>
-          m.id === streaming.id ? { ...m, content: streaming.content + token } : m
-        )
-      }
-    })
+    if (useSettingsStore.getState().smoothStreamingEnabled) {
+      // 20.4 — eased reveal: token'ı tampona al, rAF ile yumuşak boşalt.
+      smoothBuf += token
+      drainSmooth()
+    } else {
+      set((s) => {
+        const streaming = s.messages.find((m) => m.streaming)
+        if (!streaming) return {}
+        return {
+          messages: s.messages.map((m) =>
+            m.id === streaming.id ? { ...m, content: streaming.content + token } : m
+          )
+        }
+      })
+    }
     if (get().autoApply && !planTurnActive && !enhanceTurnActive) {
       scheduleStreamingApply()
     }
@@ -4125,6 +4209,9 @@ Bu planı şimdi uygula — planı yeniden yazma, doğrudan üret.`
     ensureStream(get, set)
     cancelScheduledApply()
     currentStreamingContent = ''
+    // 20.4 — yeni tur: önceki turdan sızmış eased tamponu temizle + rAF'ı iptal et.
+    if (smoothRAF != null) { cancelAnimationFrame(smoothRAF); smoothRAF = null }
+    smoothBuf = ''
     lastApplyAt = 0
     // Kullanıcıdan gelen her yeni istek bekçi hakkını tazeler; otomatik
     // yeniden deneme turu ise mevcut hakkı tüketmeye devam eder.
@@ -5002,10 +5089,16 @@ ${outgoing}`
     // devam eder (yeniden kurmaya gerek kalmaz).
     await window.nexora.chat.abort()
     cancelScheduledApply()
+    // 20.4 — smooth-streaming açıkken görünen metin eased pozisyonunda geride
+    // olabilir; Durdur'da içeriği ALINAN tam metne (currentStreamingContent)
+    // mutabık kıl ki tampondaki kuyruk KAYBOLMASIN (non-smooth yolla aynı davranış).
+    stopSmooth()
     set((s) => ({
       sending: false,
       generating: false,
-      messages: s.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+      messages: s.messages.map((m) =>
+        m.streaming ? { ...m, content: currentStreamingContent || m.content, streaming: false } : m
+      )
     }))
     useArtifactsStore.getState().finishStreaming()
     // 6.4 tur transaction'ı: yarıda kesilen iterasyon turunun MEVCUT dosyalara

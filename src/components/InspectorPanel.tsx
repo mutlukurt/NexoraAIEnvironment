@@ -62,6 +62,10 @@ export default function InspectorPanel(): JSX.Element {
   const inspections = useAppStore((s) => s.turnInspections)
   const enabled = useSettingsStore((s) => s.transparencyInspectorEnabled)
   const setEnabled = useSettingsStore((s) => s.setTransparencyInspector)
+  const offload = useSettingsStore((s) => s.contextOffloadEnabled)
+  const setOffload = useSettingsStore((s) => s.setContextOffload)
+  const smooth = useSettingsStore((s) => s.smoothStreamingEnabled)
+  const setSmooth = useSettingsStore((s) => s.setSmoothStreaming)
 
   return (
     <div className="rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm">
@@ -81,6 +85,34 @@ export default function InspectorPanel(): JSX.Element {
           title={tt(language, 'Toggle inspector')}
         >
           <span className={'absolute top-0.5 h-4 w-4 rounded-full bg-white transition ' + (enabled ? 'left-4' : 'left-0.5')} />
+        </button>
+      </div>
+
+      {/* 17.1 — Context offloading (isolated distillation of large retrieval blocks). */}
+      <div className="mt-3 flex items-start justify-between gap-3 border-t border-ink-line/60 pt-3">
+        <p className="text-[11px] font-medium text-ink-dim">
+          {tt(language, 'Context offloading: distill large [SEARCH]/[SYMBOL] results in an isolated pass so small local models keep a lean window (adds one model round-trip).')}
+        </p>
+        <button
+          onClick={() => setOffload(!offload)}
+          className={'relative h-5 w-9 shrink-0 rounded-full transition ' + (offload ? 'bg-brand-500' : 'bg-ink-line')}
+          title={tt(language, 'Toggle context offloading')}
+        >
+          <span className={'absolute top-0.5 h-4 w-4 rounded-full bg-white transition ' + (offload ? 'left-4' : 'left-0.5')} />
+        </button>
+      </div>
+
+      {/* 20.4 — Smooth (eased) streaming reveal. */}
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <p className="text-[11px] font-medium text-ink-dim">
+          {tt(language, 'Smooth streaming: reveal streamed text at an eased, typewriter-like pace.')}
+        </p>
+        <button
+          onClick={() => setSmooth(!smooth)}
+          className={'relative h-5 w-9 shrink-0 rounded-full transition ' + (smooth ? 'bg-brand-500' : 'bg-ink-line')}
+          title={tt(language, 'Toggle smooth streaming')}
+        >
+          <span className={'absolute top-0.5 h-4 w-4 rounded-full bg-white transition ' + (smooth ? 'left-4' : 'left-0.5')} />
         </button>
       </div>
 
