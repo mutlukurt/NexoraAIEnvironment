@@ -715,7 +715,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.KNOWLEDGE_RETIRE, async (_e, input: { projectName: string; sig: string }) => {
     return retireKnowledgeBySig(input.projectName, input.sig)
   })
-  ipcMain.handle(IPC.KNOWLEDGE_CONTEXT, async (_e, projectName: string) => knowledgeContext(projectName))
+  ipcMain.handle(IPC.KNOWLEDGE_CONTEXT, async (_e, projectName: string, query?: string) => knowledgeContext(projectName, 1200, query ?? ''))
 
   // Hiyerarşik kurallar (7.8): global ~/NexoraAI/KURALLAR.md + proje birleşimi.
   ipcMain.handle(IPC.RULES_GET_GLOBAL, async () => ({ content: await getGlobalRules() }))

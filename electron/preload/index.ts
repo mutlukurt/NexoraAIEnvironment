@@ -195,7 +195,8 @@ export interface NexoraApi {
     read: (input: { projectName: string; file: string }) => Promise<string | null>
     remove: (input: { projectName: string; file: string }) => Promise<{ ok: boolean }>
     retire: (input: { projectName: string; sig: string }) => Promise<{ retired: number }>
-    context: (projectName: string) => Promise<string>
+    /** 17.3: query verilirse bilgi ALAKA'ya göre süzülür (alakasızsa boş = geçerli SIFIR). */
+    context: (projectName: string, query?: string) => Promise<string>
   }
   projects: {
     /** Klasör Aç (roadmap 3.1): klasör diyaloğu + tarama + bağlama. */
@@ -446,7 +447,7 @@ const api: NexoraApi = {
     read: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_READ, input),
     remove: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_DELETE, input),
     retire: (input) => ipcRenderer.invoke(IPC.KNOWLEDGE_RETIRE, input),
-    context: (projectName: string) => ipcRenderer.invoke(IPC.KNOWLEDGE_CONTEXT, projectName)
+    context: (projectName: string, query?: string) => ipcRenderer.invoke(IPC.KNOWLEDGE_CONTEXT, projectName, query)
   },
   projects: {
     import: () => ipcRenderer.invoke(IPC.PROJECT_IMPORT),

@@ -17,6 +17,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { promises as fs } from 'fs'
 import type { KnowledgeItemMeta } from '../shared/ipc'
+import { filterByRelevance } from '../shared/memoryRelevance'
 
 const MAX_ITEMS = 30
 const KINDS: KnowledgeItemMeta['kind'][] = ['repair-pattern', 'verified-fix', 'user-preference', 'note']
@@ -150,10 +151,17 @@ export async function deleteKnowledge(projectName: string, file: string): Promis
  * En güvenilir (hits) ve taze maddeler önce; başlık her zaman, gövdenin ilk
  * satırı bütçe elverdikçe. Boş projede boş string (tura hiçbir şey eklenmez).
  */
-export async function knowledgeContext(projectName: string, budget = 1200): Promise<string> {
+export async function knowledgeContext(projectName: string, budget = 1200, query = ''): Promise<string> {
   const all = await readAll(projectName)
   if (all.length === 0) return ''
-  const ranked = [...all].sort((a, b) => b.hits - a.hits || b.updatedAt - a.updatedAt)
+  // 17.3: turun sorgusuna ALAKA filtresi — hiçbir madde eşiği geçmezse GEÇERLİ SIFIR
+  // (tura hiçbir şey iliştirme; alakasız bağlamla token yakma). Sorgu yoksa eski
+  // davranış: hits'e göre sıralı hepsi. Alaka varsa alaka-sırası korunur.
+  const rel = filterByRelevance(all, query)
+  if (rel.decision === 'zero-valid') return ''
+  const ranked = rel.decision === 'attached'
+    ? rel.kept
+    : [...rel.kept].sort((a, b) => b.hits - a.hits || b.updatedAt - a.updatedAt)
   const lines: string[] = []
   let used = 0
   for (const item of ranked) {

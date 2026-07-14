@@ -4773,7 +4773,9 @@ ${merged.slice(0, 2200)}
     // onarım kalıpları, doğrulanmış düzeltmeler, kullanıcı tercihleri.
     // Bütçeli özet; boş projede blok hiç eklenmez.
     try {
-      const ki = window.nexora.knowledge ? (await window.nexora.knowledge.context(getProjectName())).trim() : ''
+      // 17.3: turun kullanıcı sorgusunu geçir — bilgi tabanı ALAKA'ya göre süzülür,
+      // hiçbir madde eşiği geçmezse hiç eklenmez (geçerli SIFIR-sonuç).
+      const ki = window.nexora.knowledge ? (await window.nexora.knowledge.context(getProjectName(), trimmed)).trim() : ''
       if (ki && !isChatTurn) {
         outgoing += `
 
