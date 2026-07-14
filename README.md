@@ -34,7 +34,7 @@ Build complete web projects by chatting with a GGUF model that runs entirely on 
 
 1. [What is NexoraAI?](#what-is-nexoraai)
 2. [Why does it exist?](#why-does-it-exist)
-3. [Now on the Snap Store](#now-on-the-snap-store--one-command-on-ubuntu-and-beyond) · [Release Scorecards (newest → oldest)](#the-intent-brain--model-only-repair--the-v020-scorecard-phase-14) → [VOLTA output](#volta-output)
+3. [Now on the Snap Store](#now-on-the-snap-store--one-command-on-ubuntu-and-beyond) · [Download & Install](#download--install) · [Release History](#release-history) · [Release Scorecards (newest → oldest)](#the-intent-brain--model-only-repair--the-v020-scorecard-phase-14) → [VOLTA output](#volta-output)
 4. [Feature Overview](#feature-overview)
 5. [Screenshots](#screenshots)
 6. [Getting Started](#getting-started)
@@ -90,6 +90,75 @@ sudo snap install nexora-ai --edge --devmode
 | electron-builder's snap build broken on Ubuntu 26.04 / snapcraft 9 (both paths) | **`fix-snap.sh`** repairs it — missing NSS libs + launcher restored, reproducible via `dist:snap` |
 | App launched from a terminal but crashed from the menu (Wayland/GPU) | **X11 + software render** in the launcher — llama's Vulkan GPU path untouched |
 | Searchable, flag-free install | **`classic` confinement review in progress** for the `stable` channel |
+
+---
+
+## Download & Install
+
+Every release ships installers for **all three platforms**, built by CI and attached to the [latest GitHub release](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest).
+
+| Platform | How to install |
+| --- | --- |
+| **🐧 Linux — Snap** | `sudo snap install nexora-ai --edge --devmode` |
+| **🐧 Linux — .deb** | [Download the `.deb`](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest) → `sudo dpkg -i nexora-ai_*_amd64.deb` |
+| **🪟 Windows — .exe** | [Download `NexoraAI-Setup-*.exe`](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest) and run the installer |
+| **🍎 macOS — .dmg** | [Download `NexoraAI-*-arm64.dmg`](https://github.com/mutlukurt/NexoraAIEnvironment/releases/latest) — unsigned, so first launch: right-click → **Open** |
+
+After installing, open the in-app **Model Browser** to download a GGUF model (or drop one in `~/NexoraAI/models`) and start building. Everything runs **locally on your device** — no cloud, no API keys required.
+
+---
+
+## Release History
+
+Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
+
+<details open>
+<summary><b>📜 Full release history — v0.6.4 → v0.23.1 (40 releases)</b></summary>
+
+| Version | Date | What it brought |
+| --- | --- | --- |
+| [v0.23.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.23.1) | 2026-07-14 | Whisper dictation **auto-installs** on Linux & Windows (whisper.cpp v1.9.1 binary on demand) |
+| [v0.23.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.23.0) | 2026-07-14 | **Context Economy** (Phase 17) + **conversation branching / DAG** (20.1) + **offline Whisper dictation** (20.3) + smooth streaming (20.4) — completes the Piebald roadmap |
+| [v0.22.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.22.0) | 2026-07-14 | **Discipline, Self-Managing Memory & Hardening** — prompt discipline (18), knowledge "dream" consolidation + self-terminating tasks (19), security review (20.2) |
+| [v0.21.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.21.0) | 2026-07-14 | **Session Integrity, Radical Transparency & Context Economy** — reboot-resilient approvals + config profiles (15), engine inspector + export (16), query-relevant memory (17.3) |
+| [v0.20.2](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.20.2) | 2026-07-12 | Patch: the real fix for self-firing tasks on startup |
+| [v0.20.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.20.1) | 2026-07-12 | Patch: no more self-firing tasks on startup |
+| [v0.20.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.20.0) | 2026-07-12 | **The Intent Brain & Model-Only Repair** (Phase 14) — repo-map, semantic search, intent gate; deterministic repair removed → every fix goes to the model |
+| [v0.19.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.19.0) | 2026-07-11 | **Offline Image Generation & the Intent-Based Agent** (Phase 13) — on-device Stable Diffusion, 10-language i18n |
+| [v0.18.3](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.18.3) | 2026-07-10 | The Universal Agent & a 10-language interface |
+| [v0.18.2](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.18.2) | 2026-07-10 | Settings UX hardening (appearance + Provider Hub master-detail) |
+| [v0.18.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.18.1) | 2026-07-09 | Two-pane Settings + a vision model you can pick |
+| [v0.18.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.18.0) | 2026-07-09 | Image generation + full file/shell access from chat |
+| [v0.17.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.17.4) | 2026-07-09 | "New session" on a project lands you in Chat |
+| [v0.17.3](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.17.3) | 2026-07-09 | Image → project is a two-stage flow (analyze, then build) |
+| [v0.17.2](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.17.2) | 2026-07-09 | Non-vision API models stop hallucinating from an image |
+| [v0.17.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.17.1) | 2026-07-09 | Vision routing follows the "API is independent" rule |
+| [v0.17.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.17.0) | 2026-07-09 | **Ecosystem, Discoverability & the API Unleashed** (Phase 10) — MCP, serve endpoint, command palette, checkpoints, 157-provider hub |
+| [v0.16.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.16.0) | 2026-07-08 | VRAM-aware Hardware Advisor (Windows .exe · macOS .dmg · Linux .deb) |
+| [v0.15.2](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.15.2) | 2026-07-08 | Windows (.exe) + macOS (.dmg) + Linux (.deb) — 3-platform CI |
+| [v0.15.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.15.1) | 2026-07-08 | Fidelity arms on the contract + the VOLTA live test |
+| [v0.15.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.15.0) | 2026-07-08 | **Universal Prompt Fidelity** (Phase 9) — faithful reproduction of hyper-detailed specs |
+| [v0.14.3](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.14.3) | 2026-07-08 | The 3B finally edits |
+| [v0.14.2](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.14.2) | 2026-07-08 | A calmer surface (UI polish) |
+| [v0.14.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.14.1) | 2026-07-08 | Iteration that lands |
+| [v0.14.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.14.0) | 2026-07-07 | **Real-Time Hardening** (Phase 8) — the clock is the enemy: livenessguards, absolute Stop |
+| [v0.13.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.13.0) | 2026-07-07 | **The Agent Layer** (Phase 7) — task list, diff review, comment-to-steer, trust tiers, process runner, task queue |
+| [v0.12.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.12.0) | 2026-07-06 | **The Engine, 10×** (Phase 6) — the debug engine matures |
+| [v0.11.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.11.1) | 2026-07-05 | The 14B Portfolio Proof |
+| [v0.11.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.11.0) | 2026-07-05 | **The Debug Engine** (Phase 5) — deterministic detection, model-driven fixes |
+| [v0.10.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.10.0) | 2026-07-04 | One Night, One League |
+| [v0.8.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.8.4) | 2026-07-03 | Sharper eyes (vision improvements) |
+| [v0.8.3](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.8.3) | 2026-07-03 | Maintenance & fixes |
+| [v0.8.2](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.8.2) | 2026-07-03 | Maintenance & fixes |
+| [v0.8.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.8.1) | 2026-07-03 | Maintenance & fixes |
+| [v0.8.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.8.0) | 2026-07-03 | Sees your reference designs (vision → build) |
+| [v0.7.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.7.1) | 2026-07-03 | Maintenance & fixes |
+| [v0.7.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.7.0) | 2026-07-03 | Say "düzelt", it fixes itself (self-repair) |
+| [v0.6.6](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.6) | 2026-07-03 | Early build |
+| [v0.6.5](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.5) | 2026-07-03 | Early build |
+| [v0.6.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.4) | 2026-07-03 | Early build |
+
+</details>
 
 ---
 
