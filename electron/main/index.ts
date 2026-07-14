@@ -227,6 +227,28 @@ function registerIpc(): void {
     return { ok: true }
   })
 
+  // 22.1 — Turbo (speculative decoding): flag'i AYARLA; sunucu YENİDEN SPAWN olurken
+  // (model yükleme) --model-draft eklenir. Renderer yükleme öncesi + toggle'da çağırır.
+  ipcMain.handle(IPC.MODEL_SET_TURBO, async (_e, enabled: boolean) => {
+    try {
+      const eng = await import('./llamaServerEngine')
+      eng.setTurboDraft(!!enabled)
+      return { ok: true, enabled: !!enabled }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
+  // 22.1 — Turbo durumu: açık mı + son spawn'da fiilen seçilen draft (yoksa null).
+  ipcMain.handle(IPC.MODEL_TURBO_STATUS, async () => {
+    try {
+      const eng = await import('./llamaServerEngine')
+      return { ok: true, ...eng.getTurboStatus() }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
   ipcMain.handle(IPC.CHAT_NEW, async () => {
     await resetSession({ resetProfile: true })
     return { ok: true }

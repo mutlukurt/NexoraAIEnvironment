@@ -184,6 +184,8 @@ export const IPC = {
   EMBED_HAS: 'embed:has',
   EMBED_EMBED: 'embed:embed',
   MODEL_COMPLETE: 'model:complete',
+  MODEL_SET_TURBO: 'model:set-turbo',
+  MODEL_TURBO_STATUS: 'model:turbo-status',
   HF_SEARCH: 'hf:search',
   HF_DOWNLOAD: 'hf:download',
   HF_CANCEL: 'hf:cancel',

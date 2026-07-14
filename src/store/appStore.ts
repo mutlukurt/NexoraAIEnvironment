@@ -3080,6 +3080,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         await window.nexora.model.setSystemPrompt(sysPrompt)
       }
       const enableGpu = useSettingsStore.getState().enableGpu
+      // 22.1 — Turbo (speculative decoding): flag'i spawn'DAN ÖNCE ayarla ki server
+      // --model-draft ile açılsın (aynı-aileden küçük draft GGUF varsa bedava hız).
+      try {
+        await window.nexora.model.setTurbo?.(useSettingsStore.getState().turboEnabled)
+      } catch {
+        /* turbo opsiyonel — başarısızsa normal yükle */
+      }
       // 0 = otomatik: node-llama-cpp boş VRAM'i ölçüp sığan katman sayısını seçer.
       const layerSetting = useSettingsStore.getState().gpuLayers
       const res = await window.nexora.model.load(path, enableGpu, layerSetting > 0 ? layerSetting : 'auto')

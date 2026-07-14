@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { tt, LANGS, type Lang } from '@/lib/i18n'
 import { useSettingsStore, UI_SCALE_PRESETS, UI_SCALE_MIN, UI_SCALE_MAX, clampUiScale } from '@/store/settingsStore'
 import { useAppStore } from '@/store/appStore'
+import { useHfStore } from '@/store/hfStore'
+import { recommendDraft } from '@shared/turboEngine'
 import { X, Plus, Trash2, TerminalSquare, Minus, ZoomIn, Palette, Sun, Moon } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
@@ -26,6 +28,11 @@ export default function SettingsModal() {
   const setCustom = useSettingsStore((s) => s.setCustomSystemPrompt)
   const enableGpu = useSettingsStore((s) => s.enableGpu)
   const setEnableGpu = useSettingsStore((s) => s.setEnableGpu)
+  const turboEnabled = useSettingsStore((s) => s.turboEnabled)
+  const setTurboEnabled = useSettingsStore((s) => s.setTurboEnabled)
+  const modelInfo = useAppStore((s) => s.modelInfo)
+  const hfDownload = useHfStore((s) => s.download)
+  const hfDownloads = useHfStore((s) => s.downloads)
   const gpuLayers = useSettingsStore((s) => s.gpuLayers)
   const setGpuLayers = useSettingsStore((s) => s.setGpuLayers)
   const visionModelPath = useSettingsStore((s) => s.visionModelPath)
@@ -426,6 +433,71 @@ export default function SettingsModal() {
               />
             </button>
           </div>
+
+          {/* 22.1 — Turbo (speculative decoding) — bedava 1.4-2.5× yerel hız. */}
+          <div className={(section === 'models' ? '' : 'hidden ') + 'flex items-center justify-between rounded-xl border border-ink-line/80 bg-ink-card/50 p-4 shadow-sm'}>
+            <div className="flex flex-col pr-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
+                {tt(language, "Turbo — faster local generation")} ⚡
+              </span>
+              <span className="text-[11px] font-medium text-ink-dim leading-normal mt-1">
+                {tt(language, "Speculative decoding: if a smaller same-family draft model (e.g. a 0.5B for an 8B) is in ~/NexoraAI/models, generation runs 1.4–2.5× faster — fully offline. Takes effect on the next model load.")}
+              </span>
+            </div>
+            <button
+              onClick={() => setTurboEnabled(!turboEnabled)}
+              className={'relative h-6 w-11 shrink-0 rounded-full transition ' + (turboEnabled ? 'bg-brand-500' : 'bg-ink-line')}
+              aria-label="Enable Turbo"
+            >
+              <span className={'absolute top-1 h-4 w-4 rounded-full bg-ink-card transition-all ' + (turboEnabled ? 'left-6' : 'left-1')} />
+            </button>
+          </div>
+
+          {/* 22.2 — Turbo açıkken: yüklü modele uygun draft'ı tek tıkla indir. */}
+          {section === 'models' && turboEnabled && (
+            <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-4 shadow-sm">
+              {(() => {
+                if (!modelInfo)
+                  return (
+                    <p className="text-[11px] font-medium text-ink-dim">
+                      {tt(language, "Load a local model first — then a matching draft model can be downloaded here to activate Turbo.")}
+                    </p>
+                  )
+                const rec = recommendDraft(modelInfo.path, modelInfo.sizeBytes)
+                if (!rec)
+                  return (
+                    <p className="text-[11px] font-medium text-ink-dim">
+                      {tt(language, "No recommended draft for this model — it may already be small, or its family has no tiny draft. Turbo only speeds up when a same-family draft GGUF is in ~/NexoraAI/models.")}
+                    </p>
+                  )
+                const dl = hfDownloads[rec.file]
+                return (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 flex-col pr-3">
+                      <span className="truncate text-[11px] font-bold text-ink-text">
+                        {tt(language, "Recommended draft")}: {rec.label} · ~{rec.sizeMb} MB
+                      </span>
+                      <span className="mt-0.5 text-[10px] font-medium text-ink-dim">
+                        {tt(language, "Downloads into ~/NexoraAI/models, then reload the model to activate Turbo.")}
+                      </span>
+                    </div>
+                    {dl?.status === 'done' ? (
+                      <span className="shrink-0 text-[11px] font-bold text-emerald-500">{tt(language, "Downloaded ✓ · reload the model")}</span>
+                    ) : dl?.status === 'downloading' ? (
+                      <span className="shrink-0 text-[11px] font-bold text-brand-500">{dl.total > 0 ? Math.floor((dl.downloaded / dl.total) * 100) + '%' : '…'}</span>
+                    ) : (
+                      <button
+                        onClick={() => void hfDownload(rec.repo, rec.file)}
+                        className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-500"
+                      >
+                        {tt(language, "Download")}
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
 
           {/* GPU katman kaydırıcısı — yalnızca GPU açıkken. 0 = otomatik (VRAM'e sığan kadar). */}
           {section === 'models' && enableGpu && (

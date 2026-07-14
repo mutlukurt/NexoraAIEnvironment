@@ -73,6 +73,8 @@ export interface NexoraApi {
     unload: () => Promise<{ ok: boolean }>
     status: () => Promise<{ loaded: false } | { loaded: true; info: ModelLoadedInfo }>
     setSystemPrompt: (prompt: string) => Promise<{ ok: boolean }>
+    setTurbo: (enabled: boolean) => Promise<{ ok: boolean; enabled?: boolean; error?: string }>
+    turboStatus: () => Promise<{ ok: boolean; enabled?: boolean; draft?: string | null; error?: string }>
     onLoadProgress: (cb: (event: ModelLoadProgressEvent) => void) => () => void
   }
   chat: {
@@ -305,6 +307,8 @@ const api: NexoraApi = {
     unload: () => ipcRenderer.invoke(IPC.MODEL_UNLOAD),
     status: () => ipcRenderer.invoke(IPC.MODEL_STATUS),
     setSystemPrompt: (prompt: string) => ipcRenderer.invoke(IPC.MODEL_SET_SYSTEM_PROMPT, prompt),
+    setTurbo: (enabled: boolean) => ipcRenderer.invoke(IPC.MODEL_SET_TURBO, enabled),
+    turboStatus: () => ipcRenderer.invoke(IPC.MODEL_TURBO_STATUS),
     onLoadProgress: (cb) => {
       const handler = (_e: unknown, data: ModelLoadProgressEvent) => cb(data)
       ipcRenderer.on(IPC.MODEL_LOAD_PROGRESS, handler as never)

@@ -14,9 +14,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-turbo-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { pickDraftModel, slotFileFor, draftArgs, slotArgs } from '${join(repo, 'electron/shared/turboEngine.ts')}'\n`)
+writeFileSync(entry, `export { pickDraftModel, slotFileFor, draftArgs, slotArgs, DRAFT_CATALOG, recommendDraft } from '${join(repo, 'electron/shared/turboEngine.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { pickDraftModel, slotFileFor, draftArgs, slotArgs } = await import(pathToFileURL(outfile).href)
+const { pickDraftModel, slotFileFor, draftArgs, slotArgs, DRAFT_CATALOG, recommendDraft } = await import(pathToFileURL(outfile).href)
 
 let pass = 0, fail = 0
 const failures = []
@@ -65,6 +65,22 @@ const GB = 1e9
   ok(draftArgs(null).length === 0, 'draft yoksa arg yok')
   ok(draftArgs('/m/d.gguf').includes('--model-draft') && draftArgs('/m/d.gguf').includes('/m/d.gguf'), 'draft argümanları')
   ok(slotArgs(null).length === 0 && slotArgs('/tmp/kv').includes('--slot-save-path'), 'slot argümanları')
+}
+
+// 8) 22.2 — draft katalog + recommendDraft (aile eşleşmesi + boyut kapısı)
+{
+  ok(DRAFT_CATALOG.length >= 3, 'katalog ≥3 giriş')
+  ok(DRAFT_CATALOG.every((e) => e.repo && e.file && e.sizeMb > 0), 'her girişte repo+file+sizeMb')
+  ok(new Set(DRAFT_CATALOG.map((e) => e.family)).size === DRAFT_CATALOG.length, 'aile başına tek giriş')
+  // Qwen 14B ana → Qwen draft önerilir
+  const qwen = recommendDraft('/m/Qwen2.5-Coder-14B-Q4.gguf', 9 * GB)
+  ok(qwen && qwen.family === 'qwen', 'qwen 14B → qwen draft önerildi')
+  // Llama 8B ana → Llama draft
+  ok(recommendDraft('/m/Meta-Llama-3.1-8B-Q4.gguf', 5 * GB)?.family === 'llama', 'llama 8B → llama draft')
+  // generic aile → öneri yok
+  ok(recommendDraft('/m/mystery.gguf', 5 * GB) === null, 'generic → öneri yok')
+  // ana model zaten küçükse (1B, draft ~0.4GB > %60'ı değil ama) — boyut kapısı: 0.6GB main
+  ok(recommendDraft('/m/Qwen2.5-0.5B-Q4.gguf', 0.4 * GB) === null, 'çok küçük ana model → öneri yok (kazanç yok)')
 }
 
 rmSync(work, { recursive: true, force: true })

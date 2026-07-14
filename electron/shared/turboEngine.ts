@@ -6,11 +6,44 @@
  * ile bedava 1.4-2.5× hız; (2) her oturum/proje için KARARLI bir slot dosya adı →
  * --slot-save-path ile KV'yi idle'da kaydet, açılışta geri yükle (~%93 hızlı resume).
  */
-import { detectFamily } from './prompts'
+import { detectFamily, type ModelFamily } from './prompts'
 
 export interface ModelCandidate {
   path: string
   sizeBytes: number
+}
+
+/**
+ * 22.2 — Draft-model provisioning: turbo için önerilecek KÜÇÜK, aynı-aileden draft
+ * GGUF kataloğu (~/NexoraAI/models'a tek tıkla iner → pickDraftModel otomatik seçer).
+ * Aynı aile = paylaşılan vocab; yanlış-aile ASLA önerilmez.
+ */
+export interface DraftCatalogEntry {
+  family: ModelFamily
+  label: string
+  /** HuggingFace repo id + dosya adı — mevcut hf.download akışıyla indirilir. */
+  repo: string
+  file: string
+  sizeMb: number
+}
+
+export const DRAFT_CATALOG: DraftCatalogEntry[] = [
+  { family: 'qwen', label: 'Qwen2.5 0.5B · draft', repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf', sizeMb: 398 },
+  { family: 'llama', label: 'Llama 3.2 1B · draft', repo: 'bartowski/Llama-3.2-1B-Instruct-GGUF', file: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf', sizeMb: 808 },
+  { family: 'gemma', label: 'Gemma 2 2B · draft', repo: 'bartowski/gemma-2-2b-it-GGUF', file: 'gemma-2-2b-it-Q4_K_M.gguf', sizeMb: 1710 }
+]
+
+/**
+ * Yüklü ana modele önerilecek draft (yoksa null): aynı aile + ana modelin ~%60'ından
+ * KÜÇÜK olmalı (aksi hâlde speculative kazanç yok). Ana model zaten küçükse (ör. 1B) null.
+ */
+export function recommendDraft(mainPath: string, mainSizeBytes: number): DraftCatalogEntry | null {
+  const fam = detectFamily((mainPath.split('/').pop() ?? mainPath))
+  if (fam === 'generic') return null
+  const entry = DRAFT_CATALOG.find((e) => e.family === fam)
+  if (!entry) return null
+  if (mainSizeBytes > 0 && entry.sizeMb * 1024 * 1024 > mainSizeBytes * 0.6) return null
+  return entry
 }
 
 /**

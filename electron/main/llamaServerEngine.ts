@@ -145,6 +145,12 @@ export function setTurboDraft(v: boolean): void {
 export function isTurboDraft(): boolean {
   return turboDraftEnabled
 }
+// 22.1 — son spawn'da fiilen seçilen draft modelinin adı (yoksa null). UI durumu:
+// "Turbo aktif · draft: <ad>" veya "Turbo açık ama uyumlu draft yok → indir".
+let pickedDraft: string | null = null
+export function getTurboStatus(): { enabled: boolean; draft: string | null } {
+  return { enabled: turboDraftEnabled, draft: pickedDraft }
+}
 
 async function ensureBinary(wantGpu: boolean): Promise<{ bin: string; gpuCapable: boolean }> {
   const candidates = binaryCandidates(wantGpu)
@@ -378,11 +384,16 @@ async function spawnServer(bin: string, modelPath: string, rung: SpawnRung, port
         return { path: p, sizeBytes: (() => { try { return statSync(p).size } catch { return 0 } })() }
       })
       const draft = pickDraftModel(modelPath, sizeBytes, cands)
+      pickedDraft = draft ? (draft.split('/').pop() ?? draft) : null
       if (draft) {
         args.push(...draftArgs(draft))
-        console.log('[llamaServerEngine] TURBO draft:', draft.split('/').pop())
+        console.log('[llamaServerEngine] TURBO draft:', pickedDraft)
+      } else {
+        console.log('[llamaServerEngine] TURBO açık ama uyumlu draft yok')
       }
-    } catch { /* draft edinilemezse turbosuz devam */ }
+    } catch { pickedDraft = null /* draft edinilemezse turbosuz devam */ }
+  } else {
+    pickedDraft = null
   }
   console.log('[llamaServerEngine] deneme:', `ctx=${rung.ctx} ngl=${rung.ngl} kv=${rung.quantKv ? 'q8_0' : 'f16'}`)
   procLog = ''

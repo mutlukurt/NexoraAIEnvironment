@@ -25,6 +25,10 @@ export interface Settings {
   activeLocalImageModel: string | null
   /** GPU'ya offload edilecek katman sayısı; 0 = otomatik (VRAM'e sığan kadar). */
   gpuLayers: number
+  /** 22.1 — Turbo (speculative decoding): aynı-aileden küçük draft GGUF varsa bedava
+   *  1.4-2.5× hız. Opt-in (yanlış-vocab draft server'ı bozabilir; worker fallback korur).
+   *  Model YÜKLENİRKEN uygulanır → değiştirince modeli yeniden yükle. */
+  turboEnabled: boolean
   /** Yerel görsel (VL) analizi için seçilen model yolu; null = oto (RAM'e sığan en büyük).
    *  Qwen'e SABİT değil — kullanıcı indirdiği herhangi bir VL GGUF'u seçebilir. */
   visionModelPath: string | null
@@ -113,6 +117,7 @@ const DEFAULT_SETTINGS: Settings = {
   localImageEnabled: false,
   activeLocalImageModel: null,
   gpuLayers: 0,
+  turboEnabled: false,
   visionModelPath: null,
   customCommands: [],
   apiBaseUrl: '',
@@ -148,6 +153,7 @@ function loadSettings(): Settings {
       localImageEnabled: parsed.localImageEnabled === true,
       activeLocalImageModel: typeof parsed.activeLocalImageModel === 'string' ? parsed.activeLocalImageModel : null,
       gpuLayers: typeof parsed.gpuLayers === 'number' ? parsed.gpuLayers : 0,
+      turboEnabled: parsed.turboEnabled === true,
       visionModelPath: typeof parsed.visionModelPath === 'string' ? parsed.visionModelPath : null,
       customCommands: Array.isArray(parsed.customCommands)
         ? parsed.customCommands.filter(
@@ -187,6 +193,7 @@ interface SettingsState extends Settings {
   setContextOffload: (v: boolean) => void
   setSmoothStreaming: (v: boolean) => void
   setGpuLayers: (v: number) => void
+  setTurboEnabled: (v: boolean) => void
   setVisionModelPath: (v: string | null) => void
   setLocalImageEnabled: (v: boolean) => void
   setActiveLocalImageModel: (v: string | null) => void
@@ -218,6 +225,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setContextOffload: (v) => { set({ contextOffloadEnabled: v }); get().save() },
   setSmoothStreaming: (v) => { set({ smoothStreamingEnabled: v }); get().save() },
   setGpuLayers: (v) => set({ gpuLayers: Math.max(0, Math.round(v)) }),
+  setTurboEnabled: (v) => { set({ turboEnabled: v }); get().save() },
   setVisionModelPath: (v) => {
     set({ visionModelPath: v })
     get().save()
@@ -291,6 +299,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           contextOffloadEnabled: get().contextOffloadEnabled,
           smoothStreamingEnabled: get().smoothStreamingEnabled,
           gpuLayers: get().gpuLayers,
+          turboEnabled: get().turboEnabled,
           visionModelPath: get().visionModelPath,
           // Boş satırlar (etiket ve prompt ikisi de boş) kaydedilmez.
           apiBaseUrl: get().apiBaseUrl,
