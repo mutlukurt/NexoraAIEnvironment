@@ -106,7 +106,7 @@ Ranked by evangelism potential × feasibility on our stack.
 - 21.2 **Verification Ledger** — per-diff bottom-up receipts (compiles/typechecks/tests/behavior-screenshot); users gate on green rows.
 - 21.3 **Proof-of-Edit receipts** — byte-level before/after in the transparency inspector.
 - 21.4 **Destructive-Action Dry Run** — replay planned tool calls against the checkpoint, preview deletes/overwrites.
-- 21.5 **Offline Slopsquatting Shield** — bundled registry snapshot + typo/age gate before any dep install.
+- 21.5 **Offline Slopsquatting Shield** ✅ **DONE** — `electron/shared/pkgShield.ts`: offline, deterministic. Parses install targets (npm/yarn/pnpm/bun/pip/pipx/python -m pip), screens each package against a bundled popular-package snapshot via Damerau-Levenshtein ≤1 (catches `reactt`, transposition `lodahs`) + separator-confusion (`crossenv`≈`cross-env`). Typosquats elevate the trust verdict `auto`→`ask` (user sees the reason before it installs); unknown-but-plausible names pass untouched (no nag). Wired into `commandVerdict` (single source of truth — all 3 exec paths covered). Intent-based invariant respected: verifies command SAFETY, never decides intent. `test:pkgshield` 51/51; trust 31/31 unchanged; ships in both bundles (live-verified).
 - 21.6 Fix the behavior-prover multi-line JSX blind spot; make it the source of truth for "verified."
 - **Impact: high · Effort: L · Why users win:** they stop reading 600-line diffs and get "built AND proven working," with data-loss and hallucinated-malware made basically impossible — offline.
 

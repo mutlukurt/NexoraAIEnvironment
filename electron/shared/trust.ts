@@ -20,6 +20,8 @@
  * Sessiz tam-otomatik yok: 'full' açıkça, proje başına ve gürültülü seçilir.
  */
 
+import { screenInstallCommand } from './pkgShield'
+
 export type TrustTier = 'read' | 'auto' | 'full'
 
 export interface CommandVerdict {
@@ -94,6 +96,13 @@ export function commandVerdict(
       }
     }
   }
+
+  // 2.5) SAHTE PAKET KALKANI: kurulum komutu popülere yakın-yazımlı (typosquat)
+  //      bir paket içeriyorsa 'auto' sınıfını 'ask'a yükselt. Model uydurma/sahte
+  //      bir ad kurmaya kalkarsa kullanıcı önce görür. Kullanıcının izin listesinden
+  //      ÖNCE gelir: allowlist komut ÖNEKİNİ kapsar, spesifik sahte paketi değil.
+  const squat = screenInstallCommand(c)
+  if (squat.suspicious) return { action: 'ask', reason: `sahte paket şüphesi — ${squat.reason}` }
 
   // 3) Kullanıcının kendi izin listesi → auto.
   const allowHit = matchesList(c, opts?.allowList)

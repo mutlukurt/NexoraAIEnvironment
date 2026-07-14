@@ -6,6 +6,8 @@ import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, setStream
 import { useHfStore } from '@/store/hfStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { useSettingsStore, applyUiScale, uiScaleInitial, clampUiScale } from '@/store/settingsStore'
+import { decideCommand } from '@shared/trust'
+import { screenInstallCommand } from '@shared/pkgShield'
 
 // Tema, React başlamadan uygulanır (açılışta yanlış tema parlaması olmasın).
 applyTheme(themeInitial())
@@ -41,7 +43,20 @@ window.addEventListener('keydown', (e) => {
 })
 
 // CDP/harici test sürücüleri için store kancası — üretim akışını değiştirmez
-;(window as unknown as Record<string, unknown>).__nexoraDebug = { app: useAppStore, hf: useHfStore, artifacts: useArtifactsStore, settings: useSettingsStore, lastPrompt: getLastOutgoingPrompt, setStreamLivenessMs, setBehaviorTiming }
+;(window as unknown as Record<string, unknown>).__nexoraDebug = {
+  app: useAppStore,
+  hf: useHfStore,
+  artifacts: useArtifactsStore,
+  settings: useSettingsStore,
+  lastPrompt: getLastOutgoingPrompt,
+  setStreamLivenessMs,
+  setBehaviorTiming,
+  // 21.5 sahte-paket kalkanı canlı testi: ajanın komut-karar yolunu ve kalkanı
+  // doğrudan çağırır (üretim akışını değiştirmez — yalnız test/CDP sürücüsü için).
+  trustDecide: (cmd: string, tier: 'read' | 'auto' | 'full' = 'auto') =>
+    decideCommand(cmd, tier, { projectAlways: false }),
+  screenPkg: (cmd: string) => screenInstallCommand(cmd)
+}
 
 // Inject window.nexora mock provider for web browser testing
 if (typeof window !== 'undefined' && !window.nexora) {
