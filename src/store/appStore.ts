@@ -27,6 +27,7 @@ import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
+import { buildIntentPrompt, parseIntent, INTENT_SYSTEM, type TurnIntent, type IntentContext } from '@/lib/intentClassify'
 import { looksUnderspecified } from '@/lib/intentGate'
 import { extractAgentDocs } from '@/lib/specDocs'
 import { collectFullRewrites } from '@/lib/afterEdit'
@@ -1821,6 +1822,30 @@ let forceChatNext = false
 // 'chat' = build→chat). Ters köprü aynı mesaj-turunda TEKRAR ateşlenemez (tek flip) →
 // chat→build→chat→build sonsuz döngüsü imkânsız. Taze kullanıcı mesajında sıfırlanır.
 let lastIntentBridge: 'build' | 'chat' | null = null
+
+/**
+ * NİYET-TABANLI (Pattern B) — turun niyetini KELİME değil MODEL belirler. Yeni her
+ * turda kısa (tek-kelimelik) bir model turuyla build/edit/fix/chat sınıflandırılır.
+ * model2.complete yerel isolate VEYA API kullanır (aktif ne ise). Model yoksa/hata/
+ * zaman-aşımında null → çağıran ESKİ keyword sezgisine yedek düşer (asla kırılmaz).
+ * 7sn timeout: sınıflandırma turu asla ana turu asmaz.
+ */
+async function classifyIntentModel(msg: string, ctx: IntentContext): Promise<TurnIntent | null> {
+  if (!msg.trim()) return null
+  try {
+    const race = Promise.race([
+      window.nexora.model2.complete({ prompt: buildIntentPrompt(msg, ctx), system: INTENT_SYSTEM, maxTokens: 5 }),
+      new Promise<{ ok: false }>((resolve) => setTimeout(() => resolve({ ok: false }), 7000))
+    ])
+    const res = await race
+    if (res && (res as { ok: boolean }).ok && (res as { text?: string }).text) {
+      return parseIntent((res as { text: string }).text, ctx)
+    }
+  } catch {
+    /* model yok/hata → keyword yedeği */
+  }
+  return null
+}
 // 14.2 — retrieval continuation kilidi: [SEARCH]/[SYMBOL] geri-besleme turu
 // koşarken bir daha retrieval tetiklenmesin (sonsuz arama döngüsü guard'ı).
 let retrievalRoundActive = false
@@ -4538,13 +4563,30 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // derse desin). fixFlow/buildReq zorla kapanır, isChatTurn zorla açılır. One-shot.
     const chatForced = forceChatNext
     forceChatNext = false
-    const fixFlow = !chatForced && !!buildErr && FIX_WORDS.test(trimmed)
+    // NİYET-TABANLI (Pattern B): TAZE turda niyeti MODEL belirler (keyword değil).
+    // hideUser re-send / expectFile / chatForced / forceBuildNext zaten karar verilmiş
+    // → atla. Model yoksa/timeout → keyword YEDEK (aşağıda modelIntent null olur).
+    let modelIntent: TurnIntent | null = null
+    // YETENEK KAPISI (kullanıcı kararı 2026-07-14): niyet sınıflandırmasını YALNIZ
+    // yetenekli model yaparsa güvenilir — API modeli (her zaman) VEYA yeterince büyük
+    // yerel model (~7B+, ≥4GB). Minik 3B/4B kod-modeli sınıflandırmada zayıf (canlı
+    // test: coder-3B "site yap"ı "sohbet" sandı) → onda ESKİ keyword + [BUILD]/[CHAT]
+    // köprüsü kalır (model yine SON SÖZÜ söyler, ama başlangıç tahmini keyword'den).
+    const apiIntentCapable = !!useSettingsStore.getState().activeApiModel
+    const localIntentCapable = (get().modelInfo?.sizeBytes ?? 0) >= 4e9
+    const intentCapable = apiIntentCapable || localIntentCapable
+    // Görsel iliştirilmiş tur (visionAnalysis/apiImagePath) niyetini ZATEN VL modeli
+    // [BUILD]/[CHAT] ile verdi → metin sınıflandırıcı çalışmaz (çifte karar olmasın).
+    if (intentCapable && !opts?.hideUser && !opts?.expectFile && !chatForced && !forceBuildNext && !visionAnalysis && !apiImagePath) {
+      modelIntent = await classifyIntentModel(trimmed, { hasFiles: allFiles.length > 0, hasBuildErr: !!buildErr })
+    }
+    const fixFlow = !chatForced && !!buildErr && (modelIntent ? modelIntent === 'fix' : FIX_WORDS.test(trimmed))
     // 5.5: "düzelt api" — kullanıcı bu düzeltmeyi açıkça hibrit API'ye
     // gönderiyor (yazması onaydır; apiAsk açıkken tırmanışın kapısı budur).
     const apiRequested = fixFlow && /\bapi\b/i.test(trimmed)
     // Ciplak duzelt-kelimesi ama ortada ne hata ne dosya var: insaya donusmesin
     // (canli test: bos oturuma "duzelt" yazilinca plan cikarip proje kurdu).
-    if (!fixFlow && FIX_WORDS.test(trimmed) && trimmed.length <= 24 && allFiles.length === 0) {
+    if (!modelIntent && !fixFlow && FIX_WORDS.test(trimmed) && trimmed.length <= 24 && allFiles.length === 0) {
       set((st) => ({
         messages: [
           ...st.messages,
@@ -4573,7 +4615,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // heuristiğine bağlama. CANLI BUG: "Create a premium ... website" → MAKE_RE
     // `creat\b` "Create"i kaçırdı (creat+e), VOLTA build sayılmadı, fidelity hiç
     // tetiklenmedi. Sözleşme fidelity ise buildReq zorlanır.
-    const buildReq = !chatForced && (forceBuildNext || looksLikeBuildRequest(trimmed) || !!turnContract?.fidelity)
+    const buildReq = !chatForced && (forceBuildNext || (modelIntent ? modelIntent === 'build' : looksLikeBuildRequest(trimmed)) || !!turnContract?.fidelity)
     forceBuildNext = false
     // 10.14/10.16 "API UNLEASHED": GÜÇLÜ bir model (API modeli VEYA büyük yerel
     // GGUF ≥9GB ≈13B+) + YENİ build isteği → frontier modu. NexoraAI'nın tüm 3B
@@ -4663,7 +4705,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
         !opts?.expectFile &&
         !opts?.hideUser &&
         !buildReq &&
-        (allFiles.length === 0 || looksLikeChatIntent(trimmed)))
+        (modelIntent ? modelIntent === 'chat' : (allFiles.length === 0 || looksLikeChatIntent(trimmed))))
 
     // 8.5 GENELLEME: HER yeni-proje build turunda (yalnız PLANLI değil) proje
     // kimliğini kur. Zayıf yerel model (3B) sectioned build package.json ÜRETMEZ
