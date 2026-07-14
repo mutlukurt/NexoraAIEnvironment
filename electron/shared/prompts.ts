@@ -695,6 +695,16 @@ export function getProfile(id: string): PromptProfile {
  * Detect an EXPLICIT project-type signal in the user's request.
  * Returns null when there is no signal — callers keep the currently
  * active profile (sticky selection across iteration messages).
+ *
+ * INTENT-BASED INVARIANT — WHY THIS IS NOT A VIOLATION: this matches the stack
+ * the user EXPLICITLY NAMED in their own message ("next.js app", "electron app").
+ * That is PARSING an explicit, stated choice — like reading an @file mention or a
+ * model-emitted [BUILD] tag — NOT GUESSING latent intent from ambiguous keywords.
+ * The invariant forbids GUESSING what the user wants; honoring what they literally
+ * wrote is allowed. It only affects the persona FLAVOUR (the default react-spa is a
+ * safe fallback) and never decides build-vs-chat — that fork is the model's ([CHAT]/
+ * [BUILD]). Audited 2026-07-14; user decision: keep (it reads an explicit request,
+ * not a guess). See [[nexora-intent-based-invariant]].
  */
 export function detectProfile(text: string): PromptProfile | null {
   for (const p of PROFILES) {
