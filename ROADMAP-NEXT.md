@@ -2,6 +2,9 @@
 
 *Lead architect synthesis of 8 external research angles + 1 internal source audit. Verified against the real source tree at `~/Masaüstü/NexoraAI` (v0.23.1), not just the roadmap docs. Every proposal keeps LOCAL-FIRST as the default, cloud strictly opt-in + labelled, no telemetry, no paywall, model-agnostic, intent-based (never keyword regex), on an Electron + Node + llama.cpp stack.*
 
+> ## 🔒 HARD INVARIANT — intent-based, across EVERY phase (non-negotiable)
+> NexoraAI's generation/decision-making **stays intent-based for the entire roadmap (Phases 21–26 and beyond).** The model decides *what* the user wants; there is **never keyword-regex intent detection.** In particular, any grammar/GBNF work (22.3) constrains only the **output FORMAT** — and only via **lazy triggers** that engage *after* the model has already, freely, begun emitting a directive. Grammar must **never** decide intent, and must **never** be applied to whole free-form generation. If the bundled llama-server does not support lazy grammar triggers, **grammar is not shipped at all** (no grammar > grammar that forces free chat/code into directive JSON). Deterministic layers (The Judge 21.1, verifiers, difficulty-router 22.6) may only **verify/format**, never **generate intent**. When unsure whether a change decides intent vs. checks form/correctness: **stop and ask the user.**
+
 ---
 
 ## 1. Executive summary — where NexoraAI stands vs the market
@@ -111,7 +114,7 @@ Ranked by evangelism potential × feasibility on our stack.
 **Goal:** every local turn gets faster and every retrieval gets sharper, at near-zero build cost.
 - 22.1 **Wire Turbo** — Settings toggle + IPC → `setTurboDraft()` + live accept-rate meter (auto-disable bad pairings).
 - 22.2 **Draft-model provisioning** — curated same-family draft catalog + one-click download + Hardware-Advisor-aware default; auto-detect MTP/EAGLE-3 self-speculation heads.
-- 22.3 **Wire preventive directive grammar** — attach `buildDirectiveGrammar()` + lazy triggers to the completion request (live-test vs bundled llama-server).
+- 22.3 **Wire preventive directive grammar** — attach `buildDirectiveGrammar()` + **lazy triggers** to the completion request so only a directive's *syntax* is constrained after the model freely chose to emit it (output-format only; **intent stays with the model — see the Hard Invariant above**). Live-test the bundled llama-server actually supports lazy grammar triggers; **if it doesn't, do not ship grammar** (no grammar > grammar that forces free generation into directive JSON). Opt-in + safe worker fallback, like Turbo.
 - 22.4 **Local reranker** — BGE-reranker pass on the same `llama-server` binary over retrieval candidates.
 - 22.5 **YaRN context stretch** toggle + **VRAM-aware asymmetric KV quant** (K=Q4/V=Q8 only when it unlocks context/draft).
 - 22.6 **Predictive local difficulty router** (tiny embedding classifier, opt-in) + quant-quality-aware model picker hints.
