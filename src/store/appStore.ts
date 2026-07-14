@@ -31,6 +31,7 @@ import { looksUnderspecified } from '@/lib/intentGate'
 import { extractAgentDocs } from '@/lib/specDocs'
 import { collectFullRewrites } from '@/lib/afterEdit'
 import { detectDeadInteractions, formatBehaviorReport } from '@/lib/behaviorCheck'
+import { scanSecurity, filterByConfidence, formatSecurityReport } from '@/lib/securityReview'
 import { computeSessionStatus } from '@/lib/sessionStatus'
 import { composeSessionMarkdown } from '@/lib/composeSessionMarkdown'
 import { fixBrokenAssetRefs, stripStrayDirectiveLines, injectMissingReactHooks } from '@/lib/assetFix'
@@ -2068,6 +2069,18 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           }
         } catch {
           /* denetim opsiyonel */
+        }
+        // 20.2 — Güvenlik incelemesi (GÜVEN-FİLTRELİ): üretilen/düzenlenen kodda gömülü
+        // sır / eval / XSS gibi riskleri tara; yalnız HIGH+MEDIUM yüzeye çıkar (low gürültü bastırılır).
+        try {
+          const af4 = useArtifactsStore.getState().files
+          const touchedCode = touchedPaths
+            .filter((p) => /\.(tsx|jsx|ts|js|mjs|cjs|html)$/i.test(p) && af4[p])
+            .map((p) => ({ path: p, content: af4[p]!.content }))
+          const secReport = formatSecurityReport(filterByConfidence(scanSecurity(touchedCode)))
+          if (secReport) set((s) => ({ messages: [...s.messages, { id: nanoid(), role: 'assistant', content: secReport }] }))
+        } catch {
+          /* güvenlik denetimi opsiyonel */
         }
         // 14.8 — DIFF-ONLY sözleşmesi: iterasyon (updateTurn) turunda KÜÇÜK bir
         // değişiklik istenirken model bir dosyayı BAŞTAN yazdıysa uyar (hard-won
