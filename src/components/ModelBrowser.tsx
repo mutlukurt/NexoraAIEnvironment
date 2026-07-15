@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { tt } from '@/lib/i18n'
 import { useHfStore, type DownloadState } from '@/store/hfStore'
 import { useAppStore, fmtBytes } from '@/store/appStore'
-import { X, Heart, Check, ArrowRight, Type, ImageIcon } from 'lucide-react'
+import { X, Heart, Check, ArrowRight, Type, ImageIcon, Trash2, HardDrive } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import LocalImagePanel from './LocalImagePanel'
 
@@ -27,6 +27,7 @@ export default function ModelBrowser() {
   const downloads = useHfStore((s) => s.downloads)
   const localModels = useHfStore((s) => s.localModels)
   const refreshLocal = useHfStore((s) => s.refreshLocal)
+  const deleteLocal = useHfStore((s) => s.deleteLocal)
   const changeDir = useHfStore((s) => s.changeDir)
 
   const loadModelPath = useAppStore((s) => s.loadModelPath)
@@ -36,6 +37,9 @@ export default function ModelBrowser() {
 
   const [q, setQ] = useState('qwen gguf')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // 25 — silme onayı: hangi model silinmek üzere (iki-adım, kaza koruması).
+  const [confirmDel, setConfirmDel] = useState<string | null>(null)
+  const totalLocalBytes = localModels.reduce((s, m) => s + (m.sizeBytes ?? 0), 0)
 
   useEffect(() => {
     if (open) init()
@@ -203,8 +207,14 @@ export default function ModelBrowser() {
           </div>
 
           <div className="mt-6 mb-2.5 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
+            <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-dim">
               {t.localModelsTitle} ({localModels.length})
+              {totalLocalBytes > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-ink-hi/60 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal text-ink-mut">
+                  <HardDrive className="h-3 w-3" />
+                  {fmtBytes(totalLocalBytes)}
+                </span>
+              )}
             </span>
             <button onClick={() => void refreshLocal()} className="text-[11px] font-bold text-brand-700 dark:text-brand-300 hover:text-brand-500">
               {t.refresh}
@@ -217,23 +227,55 @@ export default function ModelBrowser() {
               </p>
             ) : (
               localModels.map((lm) => (
-                <button
+                <div
                   key={lm.path}
-                  onClick={() => {
-                    void loadModelPath(lm.path)
-                    setModalOpen(false)
-                  }}
-                  className="flex items-center justify-between rounded-xl border border-ink-line bg-ink-card px-4 py-3 text-left hover:border-brand-500 hover:bg-ink-hi/30 transition shadow-sm group"
+                  className="flex items-center gap-1.5 rounded-xl border border-ink-line bg-ink-card px-4 py-3 hover:border-brand-500 hover:bg-ink-hi/30 transition shadow-sm group"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-ink-text">{lm.name}</p>
-                    <p className="text-[11px] font-medium text-ink-dim">{fmtBytes(lm.sizeBytes)}</p>
-                  </div>
-                  <span className="text-[11px] font-bold text-brand-700 dark:text-brand-300 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-                    <span>{t.installBtn}</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </span>
-                </button>
+                  <button
+                    onClick={() => {
+                      void loadModelPath(lm.path)
+                      setModalOpen(false)
+                    }}
+                    className="flex min-w-0 flex-1 items-center justify-between text-left"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-ink-text">{lm.name}</p>
+                      <p className="text-[11px] font-medium text-ink-dim">{fmtBytes(lm.sizeBytes)}</p>
+                    </div>
+                    <span className="mr-1 flex items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-300 group-hover:translate-x-0.5 transition-transform">
+                      <span>{t.installBtn}</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </span>
+                  </button>
+                  {confirmDel === lm.name ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className="text-[10px] font-bold text-red-600 dark:text-red-400">{language === 'tr' ? 'Silinsin mi?' : 'Delete?'}</span>
+                      <button
+                        onClick={() => {
+                          void deleteLocal(lm.name)
+                          setConfirmDel(null)
+                        }}
+                        className="rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-500 transition"
+                      >
+                        {language === 'tr' ? 'Sil' : 'Delete'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDel(null)}
+                        className="rounded-lg border border-ink-line px-2 py-1 text-[10px] font-bold text-ink-mut hover:bg-ink-hi transition"
+                      >
+                        {language === 'tr' ? 'İptal' : 'Cancel'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDel(lm.name)}
+                      title={language === 'tr' ? `Sil (${fmtBytes(lm.sizeBytes)} boşalır)` : `Delete (frees ${fmtBytes(lm.sizeBytes)})`}
+                      className="shrink-0 rounded-lg p-2 text-ink-dim opacity-60 hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 transition"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               ))
             )}
           </div>

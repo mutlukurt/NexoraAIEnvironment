@@ -20,6 +20,7 @@ import {
 import {
   searchModels,
   listLocalModels,
+  deleteLocalModel,
   downloadModel,
   cancelDownload
 } from './hfService'
@@ -335,6 +336,10 @@ function registerIpc(): void {
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
+  })
+
+  ipcMain.handle(IPC.HF_DELETE_LOCAL, async (_e, dir: string, name: string) => {
+    return deleteLocalModel(dir, name)
   })
 
   ipcMain.handle(IPC.HF_SELECT_DIR, async () => {

@@ -144,7 +144,7 @@ Ranked by evangelism potential × feasibility on our stack.
 **Goal:** be a first-class local model *manager*, not just "bring your own GGUF."
 - 25.1 **Fit pill everywhere** — promote the Hardware Advisor into a reusable "Fits / Spills / Won't fit" component on the existing model browser at quant-select/load time.
 - 25.2 **GPU-offload slider** (`n_gpu_layers` 0–100%) + quant picker with live tok/s + VRAM readout.
-- 25.3 **Model storage dashboard** — size/last-used/dedupe-by-blob/one-click prune.
+- 25.3 **Model storage dashboard** ✅ **CORE DONE** — ModelBrowser now shows total disk used (🖴 badge next to the İNDİRİLENLER count, e.g. "39.6 GB") + a per-model trash button with a two-step in-row confirm ("Silinsin mi? Sil/İptal") → one-click prune. New `electron/shared/modelStorage.ts` (pure: `fmtBytes`/`totalBytes`/`storageSummary` + delete-safety `isSafeModelName`/`isInsideDir`), `deleteLocalModel(dir,name)` in hfService (defense-in-depth: safe basename + resolves inside dir + is-file + unlink), IPC `HF_DELETE_LOCAL` + preload + `hfStore.deleteLocal`. `test:modelstorage` 30/30 (heavy path-safety coverage). LIVE-VERIFIED (real app + CDP: total badge + trash UI screenshot; delete of a dummy freed 10 MB & refreshed list 13→12; `../../../etc/passwd` & non-model names REJECTED, /etc/passwd untouched). *Deferred: last-used timestamp + dedupe-by-blob.*
 - 25.4 **LocalDocs / "chat with my folder" RAG** with citations (+ optional YouTube-transcript ingest) on existing embedding infra.
 - 25.5 **Model Arena** — synchronized side-by-side multi-model/multi-quant compare (extends branching DAG).
 - 25.6 **Persistent tray server** + prominent copy-paste base URL.

@@ -191,6 +191,7 @@ export const IPC = {
   HF_CANCEL: 'hf:cancel',
   HF_PROGRESS: 'hf:progress',
   HF_LIST_LOCAL: 'hf:list-local',
+  HF_DELETE_LOCAL: 'hf:delete-local',
   HF_SELECT_DIR: 'hf:select-dir',
   ARTIFACTS_EXPORT: 'artifacts:export',
   AGENT_RUN: 'agent:run',

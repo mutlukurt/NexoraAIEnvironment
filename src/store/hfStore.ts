@@ -29,6 +29,7 @@ interface HfState {
   setBrowserMode: (m: 'text' | 'image') => void
   search: (q: string) => Promise<void>
   refreshLocal: () => Promise<void>
+  deleteLocal: (name: string) => Promise<{ ok: boolean; freedBytes?: number; error?: string }>
   changeDir: () => Promise<void>
   download: (repo: string, file: string) => Promise<void>
   cancel: (file: string) => Promise<void>
@@ -131,6 +132,14 @@ export const useHfStore = create<HfState>((set, get) => ({
     } catch {
       set({ loadingLocal: false })
     }
+  },
+
+  deleteLocal: async (name: string) => {
+    const dir = get().dir
+    if (!dir) return { ok: false, error: 'dizin yok' }
+    const res = await window.nexora.hf.deleteLocal(dir, name)
+    if (res.ok) await get().refreshLocal()
+    return res
   },
 
   changeDir: async () => {

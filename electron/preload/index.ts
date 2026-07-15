@@ -88,6 +88,7 @@ export interface NexoraApi {
   hf: {
     search: (query: string) => Promise<HfSearchResponse>
     listLocal: (dir: string) => Promise<HfListLocalResponse>
+    deleteLocal: (dir: string, name: string) => Promise<{ ok: boolean; freedBytes?: number; error?: string }>
     selectDir: () => Promise<HfSelectDirResponse>
     download: (input: HfDownloadInput) => Promise<HfDownloadResult>
     cancel: () => Promise<{ ok: boolean }>
@@ -347,6 +348,7 @@ const api: NexoraApi = {
   hf: {
     search: (query: string) => ipcRenderer.invoke(IPC.HF_SEARCH, query),
     listLocal: (dir: string) => ipcRenderer.invoke(IPC.HF_LIST_LOCAL, dir),
+    deleteLocal: (dir: string, name: string) => ipcRenderer.invoke(IPC.HF_DELETE_LOCAL, dir, name),
     selectDir: () => ipcRenderer.invoke(IPC.HF_SELECT_DIR),
     download: (input: HfDownloadInput) => ipcRenderer.invoke(IPC.HF_DOWNLOAD, input),
     cancel: () => ipcRenderer.invoke(IPC.HF_CANCEL),

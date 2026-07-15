@@ -1,6 +1,7 @@
-import { readdir, stat } from 'fs/promises'
-import { join } from 'path'
+import { readdir, stat, unlink } from 'fs/promises'
+import { join, resolve } from 'path'
 import type { ModelDownloader } from 'node-llama-cpp'
+import { isSafeModelName, isInsideDir } from '../shared/modelStorage'
 
 type LlamaModule = typeof import('node-llama-cpp')
 
@@ -78,6 +79,27 @@ export async function listLocalModels(dir: string): Promise<LocalModel[]> {
     }
   }
   return out
+}
+
+/**
+ * Yerel model dosyasını GÜVENLE sil (25 — disk yönetimi). Kullanıcı-başlatımlı
+ * (UI onayı) ama derinlemesine savunma: yalın model dosyası adı + çözülen yol
+ * gerçekten `dir` altında + var + dosya. Aksi halde reddeder (silmez).
+ * Döner: { ok, freedBytes }.
+ */
+export async function deleteLocalModel(dir: string, name: string): Promise<{ ok: boolean; freedBytes?: number; error?: string }> {
+  if (!isSafeModelName(name)) return { ok: false, error: 'geçersiz/güvensiz model adı' }
+  const target = resolve(dir, name)
+  if (!isInsideDir(target, resolve(dir))) return { ok: false, error: 'model klasörü dışında' }
+  try {
+    const s = await stat(target)
+    if (!s.isFile()) return { ok: false, error: 'dosya değil' }
+    const freed = s.size
+    await unlink(target)
+    return { ok: true, freedBytes: freed }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
 }
 
 let activeDownloader: ModelDownloader | null = null
