@@ -113,10 +113,11 @@ After installing, open the in-app **Model Browser** to download a GGUF model (or
 Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
 
 <details open>
-<summary><b>📜 Full release history — v0.6.4 → v0.23.1 (40 releases)</b></summary>
+<summary><b>📜 Full release history — v0.6.4 → v0.24.0 (41 releases)</b></summary>
 
 | Version | Date | What it brought |
 | --- | --- | --- |
+| [v0.24.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.24.0) | 2026-07-15 | **Trust, Local-Runner Polish & Everyday Delight** (new roadmap Phases 21/25/26) — slopsquatting shield + destructive-action dry-run (21), model storage dashboard + fit pill (25), richer templates + privacy indicator + project `.zip` export + session/project rename (26) |
 | [v0.23.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.23.1) | 2026-07-14 | Whisper dictation **auto-installs** on Linux & Windows (whisper.cpp v1.9.1 binary on demand) |
 | [v0.23.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.23.0) | 2026-07-14 | **Context Economy** (Phase 17) + **conversation branching / DAG** (20.1) + **offline Whisper dictation** (20.3) + smooth streaming (20.4) — completes the Piebald roadmap |
 | [v0.22.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.22.0) | 2026-07-14 | **Discipline, Self-Managing Memory & Hardening** — prompt discipline (18), knowledge "dream" consolidation + self-terminating tasks (19), security review (20.2) |
@@ -159,6 +160,20 @@ Every version, newest first. Deep-dive scorecards for the recent milestones foll
 | [v0.6.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.4) | 2026-07-03 | Early build |
 
 </details>
+
+---
+
+## Trust, Local-Runner Polish & Everyday Delight — the v0.24 Scorecard (new roadmap, Phases 21 / 25 / 26)
+
+The first release on the **new roadmap** (`ROADMAP-NEXT.md`). Eight features, every one **live-verified in the real running app** (Electron + Chrome DevTools Protocol) *before* it was committed — not just unit-tested. Local-first and intent-based throughout: the model still decides *what* you want; these only make the app safer, clearer, and nicer to live in.
+
+**🛡️ Trust & Verify (Phase 21).** Two pre-execution guards no cloud tool offers offline. The **Offline Slopsquatting Shield** screens every `npm/yarn/pnpm/bun/pip` install against a bundled popular-package snapshot (Damerau-Levenshtein ≤ 1 + separator confusion) — a hallucinated/typosquatted name (`reactt`, `crossenv`, `reqeusts`) is caught and paused for your approval *with a reason*, instead of silently installing malware. The **Destructive-Action Dry Run** previews exactly what a `rm -rf dist` / `mv` / `>` will delete or overwrite ("🗑 Will delete: dist/ (3 files)"), matched against your real files, right in the approval dialog.
+
+**🖥️ Local-AI Runner (Phase 25).** The **Model Storage Dashboard** shows total disk used by your local models and a per-model trash button with a two-step confirm (path-escape and non-model names are rejected — a real `../../../etc/passwd` attempt was refused in testing). The **Fit Pill** tags every model for *your* hardware — 🟢 fits / 🔵 spills · slow / 🔴 too big — so you see whether it will run well **before** you load it and hit an OOM crash (verified on a real RTX 2050 4 GB: 3B 🟢, 7B/14B 🔵).
+
+**✨ Everyday Delight (Phase 26).** The one-click **starter templates** now send *detailed* prompts (colors, sections, elements) so a single click builds far more faithfully. A **privacy indicator** in the header reads 🔒 *fully on device* or ☁️ *to cloud · {provider}* — honest, at-a-glance data-egress labelling. A 📦 **`.zip` export** packs the whole runnable project (scaffold + assets) into a single dependency-free ZIP (proven by a real system-`unzip` round-trip) — drop it on Netlify or share it. And **session/project rename** (pencil or double-click) finally lets you fix auto-generated names — session titles persist without auto-reverting; project labels get a safe display alias (the folder is never moved).
+
+**✅ Verified:** `test:engine` green (62 locked groups, incl. new `pkgshield` / `blast` / `modelstorage` / `starters` / `zip` + fit-classifier checks); `typecheck` + production build clean; all eight features driven and screenshotted over CDP in the live app.
 
 ---
 
