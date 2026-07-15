@@ -96,6 +96,11 @@ export interface NexoraApi {
   }
   artifacts: {
     export: (input: ArtifactExportInput) => Promise<ArtifactExportResponse>
+    exportZip: (input: {
+      files: Array<{ path: string; content: string }>
+      projectName?: string
+      savePath?: string
+    }) => Promise<{ ok: boolean; path?: string; count?: number; canceled?: boolean; error?: string }>
   }
   agent: {
     run: (input: AgentRunInput) => Promise<AgentRunResult>
@@ -359,7 +364,9 @@ const api: NexoraApi = {
     }
   },
   artifacts: {
-    export: (input: ArtifactExportInput) => ipcRenderer.invoke(IPC.ARTIFACTS_EXPORT, input)
+    export: (input: ArtifactExportInput) => ipcRenderer.invoke(IPC.ARTIFACTS_EXPORT, input),
+    exportZip: (input: { files: Array<{ path: string; content: string }>; projectName?: string; savePath?: string }) =>
+      ipcRenderer.invoke(IPC.ARTIFACTS_EXPORT_ZIP, input)
   },
   agent: {
     run: (input: AgentRunInput) => ipcRenderer.invoke(IPC.AGENT_RUN, input),

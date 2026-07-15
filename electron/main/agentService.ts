@@ -11,9 +11,9 @@ import { spawn, exec, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
 import { createServer } from 'net'
 import { pathToFileURL } from 'url'
-import { homedir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { join, dirname, resolve, sep } from 'path'
-import { mkdir, writeFile, readFile, cp, rm, access, readdir, stat } from 'fs/promises'
+import { mkdir, writeFile, readFile, cp, rm, access, readdir, stat, mkdtemp } from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { shell, dialog } from 'electron'
 import type { ProjectImportResult } from '../shared/ipc'
@@ -1388,5 +1388,50 @@ export async function exportProject(
     return { ok: true, dir: dest, count: scaffolded.length }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
+  }
+}
+
+/** Bir dizini özyinelemeli gez; {rel, abs} dosya listesi döndür (klasörler hariç). */
+async function walkFiles(root: string, base = root): Promise<Array<{ rel: string; abs: string }>> {
+  const out: Array<{ rel: string; abs: string }> = []
+  let entries
+  try {
+    entries = await readdir(root, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const ent of entries) {
+    const abs = join(root, ent.name)
+    if (ent.isDirectory()) out.push(...(await walkFiles(abs, base)))
+    else if (ent.isFile()) out.push({ rel: abs.slice(base.length + 1).replace(/\\/g, '/'), abs })
+  }
+  return out
+}
+
+/**
+ * 26 — Projeyi tek bir .zip'e paketle. Klasör-export'la AYNI eksiksiz çıktıyı
+ * (scaffold + varlıklar) geçici klasöre üretir, sonra o ağacı sıkıştırmasız zip'ler.
+ * Böylece zip == klasör-export (tutarlı, dağıtılabilir) + bağımlılıksız (zipStore).
+ */
+export async function exportProjectZipBytes(
+  projectName: string,
+  files: ProjectFileInput[]
+): Promise<{ ok: boolean; bytes?: Uint8Array; count?: number; slug?: string; error?: string }> {
+  const { makeZip } = await import('../shared/zipStore')
+  const tmp = await mkdtemp(join(tmpdir(), 'nexora-zip-'))
+  try {
+    const exp = await exportProject(projectName, files, tmp)
+    if (!exp.ok || !exp.dir) return { ok: false, error: exp.error ?? 'export başarısız' }
+    const slug = slugifyName(projectName)
+    const walked = await walkFiles(exp.dir)
+    const entries = await Promise.all(
+      walked.map(async (f) => ({ name: `${slug}/${f.rel}`, data: new Uint8Array(await readFile(f.abs)) }))
+    )
+    const bytes = makeZip(entries)
+    return { ok: true, bytes, count: entries.length, slug }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  } finally {
+    await rm(tmp, { recursive: true, force: true })
   }
 }

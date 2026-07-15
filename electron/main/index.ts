@@ -34,6 +34,7 @@ import {
   stopDev,
   getDevUrl,
   exportProject,
+  exportProjectZipBytes,
   buildCheck,
   startRuntimeCollector,
   setRuntimeErrorCallback,
@@ -391,6 +392,32 @@ function registerIpc(): void {
       return { ok: false, error: (err as Error).message }
     }
   })
+
+  ipcMain.handle(
+    IPC.ARTIFACTS_EXPORT_ZIP,
+    async (_e, input: { files: Array<{ path: string; content: string }>; projectName?: string; savePath?: string }) => {
+      try {
+        const name = input.projectName ?? 'nexora-projesi'
+        const built = await exportProjectZipBytes(name, input.files)
+        if (!built.ok || !built.bytes) return { ok: false, error: built.error ?? 'zip oluşturulamadı' }
+        // savePath verildiyse (test/otomasyon) dialog'u atla; yoksa native kaydet.
+        let target = input.savePath
+        if (!target) {
+          const res = await dialog.showSaveDialog({
+            title: 'Projeyi .zip olarak kaydet',
+            defaultPath: `${built.slug ?? 'proje'}.zip`,
+            filters: [{ name: 'ZIP', extensions: ['zip'] }]
+          })
+          if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+          target = res.filePath
+        }
+        await writeFile(target, Buffer.from(built.bytes))
+        return { ok: true, path: target, count: built.count }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
 
   ipcMain.handle(IPC.AGENT_RUN, async (_e, input: AgentRunInput) => {
     await syncWorkspace(input.projectName, input.files)

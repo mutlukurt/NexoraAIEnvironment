@@ -194,6 +194,7 @@ export const IPC = {
   HF_DELETE_LOCAL: 'hf:delete-local',
   HF_SELECT_DIR: 'hf:select-dir',
   ARTIFACTS_EXPORT: 'artifacts:export',
+  ARTIFACTS_EXPORT_ZIP: 'artifacts:export-zip',
   AGENT_RUN: 'agent:run',
   AGENT_FETCH: 'agent:fetch',
   AGENT_FONT: 'agent:font',

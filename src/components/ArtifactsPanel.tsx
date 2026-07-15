@@ -165,6 +165,21 @@ export default function ArtifactsPanel() {
     setTimeout(() => setExportMsg(null), 8000)
   }
 
+  // 26 — projeyi tek bir .zip olarak dışa aktar (paylaş / Netlify'a at / yedekle).
+  const handleExportZip = async () => {
+    setExporting(true)
+    setExportMsg(null)
+    const fileList = Object.values(files).map((f) => ({ path: f.path, content: f.content }))
+    const res = await window.nexora.artifacts.exportZip({ files: fileList, projectName: getProjectName() })
+    setExporting(false)
+    if (res.ok && res.path) {
+      setExportMsg(language === 'tr' ? `📦 ${res.count} dosya → ${res.path}` : `📦 ${res.count} files → ${res.path}`)
+    } else if (!res.canceled) {
+      setExportMsg(res.error ?? tt(language, "Export error"))
+    }
+    setTimeout(() => setExportMsg(null), 8000)
+  }
+
   const [devBusy, setDevBusy] = useState(false)
   const [devUrl, setDevUrl] = useState<string | null>(null)
   const [scanBusy, setScanBusy] = useState(false)
@@ -404,6 +419,15 @@ export default function ArtifactsPanel() {
               >
                 <Download className="h-4 w-4" />
                 <span>{t.export}</span>
+              </button>
+              <button
+                onClick={() => void handleExportZip()}
+                disabled={exporting}
+                title={language === 'tr' ? 'Projeyi tek .zip olarak indir (paylaş / Netlify)' : 'Download project as a single .zip (share / Netlify)'}
+                className="rounded-xl border border-ink-line bg-ink-card px-3 py-2 text-xs font-bold text-ink-mut hover:bg-ink-hi transition disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <span>📦</span>
+                <span>.zip</span>
               </button>
               <button
                 onClick={clearAll}
