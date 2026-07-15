@@ -4,7 +4,16 @@ import { useHfStore, type DownloadState } from '@/store/hfStore'
 import { useAppStore, fmtBytes } from '@/store/appStore'
 import { X, Heart, Check, ArrowRight, Type, ImageIcon, Trash2, HardDrive } from 'lucide-react'
 import { translations } from '@/lib/translations'
+import { classifyModelFit, type ModelFit, type HardwareInfo } from '@shared/advisor'
 import LocalImagePanel from './LocalImagePanel'
+
+/** 25.1 sığma rozeti: renk + iki-dilli etiket. */
+function fitBadge(fit: ModelFit | null, tr: boolean): { dot: string; label: string; cls: string } | null {
+  if (!fit) return null
+  if (fit === 'fits') return { dot: '🟢', label: tr ? 'sığar' : 'fits', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
+  if (fit === 'spills') return { dot: '🔵', label: tr ? 'taşar · yavaş' : 'spills · slow', cls: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30' }
+  return { dot: '🔴', label: tr ? 'zorlar' : 'too big', cls: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30' }
+}
 
 function pct(d: DownloadState): number {
   if (d.total <= 0) return 0
@@ -40,10 +49,16 @@ export default function ModelBrowser() {
   // 25 — silme onayı: hangi model silinmek üzere (iki-adım, kaza koruması).
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const totalLocalBytes = localModels.reduce((s, m) => s + (m.sizeBytes ?? 0), 0)
+  // 25.1 — bu cihazın donanımı (sığma rozeti için); açılışta bir kez ölçülür.
+  const [hw, setHw] = useState<HardwareInfo | null>(null)
 
   useEffect(() => {
     if (open) init()
   }, [open, init])
+
+  useEffect(() => {
+    if (open && !hw) void window.nexora.advisor.detect().then(setHw).catch(() => {})
+  }, [open, hw])
 
   const runSearch = () => {
     if (q.trim()) void search(q)
@@ -240,7 +255,17 @@ export default function ModelBrowser() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-ink-text">{lm.name}</p>
-                      <p className="text-[11px] font-medium text-ink-dim">{fmtBytes(lm.sizeBytes)}</p>
+                      <div className="mt-0.5 flex items-center gap-1.5">
+                        <span className="text-[11px] font-medium text-ink-dim">{fmtBytes(lm.sizeBytes)}</span>
+                        {(() => {
+                          const b = fitBadge(classifyModelFit(lm.sizeBytes, hw), language === 'tr')
+                          return b ? (
+                            <span className={'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-bold ' + b.cls}>
+                              {b.dot} {b.label}
+                            </span>
+                          ) : null
+                        })()}
+                      </div>
                     </div>
                     <span className="mr-1 flex items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-300 group-hover:translate-x-0.5 transition-transform">
                       <span>{t.installBtn}</span>

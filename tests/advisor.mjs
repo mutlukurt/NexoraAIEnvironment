@@ -18,9 +18,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-advisor-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { buildPlan } from '${join(repo, 'electron/shared/advisor.ts')}'\n`)
+writeFileSync(entry, `export { buildPlan, classifyModelFit } from '${join(repo, 'electron/shared/advisor.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { buildPlan } = await import(pathToFileURL(outfile).href)
+const { buildPlan, classifyModelFit } = await import(pathToFileURL(outfile).href)
 
 let pass = 0
 let fail = 0
@@ -65,6 +65,21 @@ for (const [name, hw] of [
   const n = buildPlan(hw).coders.filter((c) => c.recommended).length
   check(`${name}: tam 1 önerilen`, n === 1, String(n))
 }
+
+// 6) classifyModelFit — 25.1 sığma rozeti (keyfi model boyutu → fits/spills/tight)
+const GiB = 1024 ** 3
+const hw4 = { ramGb: 16, freeRamGb: 9, cpuModel: 'x', cpuCores: 8, gpu: { name: 'RTX 2050', vramGb: 4 }, platform: 'linux' }
+const hwNoGpu = { ramGb: 8, freeRamGb: 4, cpuModel: 'x', cpuCores: 4, gpu: null, platform: 'linux' }
+check('fit: 3B (2.3GiB) 4GB VRAM → fits', classifyModelFit(2.3 * GiB, hw4) === 'fits')
+check('fit: 14B (8.4GiB) 4GB VRAM 16GB RAM → spills', classifyModelFit(8.4 * GiB, hw4) === 'spills')
+check('fit: 30GiB dev model 16GB RAM → tight', classifyModelFit(30 * GiB, hw4) === 'tight')
+check('fit: GPU yok + 2GiB model 8GB RAM → spills', classifyModelFit(2 * GiB, hwNoGpu) === 'spills')
+check('fit: GPU yok + 20GiB model 8GB RAM → tight', classifyModelFit(20 * GiB, hwNoGpu) === 'tight')
+check('fit: donanım yok → null', classifyModelFit(2 * GiB, null) === null)
+check('fit: boyut 0 → null', classifyModelFit(0, hw4) === null)
+check('fit: tam sınır headroom (2.5GiB+1.5=4≤4) → fits', classifyModelFit(2.5 * GiB, hw4) === 'fits')
+check('fit: sınır aşımı (2.6GiB+1.5>4) → spills', classifyModelFit(2.6 * GiB, hw4) === 'spills')
+check('fit: küçük VRAM (<2GB) → GPU yok gibi', classifyModelFit(1 * GiB, { ...hw4, gpu: { name: 'x', vramGb: 1 } }) === 'spills')
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nadvisor: ${pass} geçti, ${fail} kaldı`)

@@ -23,6 +23,28 @@ export interface HardwareInfo {
 
 export type SpeedGrade = 'ultra' | 'hizli' | 'orta' | 'yavas'
 
+/**
+ * 25.1 SIĞMA ROZETİ — keyfi bir yerel modelin (dosya boyutuyla) BU cihazda nasıl
+ * koşacağını sınıflandır. Danışmanla AYNI mantık (1.5GB headroom = KV/bağlam/OS),
+ * ama katalog yerine gerçek dosya baytına uygulanır. Model Tarayıcı'da her modelin
+ * yanında gösterilir → kullanıcı YÜKLEMEDEN önce görür (4GB'de çöküşü önler).
+ *  'fits'   🟢 = ağırlıklar VRAM'e tam sığar → hızlı (tam GPU offload)
+ *  'spills' 🔵 = VRAM'e sığmaz ama RAM'e taşarak çalışır → yavaş
+ *  'tight'  🔴 = RAM'i de zorlar → zor yükler / çok yavaş
+ */
+export type ModelFit = 'fits' | 'spills' | 'tight'
+
+export function classifyModelFit(sizeBytes: number, hw: HardwareInfo | null): ModelFit | null {
+  if (!hw || !Number.isFinite(sizeBytes) || sizeBytes <= 0) return null
+  const sizeGb = sizeBytes / 1024 ** 3
+  const HEADROOM = 1.5 // KV cache / bağlam / OS payı (advisor ile aynı)
+  const vram = hw.gpu?.vramGb ?? 0
+  if (vram >= 2 && sizeGb + HEADROOM <= vram) return 'fits'
+  const ram = hw.ramGb || 0
+  if (ram > 0 && sizeGb + HEADROOM <= ram) return 'spills'
+  return 'tight'
+}
+
 export interface CoderOption {
   id: string
   label: string
