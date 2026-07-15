@@ -681,7 +681,34 @@ export default function ChatPanel() {
     <section className="relative flex flex-1 w-full flex-col bg-ink-bg text-ink-text font-sans overflow-hidden">
       {/* Header */}
       <header className="z-30 flex items-center justify-between gap-2 border-b border-ink-line bg-ink-bg/80 px-6 py-4 backdrop-blur-md">
-        <h2 className="text-base font-extrabold text-ink-text">{t.chat}</h2>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <h2 className="text-base font-extrabold text-ink-text">{t.chat}</h2>
+          {/* 26 — GİZLİLİK GÖSTERGESİ: verim nereye gidiyor? Dürüst + yerel-öncelik
+              vurgusu. activeApiModel dolu → bulut; yerel model/görsel → cihazında. */}
+          {activeApiModel ? (
+            <span
+              title={
+                language === 'tr'
+                  ? `Bu oturumda mesajların "${activeApiModel.label || activeApiModel.provider}" sunucusuna gönderiliyor.`
+                  : `In this session your messages are sent to "${activeApiModel.label || activeApiModel.provider}".`
+              }
+              className="hidden sm:inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400"
+            >
+              ☁️ {language === 'tr' ? 'buluta gidiyor' : 'to cloud'} · {activeApiModel.provider}
+            </span>
+          ) : modelInfo || localImageEnabled ? (
+            <span
+              title={
+                language === 'tr'
+                  ? 'Bu oturum tamamen bilgisayarında çalışıyor — hiçbir veri dışarı gönderilmiyor.'
+                  : 'This session runs entirely on your device — no data leaves your computer.'
+              }
+              className="hidden sm:inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400"
+            >
+              🔒 {language === 'tr' ? 'tamamen cihazında' : 'fully on device'}
+            </span>
+          ) : null}
+        </div>
         <div className="flex min-w-0 items-center gap-2">
           {/* 7.7 gelen kutusu: kuyruk + biten işler durumlarıyla */}
           {queuedTasks.length > 0 && (
