@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { tt, localeOf } from '@/lib/i18n'
 import { useAppStore, scheduleSessionSave } from '@/store/appStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
-import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command, Download, GitBranch } from 'lucide-react'
+import { MessageSquare, Settings, Plus, FileCode, Trash2, FolderOpen, ChevronDown, Command, Download, GitBranch, Pencil } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { splitSessions, groupByProject } from '@/lib/sessionGroups'
 import { computeSessionStatus, type SessionStatus } from '@/lib/sessionStatus'
@@ -24,6 +24,33 @@ export default function Sidebar() {
   const refreshSessions = useAppStore((s) => s.refreshSessions)
   const openSession = useAppStore((s) => s.openSession)
   const requestDeleteSession = useAppStore((s) => s.requestDeleteSession)
+  const renameSession = useAppStore((s) => s.renameSession)
+  // 26: satır-içi yeniden adlandırma (kalem ikonu ya da başlığa çift-tık).
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
+  // 26: proje takma adı (SLUG/klasör değişmez — yalnız görünen etiket; localStorage).
+  const [projAliases, setProjAliases] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('nexora.projAlias') || '{}')
+    } catch {
+      return {}
+    }
+  })
+  const [renamingProject, setRenamingProject] = useState<string | null>(null)
+  const setProjectAlias = (slug: string, alias: string) => {
+    const clean = alias.trim().slice(0, 60)
+    setProjAliases((prev) => {
+      const next = { ...prev }
+      if (clean && clean !== slug) next[slug] = clean
+      else delete next[slug]
+      try {
+        localStorage.setItem('nexora.projAlias', JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
   const newProjectSession = useAppStore((s) => s.newProjectSession)
   const exportSession = useAppStore((s) => s.exportSession) // 16.3
   const hasMessages = useAppStore((s) => s.messages.length > 0)
@@ -82,7 +109,39 @@ export default function Sidebar() {
           <MessageSquare className={'h-4 w-4 shrink-0 ' + (active ? 'text-brand-600 dark:text-brand-400' : 'text-ink-dim')} />
         )}
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-xs font-bold text-ink-text">{sess.title || (tt(language, "Untitled"))}</p>
+          {renamingId === sess.id ? (
+            <input
+              autoFocus
+              value={renameText}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setRenameText(e.target.value)}
+              onBlur={() => {
+                if (renameText.trim()) void renameSession(sess.id, renameText)
+                setRenamingId(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (renameText.trim()) void renameSession(sess.id, renameText)
+                  setRenamingId(null)
+                } else if (e.key === 'Escape') {
+                  setRenamingId(null)
+                }
+              }}
+              className="w-full rounded border border-brand-500/50 bg-ink-bg px-1 py-0.5 text-xs font-bold text-ink-text focus:outline-none"
+            />
+          ) : (
+            <p
+              className="truncate text-xs font-bold text-ink-text"
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setRenameText(sess.title || '')
+                setRenamingId(sess.id)
+              }}
+              title={tt(language, "Double-click to rename")}
+            >
+              {sess.title || (tt(language, "Untitled"))}
+            </p>
+          )}
           <p className="text-[10px] font-medium text-ink-dim">
             {new Date(sess.updatedAt).toLocaleDateString(localeOf(language), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             {project ? ` · ${sess.fileCount} ${t.filesCount}` : ''}
@@ -105,6 +164,17 @@ export default function Sidebar() {
             className={'h-2 w-2 shrink-0 rounded-full ' + STATUS_STYLE[status].dot}
           />
         )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setRenameText(sess.title || '')
+            setRenamingId(sess.id)
+          }}
+          title={tt(language, "Rename")}
+          className="rounded-lg p-1.5 text-ink-dim opacity-0 transition group-hover:opacity-100 hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
         <button
           onClick={(e) => {
             e.stopPropagation()
@@ -239,14 +309,47 @@ export default function Sidebar() {
                   return (
                     <div key={name} className="rounded-lg">
                       <div className="group flex items-center gap-1 rounded-lg px-1.5 py-1.5 transition hover:bg-ink-hi/50">
-                        <button onClick={() => toggleProject(name)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left" title={folder?.dir}>
-                          <ChevronDown className={'h-3 w-3 shrink-0 text-ink-dim transition ' + (open ? '' : '-rotate-90')} />
-                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                          <span className="truncate text-xs font-bold text-ink-text">{name}</span>
-                          {folder?.linked && (
-                            <span className="shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">{tt(language, "linked")}</span>
-                          )}
-                          {sess.length > 0 && <span className="ml-auto shrink-0 text-[9px] font-bold text-ink-dim">{sess.length}</span>}
+                        {renamingProject === name ? (
+                          <input
+                            autoFocus
+                            value={renameText}
+                            onChange={(e) => setRenameText(e.target.value)}
+                            onBlur={() => {
+                              setProjectAlias(name, renameText)
+                              setRenamingProject(null)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                setProjectAlias(name, renameText)
+                                setRenamingProject(null)
+                              } else if (e.key === 'Escape') {
+                                setRenamingProject(null)
+                              }
+                            }}
+                            className="min-w-0 flex-1 rounded border border-brand-500/50 bg-ink-bg px-1 py-0.5 text-xs font-bold text-ink-text focus:outline-none"
+                          />
+                        ) : (
+                          <button onClick={() => toggleProject(name)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left" title={folder?.dir}>
+                            <ChevronDown className={'h-3 w-3 shrink-0 text-ink-dim transition ' + (open ? '' : '-rotate-90')} />
+                            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                            <span className="truncate text-xs font-bold text-ink-text" onDoubleClick={(e) => { e.stopPropagation(); setRenameText(projAliases[name] || name); setRenamingProject(name) }}>
+                              {projAliases[name] || name}
+                            </span>
+                            {folder?.linked && (
+                              <span className="shrink-0 rounded bg-ink-hi px-1 text-[9px] font-bold text-ink-dim">{tt(language, "linked")}</span>
+                            )}
+                            {sess.length > 0 && <span className="ml-auto shrink-0 text-[9px] font-bold text-ink-dim">{sess.length}</span>}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setRenameText(projAliases[name] || name)
+                            setRenamingProject(name)
+                          }}
+                          title={tt(language, "Rename")}
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-ink-dim opacity-0 transition hover:bg-brand-500/10 hover:text-brand-600 group-hover:opacity-100 dark:hover:text-brand-300"
+                        >
+                          <Pencil className="h-3 w-3" />
                         </button>
                         {folder && (
                           <button

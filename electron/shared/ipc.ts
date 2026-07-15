@@ -502,6 +502,9 @@ export interface SessionData extends SessionMeta {
   messages: ChatMessage[]
   files: Record<string, SessionFileEntry>
   selectedPath: string | null
+  /** 26: kullanıcı oturumu elle yeniden adlandırdıysa true → başlık artık ilk
+   *  mesajdan OTOMATİK türetilmez (rename kalıcı olur). */
+  titleLocked?: boolean
   /** 7.4: bekleyen inceleme yorumları (çapalar bu oturumun dosyalarına). */
   comments?: SteerComment[]
   /** 7.7: görev kuyruğu + gelen kutusu — oturumla yaşar. */

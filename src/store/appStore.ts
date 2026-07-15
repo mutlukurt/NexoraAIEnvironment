@@ -212,6 +212,8 @@ interface AppState {
   exportSession: () => Promise<void>
   openSession: (id: string) => Promise<void>
   removeSession: (id: string) => Promise<void>
+  /** 26: oturumu/projeyi elle yeniden adlandır (kalıcı; başlık artık otomatik türetilmez). */
+  renameSession: (id: string, title: string) => Promise<void>
   /** 10.11.3: silme onay istemi (kazayla silmeye karşı). */
   pendingDelete: { id: string; title: string } | null
   requestDeleteSession: (id: string, title: string) => void
@@ -276,6 +278,8 @@ let sessionCreatedAt = 0
 // Yeni Sohbet → 'chat'; bir projeden/inşadan doğan oturum → 'project' + slug.
 let currentSessionKind: 'chat' | 'project' = 'chat'
 let currentSessionProject: string | null = null
+// 26: kullanıcı bu oturumu elle adlandırdıysa özel başlık (yoksa ilk mesajdan türetilir).
+let currentSessionTitle: string | null = null
 
 // Proje bazlı kalıcı ajan izni ("bu projede hep izin ver").
 function agentAllowKey(): string {
@@ -3253,6 +3257,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 10.11.2: "Yeni Sohbet" → saf sohbet oturumu (dosya üretilirse otomatik projeye yükselir).
     currentSessionKind = 'chat'
     currentSessionProject = null
+    currentSessionTitle = null // 26: yeni oturumun özel başlığı yok
     pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
@@ -3698,7 +3703,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const projectName = isProject ? currentSessionProject ?? getProjectName() : undefined
     const data: SessionData = {
       id,
-      title: firstUser.content.split('\n')[0].slice(0, 48),
+      // 26: kullanıcı elle adlandırdıysa onu KORU; yoksa ilk mesajdan türet.
+      title: currentSessionTitle ?? firstUser.content.split('\n')[0].slice(0, 48),
+      titleLocked: !!currentSessionTitle,
       createdAt: sessionCreatedAt,
       updatedAt: Date.now(),
       msgCount: s.messages.length,
@@ -3826,6 +3833,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 10.11.2: açılan oturumun türü + bağlı projesi geri yüklenir.
     currentSessionKind = data.kind ?? (data.fileCount > 0 ? 'project' : 'chat')
     currentSessionProject = data.projectName ?? null
+    // 26: elle adlandırılmış oturumun özel başlığını geri yükle (yeniden türetme).
+    currentSessionTitle = data.titleLocked ? (data.title ?? null) : null
     // 20.1: açılan oturum bir dalsa köken geri gelir (banner + sidebar rozeti).
     set({ branchOrigin: data.branchedFrom ?? null })
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
@@ -3911,6 +3920,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionCreatedAt = 0
     }
     void get().refreshSessions()
+  },
+  // 26: oturumu/projeyi elle yeniden adlandır. Diski taşımaz — yalnız `title`
+  // alanını günceller + titleLocked=true (bir daha ilk mesajdan türetilmez).
+  renameSession: async (id, title) => {
+    const clean = title.trim().slice(0, 60)
+    if (!clean) return
+    // Mevcut oturumsa modül değişkenini de kur → sonraki saveSessionNow korur.
+    if (get().currentSessionId === id) currentSessionTitle = clean
+    try {
+      const existing = (await window.nexora.sessions.load(id)) as SessionData | null
+      if (existing) {
+        existing.title = clean
+        existing.titleLocked = true
+        await window.nexora.sessions.save(existing)
+      }
+    } catch {
+      /* diske yazılamadıysa en azından listeyi güncelle */
+    }
+    set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title: clean } : x)) }))
   },
   // 10.11.3: silmeden ÖNCE onay iste — kazayla silme olmasın.
   requestDeleteSession: (id, title) => set({ pendingDelete: { id, title } }),
