@@ -12,6 +12,7 @@ import RewindMenu from '@/components/RewindMenu'
 import RecordButton from '@/components/RecordButton'
 import { appendDictation } from '@shared/whisperParse'
 import { expandSlashCommand, matchSlash, type SlashCommand } from '@/lib/slashCommands'
+import { STARTERS, starterPrompt } from '@/lib/starters'
 import { PenTool, BookOpen, Code2, Rocket, FolderOpen, ImagePlus, X, LayoutDashboard, BarChart3, UserRound, LogIn, ArrowUpRight, Sparkles, Download, Maximize2, FolderPlus, GitBranch } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { translations } from '@/lib/translations'
@@ -934,17 +935,19 @@ export default function ChatPanel() {
                     prompt: 'Login screen'
                   }
                 ].map((item) => {
+                  // 26 — şablon istekleri artık tek yerde, test edilmiş ve DETAYLI
+                  // (renk + bölüm belirtir) → sadakat motoru çok daha iyi sonuç verir.
                   const getPromptText = () => {
-                    if (item.title === 'Modern Landing Page') {
-                      return tt(language, "Design a modern, minimalist technology landing page with light/dark support using React and Tailwind CSS. Add nice animations and responsive design.")
-                    }
-                    if (item.title === 'Veri Dashboard') {
-                      return tt(language, "Design a clean data management dashboard interface with cards, filters, and mock data.")
-                    }
-                    if (item.title === 'Kişisel Portfolyo') {
-                      return tt(language, "Design a sleek personal portfolio page showcasing works, skills, and a contact form.")
-                    }
-                    return tt(language, "Design a sleek login screen with social auth integration and input validation utilizing a glassmorphism style.")
+                    const sid =
+                      item.title === 'Modern Landing Page'
+                        ? 'landing'
+                        : item.title === 'Veri Dashboard'
+                          ? 'dashboard'
+                          : item.title === 'Kişisel Portfolyo'
+                            ? 'portfolio'
+                            : 'login'
+                    const s = STARTERS.find((x) => x.id === sid)
+                    return s ? starterPrompt(s, language === 'tr' ? 'tr' : 'en') : ''
                   }
                   const cardIcon =
                     item.title === 'Modern Landing Page' ? (
