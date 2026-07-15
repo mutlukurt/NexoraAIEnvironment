@@ -63,6 +63,11 @@ export default function PermissionModal() {
                       {tt(language, "why asking: ")}{item.reason}
                     </p>
                   )}
+                  {item.impact && (
+                    <p className="mt-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">
+                      {item.impact}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

@@ -13,7 +13,7 @@ import type { AgentDirectives } from './agentActions'
 export interface PendingApproval {
   id: string
   /** Yalnız GÖSTERİM (PermissionModal) — insan-okur özet. */
-  items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string }>
+  items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string; impact?: string }>
   runs: string[]
   fetches: Array<{ url: string; path: string }>
   mcp: Array<{ server: string; tool: string; args: Record<string, unknown> }>

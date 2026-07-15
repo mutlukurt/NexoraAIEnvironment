@@ -8,6 +8,7 @@ import { useArtifactsStore } from '@/store/artifactsStore'
 import { useSettingsStore, applyUiScale, uiScaleInitial, clampUiScale } from '@/store/settingsStore'
 import { decideCommand } from '@shared/trust'
 import { screenInstallCommand } from '@shared/pkgShield'
+import { describeImpact } from '@shared/blastRadius'
 
 // Tema, React başlamadan uygulanır (açılışta yanlış tema parlaması olmasın).
 applyTheme(themeInitial())
@@ -55,7 +56,10 @@ window.addEventListener('keydown', (e) => {
   // doğrudan çağırır (üretim akışını değiştirmez — yalnız test/CDP sürücüsü için).
   trustDecide: (cmd: string, tier: 'read' | 'auto' | 'full' = 'auto') =>
     decideCommand(cmd, tier, { projectAlways: false }),
-  screenPkg: (cmd: string) => screenInstallCommand(cmd)
+  screenPkg: (cmd: string) => screenInstallCommand(cmd),
+  // 21.4 dry-run: bir komutun silme/üzerine-yazma etkisini proje dosyalarına karşı önizle.
+  previewImpact: (cmd: string, lang: 'tr' | 'en' = 'tr') =>
+    describeImpact(cmd, Object.values(useArtifactsStore.getState().files).map((f) => f.path), lang)
 }
 
 // Inject window.nexora mock provider for web browser testing

@@ -514,7 +514,7 @@ export interface SessionData extends SessionMeta {
    */
   pendingApprovals?: Array<{
     id: string
-    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string }>
+    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string; impact?: string }>
     runs: string[]
     fetches: Array<{ url: string; path: string }>
     mcp: Array<{ server: string; tool: string; args: Record<string, unknown> }>

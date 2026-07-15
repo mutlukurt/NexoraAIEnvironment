@@ -17,6 +17,7 @@ import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from
 import { composeWalkthrough, composeTaskDoc, composePlanDoc, type WalkthroughInput } from '@/lib/walkthrough'
 import { composeCommentBlock, type SteerComment } from '@/lib/steerComments'
 import { decideCommand } from '@shared/trust'
+import { describeImpact } from '@shared/blastRadius'
 import { makeTask, nextRunnable, transition, clearFinished, deactivateTasks, type QueuedTask } from '@/lib/taskQueue'
 import { useArtifactsStore, detectLanguage, type FileLanguage } from './artifactsStore'
 import { applyLangDir, ALL_LANGS, type Lang } from '@/lib/i18n'
@@ -219,7 +220,7 @@ interface AppState {
 
   /** Riskli agent eylemleri ([RUN]/[FETCH]/[MCP]) için bekleyen izin istemi. */
   permissionRequest: {
-    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string }>
+    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string; impact?: string }>
     resolve: (d: 'once' | 'always' | 'deny') => void
   } | null
   /** 15.1: reboot-dayanıklı bekleyen izinler — diske serileşir (SessionData), çökmede kaybolmaz. */
@@ -2824,8 +2825,18 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               }
               let approvedAsk = true
               if (askRuns.length > 0 || fetchesAsk.length > 0 || mcpAsk.length > 0) {
+                // 21.4 DRY-RUN: yıkıcı komutlar için "ne silinecek/üzerine yazılacak"
+                // önizlemesini projenin mevcut dosya listesine karşı hesapla (komut
+                // ÇALIŞMADAN). Kullanıcı kör onay vermesin.
+                const projPaths = Object.values(useArtifactsStore.getState().files).map((f) => f.path)
+                const impLang = get().language === 'tr' ? 'tr' : 'en'
                 const items = [
-                  ...askRuns.map((r) => ({ kind: 'run' as const, text: r.text, reason: r.reason })),
+                  ...askRuns.map((r) => ({
+                    kind: 'run' as const,
+                    text: r.text,
+                    reason: r.reason,
+                    impact: describeImpact(r.text, projPaths, impLang) ?? undefined
+                  })),
                   ...fetchesAsk.map((f) => ({
                     kind: 'fetch' as const,
                     text: `${f.url} → ${f.path}`,
