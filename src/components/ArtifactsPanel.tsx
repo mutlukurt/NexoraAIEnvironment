@@ -158,7 +158,7 @@ export default function ArtifactsPanel() {
     const res = await window.nexora.artifacts.export({ files: fileList, projectName: getProjectName() })
     setExporting(false)
     if (res.ok && res.count != null) {
-      setExportMsg(language === 'tr' ? `${res.count} dosya → ${res.dir}` : `${res.count} files → ${res.dir}`)
+      setExportMsg(`${res.count} ${tt(language, 'files')} → ${res.dir}`)
     } else {
       setExportMsg(res.error ?? (tt(language, "Export error")))
     }
@@ -173,7 +173,7 @@ export default function ArtifactsPanel() {
     const res = await window.nexora.artifacts.exportZip({ files: fileList, projectName: getProjectName() })
     setExporting(false)
     if (res.ok && res.path) {
-      setExportMsg(language === 'tr' ? `📦 ${res.count} dosya → ${res.path}` : `📦 ${res.count} files → ${res.path}`)
+      setExportMsg(`📦 ${res.count} ${tt(language, 'files')} → ${res.path}`)
     } else if (!res.canceled) {
       setExportMsg(res.error ?? tt(language, "Export error"))
     }
@@ -423,7 +423,7 @@ export default function ArtifactsPanel() {
               <button
                 onClick={() => void handleExportZip()}
                 disabled={exporting}
-                title={language === 'tr' ? 'Projeyi tek .zip olarak indir (paylaş / Netlify)' : 'Download project as a single .zip (share / Netlify)'}
+                title={tt(language, 'Download project as a single .zip (share / Netlify)')}
                 className="rounded-xl border border-ink-line bg-ink-card px-3 py-2 text-xs font-bold text-ink-mut hover:bg-ink-hi transition disabled:opacity-50 flex items-center gap-1.5"
               >
                 <span>📦</span>
@@ -762,7 +762,8 @@ function TerminalView({ language }: { language: Lang }) {
     const { decision, verdict } = decideCommand(c, trust.trustTier, {
       allowList: trust.trustAllowList,
       denyList: trust.trustDenyList,
-      projectAlways: true
+      projectAlways: true,
+      lang: language
     })
     if (decision === 'block') {
       useTermStore.getState().blocked(c, 'user', verdict.reason)

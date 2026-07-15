@@ -138,45 +138,55 @@ export function matchTargets(target: string, filePaths: string[], recursive: boo
   return [...hits]
 }
 
+/** Arayüz dilleri (electron/shared renderer i18n'i import edemez → yerel tip). */
+export type Lang = 'tr' | 'en' | 'es' | 'fr' | 'de' | 'pt' | 'ru' | 'zh' | 'ja' | 'ar'
+
+const IMPACT_L10N: Record<Lang, { del: string; ow: string; files: string; neu: string }> = {
+  en: { del: 'Will delete', ow: 'Will overwrite', files: 'files', neu: 'new' },
+  tr: { del: "Silinecek", ow: "Üzerine yazılacak", files: "dosya", neu: "yeni" },
+  es: { del: "Se eliminará", ow: "Se sobrescribirá", files: "archivos", neu: "nuevo" },
+  fr: { del: "Supprimera", ow: "Écrasera", files: "fichiers", neu: "nouveau" },
+  de: { del: "Wird gelöscht", ow: "Wird überschrieben", files: "Dateien", neu: "neu" },
+  pt: { del: "Vai eliminar", ow: "Vai substituir", files: "ficheiros", neu: "novo" },
+  ru: { del: "Будет удалено", ow: "Будет перезаписано", files: "файлы", neu: "новый" },
+  zh: { del: "将删除", ow: "将覆盖", files: "文件", neu: "新增" },
+  ja: { del: "削除されます", ow: "上書きされます", files: "ファイル", neu: "新規" },
+  ar: { del: "سيُحذف", ow: "سيُستبدل", files: "ملفات", neu: "جديد" }
+}
+
 /**
- * Onay kutusu için insan-okur etki özeti. Yıkıcı değilse null.
+ * Onay kutusu için insan-okur etki özeti (10 dil). Yıkıcı değilse null.
  * `filePaths` = projenin mevcut dosya yolları (renderer store'undan).
  */
-export function describeImpact(cmd: string, filePaths: string[], lang: 'tr' | 'en' = 'tr'): string | null {
+export function describeImpact(cmd: string, filePaths: string[], lang: Lang = 'en'): string | null {
   const { destructive, ops } = analyzeCommand(cmd)
   if (!destructive) return null
-  const tr = lang === 'tr'
+  const L = IMPACT_L10N[lang] ?? IMPACT_L10N.en
 
-  const delTargets: string[] = []
-  let delFiles = 0
   const delNames: string[] = []
   const owTargets: string[] = []
 
   for (const op of ops) {
     if (op.kind === 'delete') {
       for (const tgt of op.targets) {
-        delTargets.push(tgt)
         const matched = matchTargets(tgt, filePaths, op.recursive)
-        delFiles += matched.length
         // klasör/glob ise hedef adını, tek dosyaysa dosya adını göster
-        delNames.push(matched.length > 1 ? `${normPath(tgt)}/ (${matched.length} ${tr ? 'dosya' : 'files'})` : normPath(tgt))
+        delNames.push(matched.length > 1 ? `${normPath(tgt)}/ (${matched.length} ${L.files})` : normPath(tgt))
       }
     } else {
       for (const tgt of op.targets) {
         const exists = matchTargets(tgt, filePaths, false).length > 0
-        owTargets.push(normPath(tgt) + (exists ? '' : tr ? ' (yeni)' : ' (new)'))
+        owTargets.push(normPath(tgt) + (exists ? '' : ` (${L.neu})`))
       }
     }
   }
 
   const parts: string[] = []
   if (delNames.length) {
-    const head = tr ? '🗑 Silinecek' : '🗑 Will delete'
-    parts.push(`${head}: ${delNames.slice(0, 6).join(', ')}${delNames.length > 6 ? ' …' : ''}`)
+    parts.push(`🗑 ${L.del}: ${delNames.slice(0, 6).join(', ')}${delNames.length > 6 ? ' …' : ''}`)
   }
   if (owTargets.length) {
-    const head = tr ? '✏️ Üzerine yazılacak' : '✏️ Will overwrite'
-    parts.push(`${head}: ${owTargets.slice(0, 6).join(', ')}${owTargets.length > 6 ? ' …' : ''}`)
+    parts.push(`✏️ ${L.ow}: ${owTargets.slice(0, 6).join(', ')}${owTargets.length > 6 ? ' …' : ''}`)
   }
   return parts.length ? parts.join(' · ') : null
 }

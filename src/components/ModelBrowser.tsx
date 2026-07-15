@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { tt } from '@/lib/i18n'
+import { tt, type Lang } from '@/lib/i18n'
 import { useHfStore, type DownloadState } from '@/store/hfStore'
 import { useAppStore, fmtBytes } from '@/store/appStore'
 import { X, Heart, Check, ArrowRight, Type, ImageIcon, Trash2, HardDrive } from 'lucide-react'
@@ -7,12 +7,12 @@ import { translations } from '@/lib/translations'
 import { classifyModelFit, type ModelFit, type HardwareInfo } from '@shared/advisor'
 import LocalImagePanel from './LocalImagePanel'
 
-/** 25.1 sığma rozeti: renk + iki-dilli etiket. */
-function fitBadge(fit: ModelFit | null, tr: boolean): { dot: string; label: string; cls: string } | null {
+/** 25.1 sığma rozeti: renk + 10-dil etiket (tt). */
+function fitBadge(fit: ModelFit | null, language: Lang): { dot: string; label: string; cls: string } | null {
   if (!fit) return null
-  if (fit === 'fits') return { dot: '🟢', label: tr ? 'sığar' : 'fits', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
-  if (fit === 'spills') return { dot: '🔵', label: tr ? 'taşar · yavaş' : 'spills · slow', cls: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30' }
-  return { dot: '🔴', label: tr ? 'zorlar' : 'too big', cls: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30' }
+  if (fit === 'fits') return { dot: '🟢', label: tt(language, 'fits'), cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
+  if (fit === 'spills') return { dot: '🔵', label: tt(language, 'spills · slow'), cls: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30' }
+  return { dot: '🔴', label: tt(language, 'too big'), cls: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30' }
 }
 
 function pct(d: DownloadState): number {
@@ -258,7 +258,7 @@ export default function ModelBrowser() {
                       <div className="mt-0.5 flex items-center gap-1.5">
                         <span className="text-[11px] font-medium text-ink-dim">{fmtBytes(lm.sizeBytes)}</span>
                         {(() => {
-                          const b = fitBadge(classifyModelFit(lm.sizeBytes, hw), language === 'tr')
+                          const b = fitBadge(classifyModelFit(lm.sizeBytes, hw), language)
                           return b ? (
                             <span className={'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-bold ' + b.cls}>
                               {b.dot} {b.label}
@@ -274,7 +274,7 @@ export default function ModelBrowser() {
                   </button>
                   {confirmDel === lm.name ? (
                     <div className="flex shrink-0 items-center gap-1">
-                      <span className="text-[10px] font-bold text-red-600 dark:text-red-400">{language === 'tr' ? 'Silinsin mi?' : 'Delete?'}</span>
+                      <span className="text-[10px] font-bold text-red-600 dark:text-red-400">{tt(language, 'Delete?')}</span>
                       <button
                         onClick={() => {
                           void deleteLocal(lm.name)
@@ -282,19 +282,19 @@ export default function ModelBrowser() {
                         }}
                         className="rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-500 transition"
                       >
-                        {language === 'tr' ? 'Sil' : 'Delete'}
+                        {tt(language, 'Delete')}
                       </button>
                       <button
                         onClick={() => setConfirmDel(null)}
                         className="rounded-lg border border-ink-line px-2 py-1 text-[10px] font-bold text-ink-mut hover:bg-ink-hi transition"
                       >
-                        {language === 'tr' ? 'İptal' : 'Cancel'}
+                        {tt(language, 'Cancel')}
                       </button>
                     </div>
                   ) : (
                     <button
                       onClick={() => setConfirmDel(lm.name)}
-                      title={language === 'tr' ? `Sil (${fmtBytes(lm.sizeBytes)} boşalır)` : `Delete (frees ${fmtBytes(lm.sizeBytes)})`}
+                      title={tt(language, 'Delete this model')}
                       className="shrink-0 rounded-lg p-2 text-ink-dim opacity-60 hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 transition"
                     >
                       <Trash2 className="h-4 w-4" />

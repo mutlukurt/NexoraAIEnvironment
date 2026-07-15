@@ -66,6 +66,8 @@ check('impact: Silinecek başlığı', /Silinecek/.test(D('rm src/App.tsx') || '
 check('impact: mv → Üzerine yazılacak', /Üzerine yazılacak/.test(D('mv src/main.tsx config.json') || ''))
 check('impact: overwrite yeni dosya → (yeni)', /\(yeni\)/.test(D('echo x > brand-new.json') || ''))
 check('impact: EN dili', /Will delete/.test(api.describeImpact('rm README.md', files, 'en') || ''))
+check('impact: DE dili', /Wird gelöscht/.test(api.describeImpact('rm README.md', files, 'de') || ''))
+check('impact: JA dili', /削除されます/.test(api.describeImpact('rm README.md', files, 'ja') || ''))
 const many = Array.from({ length: 10 }, (_, i) => `dist/f${i}.js`)
 check('impact: çok hedef kısaltılır (…)', /…|dosya/.test(api.describeImpact('rm -rf dist', many, 'tr') || ''))
 

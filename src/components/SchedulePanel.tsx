@@ -6,12 +6,11 @@
  * açıkken (yerel-önce).
  */
 import { useState } from 'react'
-import type { Lang } from '@/lib/i18n'
+import { tt, localeOf, type Lang } from '@/lib/i18n'
 import { Clock, Plus, Trash2 } from 'lucide-react'
 import { useScheduleStore } from '@/store/scheduleStore'
 
 export default function SchedulePanel({ language }: { language: Lang }) {
-  const tr = language === 'tr'
   const tasks = useScheduleStore((s) => s.tasks)
   const add = useScheduleStore((s) => s.add)
   const update = useScheduleStore((s) => s.update)
@@ -24,7 +23,7 @@ export default function SchedulePanel({ language }: { language: Lang }) {
   const fmtNext = (ts: number) => {
     if (!ts) return '—'
     const d = new Date(ts)
-    return d.toLocaleTimeString(tr ? 'tr-TR' : 'en-US', { hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleTimeString(localeOf(language), { hour: '2-digit', minute: '2-digit' })
   }
 
   const submit = () => {
@@ -41,16 +40,14 @@ export default function SchedulePanel({ language }: { language: Lang }) {
       <div className="flex items-center gap-2">
         <Clock className="h-4 w-4 text-amber-500" />
         <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-          {tr ? 'Zamanlanmış Görevler' : 'Scheduled Tasks'}
+          {tt(language, 'Scheduled Tasks')}
         </span>
         {tasks.length > 0 && (
           <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-300">{tasks.length}</span>
         )}
       </div>
       <p className="mt-1 text-[11px] font-medium leading-normal text-ink-dim">
-        {tr
-          ? 'Tekrarlayan prompt\'lar — vakti gelince görev kuyruğuna girer, motor boşalınca koşar. Yalnız uygulama açıkken (yerel-önce, gizli daemon yok).'
-          : 'Recurring prompts — enqueued when due, run when the engine is free. Only while the app is open (local-first, no hidden daemon).'}
+        {tt(language, 'Recurring prompts — enqueued when due, run when the engine is free. Only while the app is open (local-first, no hidden daemon).')}
       </p>
 
       {tasks.length > 0 && (
@@ -62,17 +59,17 @@ export default function SchedulePanel({ language }: { language: Lang }) {
                 checked={t.enabled}
                 onChange={(e) => update(t.id, { enabled: e.target.checked })}
                 className="h-3.5 w-3.5 shrink-0 accent-amber-500"
-                title={tr ? 'Etkin' : 'Enabled'}
+                title={tt(language, 'Enabled')}
               />
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-[11px] font-bold text-ink-text">{t.label || t.prompt.slice(0, 40)}</span>
                 <span className="block truncate text-[10px] text-ink-dim">
-                  {tr ? `her ${t.everyMinutes} dk` : `every ${t.everyMinutes} min`} · {tr ? 'sonraki' : 'next'} {t.enabled ? fmtNext(t.nextRunTs) : '—'}
+                  {tt(language, 'Every')} {t.everyMinutes} {tt(language, 'min')} · {tt(language, 'next')} {t.enabled ? fmtNext(t.nextRunTs) : '—'}
                 </span>
               </div>
               <button
                 onClick={() => remove(t.id)}
-                title={tr ? 'Sil' : 'Remove'}
+                title={tt(language, 'Remove')}
                 className="shrink-0 rounded p-1 text-ink-dim transition hover:bg-red-500/10 hover:text-red-500"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -86,18 +83,18 @@ export default function SchedulePanel({ language }: { language: Lang }) {
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder={tr ? 'etiket (örn. Bağımlılık kontrolü)' : 'label (e.g. Dependency check)'}
+          placeholder={tt(language, 'label (e.g. Dependency check)')}
           className="rounded-lg border border-ink-line bg-ink-card px-2.5 py-1.5 text-xs font-semibold text-ink-text placeholder-ink-dim focus:border-amber-500 focus:outline-none"
         />
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={2}
-          placeholder={tr ? 'prompt (motora gönderilecek istek)' : 'prompt (request sent to the engine)'}
+          placeholder={tt(language, 'prompt (request sent to the engine)')}
           className="resize-none rounded-lg border border-ink-line bg-ink-card px-2.5 py-2 font-mono text-xs text-ink-text placeholder-ink-dim focus:border-amber-500 focus:outline-none"
         />
         <div className="flex items-center gap-2">
-          <label className="text-[11px] font-bold text-ink-mut">{tr ? 'Her' : 'Every'}</label>
+          <label className="text-[11px] font-bold text-ink-mut">{tt(language, 'Every')}</label>
           <input
             type="number"
             value={every}
@@ -105,21 +102,21 @@ export default function SchedulePanel({ language }: { language: Lang }) {
             onChange={(e) => setEvery(Math.max(1, Number(e.target.value) || 60))}
             className="w-20 rounded-lg border border-ink-line bg-ink-card px-2.5 py-1.5 text-xs text-ink-text focus:border-amber-500 focus:outline-none"
           />
-          <span className="text-[11px] font-bold text-ink-mut">{tr ? 'dakika' : 'min'}</span>
+          <span className="text-[11px] font-bold text-ink-mut">{tt(language, 'min')}</span>
           {/* 19.3: tek-atış — görev 1 kez koşup kendini siler (öz-sonlandırma). */}
           <label
             className="flex items-center gap-1 text-[11px] font-bold text-ink-mut"
-            title={tr ? 'Bir kez koşup kendini siler (öz-sonlandırma)' : 'Run once, then self-remove'}
+            title={tt(language, 'Run once, then self-remove')}
           >
             <input type="checkbox" checked={oneShot} onChange={(e) => setOneShot(e.target.checked)} className="h-3.5 w-3.5 accent-amber-500" />
-            {tr ? 'tek atış' : 'once'}
+            {tt(language, 'once')}
           </label>
           <button
             onClick={submit}
             disabled={!prompt.trim()}
             className="ml-auto flex items-center gap-1.5 rounded-lg border border-dashed border-ink-line px-3 py-1.5 text-xs font-bold text-ink-mut transition hover:border-amber-500/50 hover:text-amber-600 disabled:opacity-40 dark:hover:text-amber-300"
           >
-            <Plus className="h-4 w-4" /> {tr ? 'Ekle' : 'Add'}
+            <Plus className="h-4 w-4" /> {tt(language, 'Add')}
           </button>
         </div>
       </div>

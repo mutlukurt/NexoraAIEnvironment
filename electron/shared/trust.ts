@@ -20,7 +20,7 @@
  * Sessiz tam-otomatik yok: 'full' açıkça, proje başına ve gürültülü seçilir.
  */
 
-import { screenInstallCommand } from './pkgShield'
+import { screenInstallCommand, type Lang } from './pkgShield'
 
 export type TrustTier = 'read' | 'auto' | 'full'
 
@@ -69,7 +69,7 @@ function matchesList(cmd: string, list: string[] | undefined): string | null {
 
 export function commandVerdict(
   cmd: string,
-  opts?: { allowList?: string[]; denyList?: string[] }
+  opts?: { allowList?: string[]; denyList?: string[]; lang?: Lang }
 ): CommandVerdict {
   const c = cmd.trim()
   if (!c) return { action: 'deny', reason: 'boş komut' }
@@ -101,8 +101,8 @@ export function commandVerdict(
   //      bir paket içeriyorsa 'auto' sınıfını 'ask'a yükselt. Model uydurma/sahte
   //      bir ad kurmaya kalkarsa kullanıcı önce görür. Kullanıcının izin listesinden
   //      ÖNCE gelir: allowlist komut ÖNEKİNİ kapsar, spesifik sahte paketi değil.
-  const squat = screenInstallCommand(c)
-  if (squat.suspicious) return { action: 'ask', reason: `sahte paket şüphesi — ${squat.reason}` }
+  const squat = screenInstallCommand(c, opts?.lang ?? 'en')
+  if (squat.suspicious) return { action: 'ask', reason: squat.reason ?? 'possible fake package' }
 
   // 3) Kullanıcının kendi izin listesi → auto.
   const allowHit = matchesList(c, opts?.allowList)
@@ -136,7 +136,7 @@ export function commandVerdict(
 export function decideCommand(
   cmd: string,
   tier: TrustTier,
-  opts?: { allowList?: string[]; denyList?: string[]; projectAlways?: boolean }
+  opts?: { allowList?: string[]; denyList?: string[]; projectAlways?: boolean; lang?: Lang }
 ): { decision: 'run' | 'ask' | 'block'; verdict: CommandVerdict } {
   const verdict = commandVerdict(cmd, opts)
   if (tier === 'read') return { decision: 'block', verdict: { ...verdict, reason: 'Salt Okunur kip: ajan yalnız önerir' } }

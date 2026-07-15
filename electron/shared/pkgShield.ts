@@ -20,6 +20,28 @@
 
 export type PkgEcosystem = 'npm' | 'pip'
 
+/** Arayüz dilleri (electron/shared renderer i18n'i import edemez → yerel tip). */
+export type Lang = 'tr' | 'en' | 'es' | 'fr' | 'de' | 'pt' | 'ru' | 'zh' | 'ja' | 'ar'
+
+// Typosquat gerekçesi 10 dilde. {name}/{near} yer tutucuları çalışma anında dolar.
+const REASON_L10N: Record<Lang, { sep: string; dist: string }> = {
+  en: { sep: "fake-package suspicion — \"{name}\" closely resembles the popular \"{near}\" with a separator difference (a classic fake-package pattern)", dist: "\"{name}\" closely resembles the popular \"{near}\" by one character (possible fake package)" },
+  tr: { sep: "sahte paket şüphesi — \"{name}\", popüler \"{near}\" paketine ayırıcı farkıyla çok benziyor (klasik sahte paket kalıbı)", dist: "\"{name}\", popüler \"{near}\" paketine tek karakter farkla çok benziyor (olası sahte paket)" },
+  es: { sep: "sospecha de paquete falso — \"{name}\" se parece mucho al popular \"{near}\" con una diferencia de separador (un patrón clásico de paquete falso)", dist: "\"{name}\" se parece mucho al popular \"{near}\" por un solo carácter (posible paquete falso)" },
+  fr: { sep: "soupçon de faux paquet — « {name} » ressemble fortement au populaire « {near} » avec une différence de séparateur (un schéma classique de faux paquet)", dist: "« {name} » ressemble fortement au populaire « {near} » à un caractère près (possible faux paquet)" },
+  de: { sep: "Verdacht auf gefälschtes Paket — \"{name}\" ähnelt stark dem beliebten \"{near}\" mit einem abweichenden Trennzeichen (ein klassisches Muster für gefälschte Pakete)", dist: "\"{name}\" ähnelt dem beliebten \"{near}\" bis auf ein Zeichen (mögliches gefälschtes Paket)" },
+  pt: { sep: "suspeita de pacote falso — \"{name}\" assemelha-se muito ao popular \"{near}\" com uma diferença de separador (um padrão clássico de pacote falso)", dist: "\"{name}\" assemelha-se muito ao popular \"{near}\" por um caráter (possível pacote falso)" },
+  ru: { sep: "подозрение на поддельный пакет — \"{name}\" очень похож на популярный \"{near}\" с различием в разделителе (классический признак поддельного пакета)", dist: "\"{name}\" отличается от популярного \"{near}\" всего на один символ (возможно, поддельный пакет)" },
+  zh: { sep: "疑似仿冒包 — \"{name}\" 与热门包 \"{near}\" 高度相似，仅分隔符不同（典型的仿冒包套路）", dist: "\"{name}\" 与热门包 \"{near}\" 仅相差一个字符（可能是仿冒包）" },
+  ja: { sep: "偽パッケージの疑い — 「{name}」は人気の「{near}」と区切り文字だけが異なりよく似ています（典型的な偽パッケージの手口です）", dist: "「{name}」は人気の「{near}」と 1 文字違いでよく似ています（偽パッケージの可能性）" },
+  ar: { sep: "اشتباه بحزمة مزيّفة — \"{name}\" يشبه إلى حدٍ كبير الحزمة الشائعة \"{near}\" مع اختلاف في الفاصل (نمط كلاسيكي للحزم المزيّفة)", dist: "\"{name}\" يشبه إلى حدٍ كبير الحزمة الشائعة \"{near}\" بحرف واحد (حزمة مزيّفة محتملة)" }
+}
+
+function fmtReason(lang: Lang, kind: 'sep' | 'dist', name: string, near: string): string {
+  const tpl = (REASON_L10N[lang] ?? REASON_L10N.en)[kind]
+  return tpl.replace('{name}', name).replace('{near}', near)
+}
+
 export interface PkgFinding {
   /** Ayrıştırılan ham paket adı (sürüm/ekstra soyulmuş). */
   name: string
@@ -145,7 +167,7 @@ function popularFor(eco: PkgEcosystem): string[] {
  * - Popülere Damerau-Levenshtein ≤1 ama eşit değil → 'typosquat'.
  * - Aksi halde 'unknown' (çevrimdışı doğrulanamaz → ENGELLENMEZ, sadece bilinmez).
  */
-export function screenPackage(rawName: string, eco: PkgEcosystem): PkgFinding {
+export function screenPackage(rawName: string, eco: PkgEcosystem, lang: Lang = 'en'): PkgFinding {
   const name = (rawName ?? '').trim()
   if (!name) return { name, ecosystem: eco, kind: 'unknown' }
   const lower = name.toLowerCase()
@@ -163,7 +185,7 @@ export function screenPackage(rawName: string, eco: PkgEcosystem): PkgFinding {
         ecosystem: eco,
         kind: 'typosquat',
         near: list[i],
-        reason: `"${name}" popüler "${list[i]}" paketine ayraç farkıyla çok benziyor (klasik sahte-paket kalıbı)`
+        reason: fmtReason(lang, 'sep', name, list[i])
       }
     }
   }
@@ -184,7 +206,7 @@ export function screenPackage(rawName: string, eco: PkgEcosystem): PkgFinding {
         ecosystem: eco,
         kind: 'typosquat',
         near: best.p,
-        reason: `"${name}" popüler "${best.p}" paketine tek harf farkıyla çok benziyor (olası sahte paket)`
+        reason: fmtReason(lang, 'dist', name, best.p)
       }
     }
   }
@@ -299,12 +321,12 @@ export interface ShieldResult {
  * Bir kabuk komutunu baştan sona denetle. Kurulum yoksa suspicious=false.
  * Bir/çok typosquat bulunursa suspicious=true + gerekçe.
  */
-export function screenInstallCommand(cmd: string): ShieldResult {
+export function screenInstallCommand(cmd: string, lang: Lang = 'en'): ShieldResult {
   const parses = parseInstallTargets(cmd)
   const findings: PkgFinding[] = []
   for (const p of parses) {
     for (const name of p.packages) {
-      findings.push(screenPackage(name, p.ecosystem))
+      findings.push(screenPackage(name, p.ecosystem, lang))
     }
   }
   const squat = findings.find((f) => f.kind === 'typosquat')

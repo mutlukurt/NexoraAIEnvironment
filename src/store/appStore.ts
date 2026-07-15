@@ -2803,7 +2803,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               const askRuns: Array<{ text: string; reason: string }> = []
               const blocked: string[] = []
               for (const cmd of directives.runs) {
-                const { decision, verdict } = decideCommand(cmd, tier, { ...lists, projectAlways })
+                const { decision, verdict } = decideCommand(cmd, tier, { ...lists, projectAlways, lang: get().language })
                 if (decision === 'run') autoRuns.push(cmd)
                 else if (decision === 'ask') askRuns.push({ text: cmd, reason: verdict.reason })
                 else blocked.push(`${cmd} — ${verdict.reason}`)
@@ -2833,7 +2833,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 // önizlemesini projenin mevcut dosya listesine karşı hesapla (komut
                 // ÇALIŞMADAN). Kullanıcı kör onay vermesin.
                 const projPaths = Object.values(useArtifactsStore.getState().files).map((f) => f.path)
-                const impLang = get().language === 'tr' ? 'tr' : 'en'
+                const impLang = get().language
                 const items = [
                   ...askRuns.map((r) => ({
                     kind: 'run' as const,

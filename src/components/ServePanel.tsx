@@ -7,13 +7,12 @@
  * YEREL-ÖNCE: yalnız localhost'a bağlanır, varsayılan kapalı.
  */
 import { useEffect, useState } from 'react'
-import type { Lang } from '@/lib/i18n'
+import { tt, type Lang } from '@/lib/i18n'
 import { Radio, Copy, Check } from 'lucide-react'
 import { useSettingsStore } from '@/store/settingsStore'
 import type { ServeStatusIpc } from '@shared/ipc'
 
 export default function ServePanel({ language }: { language: Lang }) {
-  const tr = language === 'tr'
   const serveEnabled = useSettingsStore((s) => s.serveEnabled)
   const servePort = useSettingsStore((s) => s.servePort)
   const setServe = useSettingsStore((s) => s.setServe)
@@ -56,11 +55,11 @@ export default function ServePanel({ language }: { language: Lang }) {
       <div className="flex items-center gap-2">
         <Radio className="h-4 w-4 text-sky-500" />
         <span className="text-xs font-bold uppercase tracking-wider text-ink-text">
-          {tr ? 'Motoru Sun (OpenAI-uyumlu)' : 'Serve Engine (OpenAI-compatible)'}
+          {tt(language, 'Serve Engine (OpenAI-compatible)')}
         </span>
         {status?.running && (
           <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {tr ? 'çalışıyor' : 'running'}
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {tt(language, 'running')}
           </span>
         )}
         <label className="ml-auto inline-flex cursor-pointer items-center">
@@ -74,13 +73,11 @@ export default function ServePanel({ language }: { language: Lang }) {
         </label>
       </div>
       <p className="mt-1 text-[11px] font-medium leading-normal text-ink-dim">
-        {tr
-          ? 'Yerel modeli Continue/Cline/Aider gibi araçlara aç. Yalnız 127.0.0.1 — veri makineden çıkmaz (yerel-önce). Model yüklü olmalı.'
-          : 'Expose the local model to tools like Continue/Cline/Aider. 127.0.0.1 only — data never leaves the machine (local-first). A model must be loaded.'}
+        {tt(language, 'Expose the local model to tools like Continue/Cline/Aider. 127.0.0.1 only — data never leaves the machine (local-first). A model must be loaded.')}
       </p>
 
       <div className="mt-3 flex items-center gap-2">
-        <label className="text-[11px] font-bold text-ink-mut">{tr ? 'Port' : 'Port'}</label>
+        <label className="text-[11px] font-bold text-ink-mut">{tt(language, 'Port')}</label>
         <input
           type="number"
           value={servePort}
@@ -99,7 +96,7 @@ export default function ServePanel({ language }: { language: Lang }) {
                 setCopied(true)
                 setTimeout(() => setCopied(false), 1200)
               }}
-              title={tr ? 'Kopyala' : 'Copy'}
+              title={tt(language, 'Copy')}
               className="shrink-0 rounded p-1 text-ink-dim transition hover:bg-ink-hi hover:text-ink-mut"
             >
               {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
