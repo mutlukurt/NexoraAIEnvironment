@@ -49,6 +49,16 @@ echo "→ patching command.sh: force X11 (XWayland) + software rendering for rel
 # so disabling Electron GPU + forcing X11 fixes the Wayland/MESA launch crash with no loss.
 cat > "$ROOT/command.sh" <<'CMD'
 #!/bin/bash -e
+# VS Code exports this for its own Electron helper processes. If inherited by the
+# desktop app it turns Electron into plain Node, which rejects Chromium flags and
+# prevents NexoraAI from starting. A packaged desktop launcher must own this state.
+unset ELECTRON_RUN_AS_NODE
+unset ELECTRON_NO_ATTACH_CONSOLE
+# Snap rewrites HOME to a revision-specific directory (x1, x2, ...). NexoraAI's
+# documented ~/NexoraAI workspace must survive refreshes and match deb/dev builds.
+if [ -n "${SNAP_REAL_HOME:-}" ]; then
+  export HOME="$SNAP_REAL_HOME"
+fi
 export ELECTRON_OZONE_PLATFORM_HINT=x11
 exec "$SNAP/desktop-init.sh" "$SNAP/desktop-common.sh" "$SNAP/desktop-gnome-specific.sh" "$SNAP/nexora-ai" '--no-sandbox' '--ozone-platform=x11' '--disable-gpu' "$@"
 CMD
