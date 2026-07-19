@@ -113,10 +113,11 @@ After installing, open the in-app **Model Browser** to download a GGUF model (or
 Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
 
 <details open>
-<summary><b>📜 Full release history — v0.6.4 → v0.25.0 (43 releases)</b></summary>
+<summary><b>📜 Full release history — v0.6.4 → v0.25.1 (44 releases)</b></summary>
 
 | Version | Date | What it brought |
 | --- | --- | --- |
+| [v0.25.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.1) | 2026-07-19 | **Truth & Safety, hardened** — keeps the v0.25.0 capability boundary but fixes the regressions a 6-agent adversarial review found: builds run without a modal on every command again, live file streaming restored, the existing API key stays readable on keyring-less Linux, and a broken confirmation modal can no longer wedge a turn |
 | [v0.25.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.0) | 2026-07-19 | **Truth & Safety** — request-scoped turns, stale-event isolation, transactional artifact writes with exact rollback, tri-state verification foundations, a complete 108-method renderer→main IPC capability inventory, main-owned exact-effect confirmation, renderer sandboxing, secure credential storage, MCP lifecycle authority, and mandatory CI + visible desktop acceptance |
 | [v0.24.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.24.1) | 2026-07-15 | **Full localization of the v0.24 features into all 10 languages** — fit pill, privacy indicator, storage/rename/zip UI + the MCP / Serve / Scheduled-Tasks Settings panels + the shield/dry-run reasons now render in every supported language |
 | [v0.24.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.24.0) | 2026-07-15 | **Trust, Local-Runner Polish & Everyday Delight** (new roadmap Phases 21/25/26) — slopsquatting shield + destructive-action dry-run (21), model storage dashboard + fit pill (25), richer templates + privacy indicator + project `.zip` export + session/project rename (26) |

@@ -2,7 +2,7 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.25.0
+**Current release:** v0.25.1
 
 **Current roadmap:** [ROADMAP-2026.md](../ROADMAP-2026.md)
 
@@ -70,11 +70,18 @@ native chooser, managed read/write, session-authorized work, constrained-local w
 stop/revoke operations, and system UI.
 
 The main process reclassifies agent actions before execution, while missing authority
-defaults to read-only. RUN, FETCH, FONT, DEV, BUILD, MCP, external navigation,
+defaults to read-only. Ask-class RUN commands, FETCH, FONT, DEV, external navigation,
 provider/model network activity, and other privileged effects require an exact
-main-owned confirmation or a narrower enforced invariant. Renderer `approved`,
-`projectAlways`, and `full` claims cannot bypass the boundary. Confirmed actions are
-frozen and executed once, with no renderer-held replay token.
+main-owned confirmation or a narrower enforced invariant. Auto-safe workspace dev
+commands (the project's own `npm`/`vite`/`tsc`/`eslint`/… lifecycle) run under the
+`auto` tier without a modal — the tier grant *is* the standing approval — while a
+forged renderer `auto` claim cannot smuggle an ask-class or network action, because
+main re-derives the command's class from the exact string. BUILD runs fixed local
+build binaries and is classified constrained-local, not a privileged confirmation.
+Renderer `approved`, `projectAlways`, and `full` claims cannot bypass the boundary.
+Confirmed actions are frozen and executed once, with no renderer-held replay token.
+The confirmation modal carries a safety timeout and settles Deny if its window fails
+to load, crashes, or hangs, so a broken modal can never wedge a turn.
 
 The confirmation UI is a serialized main-process-owned desktop modal in a separate
 non-persistent, preload-free, sandboxed partition. It displays the capability,
@@ -86,8 +93,13 @@ The renderer itself is sandboxed, context-isolated, and has no Node integration.
 Browser automation is loopback-only; unregistered external project paths are denied;
 ZIP export always uses the main-owned save chooser. MCP processes cannot auto-start
 without main authorization, and configuration reads redact environment values.
-Provider keys require Electron `safeStorage`, with no plaintext/base64 fallback, and
-legacy local-storage API keys are migrated out. Startup advice is offline, and local
+Provider keys are stored only in a main-process file, never in renderer local storage,
+and legacy local-storage API keys are migrated out. They are encrypted with Electron
+`safeStorage` whenever the OS keychain is available; on keyring-less Linux they fall
+back to a base64 store the UI flags as unencrypted, so an existing key stays usable
+instead of becoming silently unreadable (the v0.25.0 behavior). The store records which
+mode it used, and decryption only invokes `safeStorage` when the store was written
+encrypted. Startup advice is offline, and local
 semantic indexing cannot silently download or start a missing embedding binary.
 
 Package-manifest staging is classified as a managed-workspace write. It does not
@@ -101,6 +113,12 @@ Deny/Allow behavior against a real localhost server, sandbox isolation, loopback
 project-path restrictions, MCP redaction, forged ZIP-path rejection, Stop behavior,
 and a clean application relaunch. The detailed evidence is recorded in
 `ROADMAP-2026.md`.
+
+v0.25.1 hardened this phase after a 6-agent adversarial review: it kept the boundary
+above but removed the regressions it introduced — over-gated dev commands that popped a
+modal on every build, a broken live-streaming path, and a credential store that made an
+existing keyring-less key unreadable — and added the modal safety timeout. A live
+desktop build (local model) then filled files incrementally with no modal and no error.
 
 ## Phase 2 truth
 
