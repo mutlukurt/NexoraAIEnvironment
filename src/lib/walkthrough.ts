@@ -8,6 +8,7 @@
  */
 import type { TaskStep } from '@shared/ipc'
 import type { VerificationOutcome } from './verificationResult'
+import type { VerificationLedger } from './verificationLedger'
 
 export interface WalkthroughInput {
   /** Kullanıcının görünür isteği (walkthrough başlığının bağlamı). */
@@ -18,6 +19,12 @@ export interface WalkthroughInput {
   files: Array<{ path: string; desc?: string; status: TaskStep['status']; detail?: string }>
   /** Üretim sonrası doğrulama (2.3/postGenVerify) sonucu. */
   verify?: { outcome: VerificationOutcome; detail?: string }
+  /**
+   * Faz 2 — Doğrulama Defteri: turun her denetimi + dosya makbuzları. Modelin
+   * yazdığı bir iddia değil; gerçek olaylardan (uygula sonucu, komut çıkış kodu,
+   * tanı) türetilir. Belgeye işlenince "doğrulandı" açılabilir bir kanıt olur.
+   */
+  ledger?: VerificationLedger
   /** Davranış testi (6.5): satırlar, kusurlar, ekran kareleri. */
   behavior?: { rows: string[]; fails: string[]; shots: string[] }
   /** Repro mührü hükümleri (6.6) — logRepair boğaz noktasından akar (7.7). */
@@ -49,6 +56,14 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         verifyDirty: '⚠️ Üretim sonrası denetim hata bıraktı:',
         verifyUnverified: 'ℹ️ Üretim sonrası denetim kanıt üretemedi:',
         verifyPending: 'ℹ️ Derleme denetimi bu belgeye henüz işlenmedi.',
+        ledgerTitle: 'Doğrulama Defteri',
+        ledgerNote: 'Her satır gerçek olaydan türetildi (uygula sonucu · komut çıkışı · tanı) — model yazmadı.',
+        ledgerOutcome: 'Karar',
+        ledgerChanged: 'değişti',
+        ledgerUntouched: 'dokunulmadı',
+        outPassed: 'doğrulandı',
+        outFailed: 'başarısız',
+        outUnverified: 'doğrulanamadı',
         behaviorTitle: 'Davranış testi (motor siteyi gezdi)',
         behaviorNone: 'ℹ️ Davranış testi henüz koşmadı — Çalıştır sonrası otomatik koşar ve bu belge güncellenir.',
         fails: 'Bulunan kusurlar',
@@ -72,6 +87,14 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         verifyDirty: '⚠️ Post-generation check left an error:',
         verifyUnverified: 'ℹ️ Post-generation verification did not produce sufficient evidence:',
         verifyPending: 'ℹ️ The build check has not reached this document yet.',
+        ledgerTitle: 'Verification Ledger',
+        ledgerNote: 'Every row derives from a real event (apply result · command exit · diagnostic) — not written by the model.',
+        ledgerOutcome: 'Outcome',
+        ledgerChanged: 'changed',
+        ledgerUntouched: 'untouched',
+        outPassed: 'passed',
+        outFailed: 'failed',
+        outUnverified: 'unverified',
         behaviorTitle: 'Behavior test (the engine used the site)',
         behaviorNone: 'ℹ️ Behavior test not run yet — it runs automatically after Run and updates this document.',
         fails: 'Defects found',
@@ -116,6 +139,32 @@ export function composeWalkthrough(i: WalkthroughInput): string {
     }
   } else {
     lines.push(L.verifyPending)
+  }
+
+  if (i.ledger && i.ledger.rows.length > 0) {
+    const g = i.ledger
+    const outLabel =
+      g.outcome === 'passed' ? L.outPassed : g.outcome === 'failed' ? L.outFailed : L.outUnverified
+    const mark = (o: VerificationOutcome) => (o === 'passed' ? '✅' : o === 'failed' ? '❌' : 'ℹ️')
+    lines.push('', `## ${L.ledgerTitle}`, '')
+    lines.push(`**${L.ledgerOutcome}: ${mark(g.outcome)} ${outLabel}**`)
+    lines.push('', `_${L.ledgerNote}_`, '')
+    for (const r of g.rows) {
+      const meta: string[] = []
+      if (r.command) meta.push(`\`${r.command}\``)
+      if (typeof r.exitCode === 'number') meta.push(`exit ${r.exitCode}`)
+      lines.push(`- ${mark(r.outcome)} **${r.kind}**${meta.length ? ` — ${meta.join(' · ')}` : ''}`)
+      if (r.diagnostic && r.outcome !== 'passed') {
+        lines.push(`  - ${r.diagnostic.split('\n')[0].slice(0, 120)}`)
+      }
+      for (const e of r.evidence) {
+        const delta =
+          e.beforeHash === e.afterHash
+            ? L.ledgerUntouched
+            : `${L.ledgerChanged} +${e.linesAdded}/−${e.linesRemoved} (\`${e.beforeHash}\`→\`${e.afterHash}\`)`
+        lines.push(`  - \`${e.path}\` — ${delta}`)
+      }
+    }
   }
 
   if (i.repro && i.repro.length > 0) {

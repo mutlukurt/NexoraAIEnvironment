@@ -87,6 +87,32 @@ const wtUnverified = api.composeWalkthrough({
 check('walkthrough: skipped build başarısız değil unverified gösterilir',
   wtUnverified.includes('kanıt üretemedi') && !wtUnverified.includes('hata bıraktı'), wtUnverified)
 
+// Faz 2: Doğrulama Defteri — satırlar + dosya makbuzları belgeye işlenir.
+const wtLedger = api.composeWalkthrough({
+  request: 'x', when: 'T', lang: 'tr',
+  files: [{ path: 'src/App.tsx', status: 'done' }],
+  verify: { outcome: 'passed' },
+  ledger: {
+    turnId: 'op1', outcome: 'passed',
+    rows: [{
+      id: 'post-verify', kind: 'post-verify', outcome: 'passed', at: 1,
+      evidence: [
+        { path: 'src/App.tsx', beforeHash: '00000000', afterHash: 'deadbeef', editsApplied: 1, linesAdded: 42, linesRemoved: 0 },
+        { path: 'src/index.css', beforeHash: 'aaaa1111', afterHash: 'aaaa1111', editsApplied: 0, linesAdded: 0, linesRemoved: 0 }
+      ]
+    }]
+  }
+})
+check('walkthrough: doğrulama defteri başlık + karar + makbuzlar',
+  wtLedger.includes('## Doğrulama Defteri') &&
+  wtLedger.includes('Karar: ✅ doğrulandı') &&
+  wtLedger.includes('+42/') &&
+  wtLedger.includes('`00000000`→`deadbeef`') &&
+  wtLedger.includes('`src/index.css` — dokunulmadı'), wtLedger)
+
+// Defter yokken bölüm hiç çıkmaz (mevcut belgeler bozulmaz).
+check('walkthrough: defter yoksa bölüm eklenmez', !wtPending.includes('Doğrulama Defteri'), wtPending)
+
 const td = api.composeTaskDoc('Planlı üretim — 3 dosya', [
   { label: 'a.css', status: 'done', detail: 'otomatik' },
   { label: 'b.tsx', status: 'failed', detail: 'üretilemedi' },

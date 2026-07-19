@@ -29,6 +29,7 @@ import { directiveAllowed, effectiveTrustTier } from '@shared/configProfiles'
 import { parseStreaming, isEditBlock, applySearchReplace, hasUnclosedCodeFence } from '@/lib/parseCode'
 import { acceptsStreamEvent, settleAssistantMessage } from '@/lib/turnLifecycle'
 import { decideVerification, type VerificationOutcome } from '@/lib/verificationResult'
+import { buildLedger, ledgerRow, editReceipt, type VerificationLedger } from '@/lib/verificationLedger'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
@@ -609,6 +610,8 @@ let autoFixRounds = 0
 /** 7.7: son üretim-sonrası doğrulamanın hükmü (kuyruk görev durumu için). */
 let lastPostVerifyClean: boolean | null = null
 let lastPostVerifyOutcome: VerificationOutcome | null = null
+/** Faz 2: son turun Doğrulama Defteri (kanıt satırları + dosya makbuzları). */
+let lastVerificationLedger: VerificationLedger | null = null
 
 // Üretim-sonrası otomatik doğrulama (roadmap 2.3): her üretimden sonra
 // dokunulan dosyalar ANINDA denetlenir — katman 1 Babel sözdizimi (ms,
@@ -944,6 +947,31 @@ async function postGenVerify(
       // "doğrulandı" sohbet iddiası değil, okunabilir kanıt belgesi olur.
       if (pendingWalkthrough) {
         pendingWalkthrough.verify = { outcome: verificationOutcome, detail: lastDiagnosis || undefined }
+        // Faz 2 — Doğrulama Defteri: turun gerçek olaylarından bir kanıt defteri
+        // kur. Dosya makbuzları tur-öncesi içerik (turnBaseFiles) ile şimdiki
+        // içeriği karşılaştırır; hükmü Judge satırlardan hesaplar (elle yazılmaz).
+        try {
+          const nowFiles = useArtifactsStore.getState().files
+          const receipts = pendingWalkthrough.files.map((f) =>
+            editReceipt(f.path, turnBaseFiles.get(f.path) ?? '', nowFiles[f.path]?.content ?? '')
+          )
+          lastVerificationLedger = buildLedger({
+            turnId: operationId || latestTurnRequestId || nanoid(),
+            rows: [
+              ledgerRow({
+                id: 'post-verify',
+                kind: 'post-verify',
+                outcome: verificationOutcome,
+                diagnostic: lastDiagnosis || undefined,
+                evidence: receipts,
+                at: Date.now()
+              })
+            ]
+          })
+          pendingWalkthrough.ledger = lastVerificationLedger
+        } catch {
+          /* defter üretimi asla akışı bozmaz */
+        }
         void writeWalkthrough(
           get().language === 'tr'
             ? '📄 Walkthrough hazır — Dosyalar & Kod → Belgeler sekmesinden okuyabilirsin. (Çalıştır sonrası davranış kanıtı da eklenir.)'
