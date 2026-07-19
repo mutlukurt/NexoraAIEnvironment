@@ -1,5 +1,9 @@
 # Phase 14 / v0.20 — "Intent Brain" — Full Research & Design Detail
 
+> **Historical document.** This file records plans and implementation claims from an
+> earlier development stage. See [ROADMAP-2026.md](ROADMAP-2026.md) and
+> [docs/CURRENT-TRUTH.md](docs/CURRENT-TRUTH.md); current source and evidence win.
+
 > Redesigned 2026-07-11 from a **10-agent live internet research sweep** (Cursor, Windsurf/Devin, Copilot, Cline/Roo/Aider, Bolt/v0/Lovable/Replit, Antigravity/Kiro/Spec-Kit, the local-runtime ecosystem, and the context-engineering literature) + adversarial synthesis. Every idea here respects the two sacred constraints: **local-first** (nothing leaves the machine by default) and **intent-based** (behaviour comes from the model understanding intent, never keyword regex). This file is the long-form companion to the Phase 14 block in [`ROADMAP.md`](ROADMAP.md).
 
 ## Executive summary

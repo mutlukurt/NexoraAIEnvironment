@@ -7,6 +7,7 @@
  * Store'a/pencereye dokunmaz — `npm run test:walkthrough` doğrudan koşar.
  */
 import type { TaskStep } from '@shared/ipc'
+import type { VerificationOutcome } from './verificationResult'
 
 export interface WalkthroughInput {
   /** Kullanıcının görünür isteği (walkthrough başlığının bağlamı). */
@@ -16,7 +17,7 @@ export interface WalkthroughInput {
   /** Görev kartından: dosya adımları + açıklamaları. */
   files: Array<{ path: string; desc?: string; status: TaskStep['status']; detail?: string }>
   /** Üretim sonrası doğrulama (2.3/postGenVerify) sonucu. */
-  verify?: { clean: boolean; detail?: string }
+  verify?: { outcome: VerificationOutcome; detail?: string }
   /** Davranış testi (6.5): satırlar, kusurlar, ekran kareleri. */
   behavior?: { rows: string[]; fails: string[]; shots: string[] }
   /** Repro mührü hükümleri (6.6) — logRepair boğaz noktasından akar (7.7). */
@@ -46,6 +47,7 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         evidence: 'Doğrulama Kanıtı',
         verifyClean: '✅ Üretim sonrası denetim: sözdizimi + derleme temiz.',
         verifyDirty: '⚠️ Üretim sonrası denetim hata bıraktı:',
+        verifyUnverified: 'ℹ️ Üretim sonrası denetim kanıt üretemedi:',
         verifyPending: 'ℹ️ Derleme denetimi bu belgeye henüz işlenmedi.',
         behaviorTitle: 'Davranış testi (motor siteyi gezdi)',
         behaviorNone: 'ℹ️ Davranış testi henüz koşmadı — Çalıştır sonrası otomatik koşar ve bu belge güncellenir.',
@@ -68,6 +70,7 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         evidence: 'Verification Evidence',
         verifyClean: '✅ Post-generation check: syntax + build clean.',
         verifyDirty: '⚠️ Post-generation check left an error:',
+        verifyUnverified: 'ℹ️ Post-generation verification did not produce sufficient evidence:',
         verifyPending: 'ℹ️ The build check has not reached this document yet.',
         behaviorTitle: 'Behavior test (the engine used the site)',
         behaviorNone: 'ℹ️ Behavior test not run yet — it runs automatically after Run and updates this document.',
@@ -104,9 +107,12 @@ export function composeWalkthrough(i: WalkthroughInput): string {
 
   lines.push('', `## ${L.evidence}`, '')
   if (i.verify) {
-    if (i.verify.clean) lines.push(L.verifyClean)
-    else {
+    if (i.verify.outcome === 'passed') lines.push(L.verifyClean)
+    else if (i.verify.outcome === 'failed') {
       lines.push(L.verifyDirty, '', '```', (i.verify.detail ?? '').split('\n').slice(0, 8).join('\n'), '```')
+    } else {
+      lines.push(L.verifyUnverified)
+      if (i.verify.detail) lines.push('', i.verify.detail)
     }
   } else {
     lines.push(L.verifyPending)

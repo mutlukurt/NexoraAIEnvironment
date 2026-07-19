@@ -144,6 +144,13 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (!raw) return DEFAULT_SETTINGS
     const parsed = JSON.parse(raw)
+    // v0.24.1 migration: legacy direct-API keys were stored in renderer
+    // localStorage. Remove that plaintext immediately; Provider Hub uses the
+    // main-process OS keychain boundary instead.
+    if (typeof parsed.apiKey === 'string' && parsed.apiKey) {
+      delete parsed.apiKey
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(parsed))
+    }
     return {
       customSystemPrompt: parsed.customSystemPrompt ?? '',
       enableGpu: parsed.enableGpu ?? false,
@@ -161,7 +168,7 @@ function loadSettings(): Settings {
           )
         : [],
       apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
-      apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
+      apiKey: '',
       apiModel: typeof parsed.apiModel === 'string' ? parsed.apiModel : '',
       apiMode: ['off', 'fix', 'all'].includes(parsed.apiMode) ? parsed.apiMode : 'off',
       apiAsk: parsed.apiAsk === true,
@@ -303,7 +310,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           visionModelPath: get().visionModelPath,
           // Boş satırlar (etiket ve prompt ikisi de boş) kaydedilmez.
           apiBaseUrl: get().apiBaseUrl,
-          apiKey: get().apiKey,
           apiModel: get().apiModel,
           apiMode: get().apiMode,
           apiAsk: get().apiAsk,

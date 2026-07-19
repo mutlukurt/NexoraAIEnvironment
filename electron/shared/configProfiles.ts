@@ -16,7 +16,8 @@ export interface ConfigProfile {
   description: string
   /** true → önyükleme (silinemez; düzenlenirse kopya olur). */
   builtin: boolean
-  /** Güven seviyesi — profil aktifken global tier'ı EZER (read=salt-okur/koşmaz). */
+  /** Capability ceiling. A profile may restrict, but never silently elevate,
+   * the trust tier selected in global settings. */
   trustTier: TrustTier
   /** Engellenen direktif türleri (BÜYÜK harf: RUN/FETCH/MCP/BUILD/PKG/FONT/DEV/IMG/EDIT/ASSET). */
   blockedDirectives: string[]
@@ -89,9 +90,11 @@ export function directiveAllowed(profile: ConfigProfile | null, kind: string): b
   return !profile.blockedDirectives.includes(kind.toUpperCase())
 }
 
-/** Profil aktifse trust tier'ı o belirler; değilse global tier. */
+/** Effective trust is the more restrictive of global and profile settings. */
 export function effectiveTrustTier(profile: ConfigProfile | null, globalTier: TrustTier): TrustTier {
-  return profile ? profile.trustTier : globalTier
+  if (!profile) return globalTier
+  const rank: Record<TrustTier, number> = { read: 0, auto: 1, full: 2 }
+  return rank[profile.trustTier] < rank[globalTier] ? profile.trustTier : globalTier
 }
 
 /** Bir MCP sunucusu bu profilde etkin mi (boş enabledMcps = hepsi). */

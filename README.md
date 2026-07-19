@@ -113,10 +113,11 @@ After installing, open the in-app **Model Browser** to download a GGUF model (or
 Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
 
 <details open>
-<summary><b>📜 Full release history — v0.6.4 → v0.24.1 (42 releases)</b></summary>
+<summary><b>📜 Full release history — v0.6.4 → v0.25.0 (43 releases)</b></summary>
 
 | Version | Date | What it brought |
 | --- | --- | --- |
+| [v0.25.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.0) | 2026-07-19 | **Truth & Safety** — request-scoped turns, stale-event isolation, transactional artifact writes with exact rollback, tri-state verification foundations, a complete 108-method renderer→main IPC capability inventory, main-owned exact-effect confirmation, renderer sandboxing, secure credential storage, MCP lifecycle authority, and mandatory CI + visible desktop acceptance |
 | [v0.24.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.24.1) | 2026-07-15 | **Full localization of the v0.24 features into all 10 languages** — fit pill, privacy indicator, storage/rename/zip UI + the MCP / Serve / Scheduled-Tasks Settings panels + the shield/dry-run reasons now render in every supported language |
 | [v0.24.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.24.0) | 2026-07-15 | **Trust, Local-Runner Polish & Everyday Delight** (new roadmap Phases 21/25/26) — slopsquatting shield + destructive-action dry-run (21), model storage dashboard + fit pill (25), richer templates + privacy indicator + project `.zip` export + session/project rename (26) |
 | [v0.23.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.23.1) | 2026-07-14 | Whisper dictation **auto-installs** on Linux & Windows (whisper.cpp v1.9.1 binary on demand) |
@@ -161,6 +162,29 @@ Every version, newest first. Deep-dive scorecards for the recent milestones foll
 | [v0.6.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.4) | 2026-07-03 | Early build |
 
 </details>
+
+---
+
+## Truth & Safety — the v0.25 Scorecard (2026 Roadmap, Phase 1)
+
+v0.25 establishes the boundary that every later verification and automation feature
+depends on. Turns are request-scoped, delayed events cannot mutate a newer turn,
+file-producing work is staged and rolled back byte-for-byte on failure or abort, and
+verification distinguishes `passed`, `failed`, and `unverified` instead of treating a
+skipped check as green.
+
+The Electron boundary is now explicit and test-enforced: all 108 renderer-to-main
+invoke methods belong to one authoritative capability inventory. Privileged effects
+show a main-owned confirmation with the exact capability, project, effect, and policy;
+renderer trust claims cannot approve themselves. The renderer is sandboxed, provider
+secrets require OS-backed secure storage, MCP processes cannot silently auto-start,
+external automation is loopback-only, and exports cannot forge an arbitrary save path.
+
+The release passed typecheck, the complete engine and capability suites, the production
+build, production dependency audit, and a visible Electron acceptance run. See the
+[2026 roadmap](ROADMAP-2026.md) and
+[current implementation truth](docs/CURRENT-TRUTH.md) for the exact evidence and known
+limits.
 
 ---
 
@@ -1142,7 +1166,7 @@ NexoraAIEnvironment/
 
 | Layer | Technology |
 |---|---|
-| Shell | Electron 43, electron-vite, electron-builder (`.deb`) |
+| Shell | Electron 43, electron-vite, electron-builder (Windows `.exe`, Linux `.deb`/Snap, macOS `.dmg`) |
 | UI | React 18, TypeScript, Tailwind CSS (CSS-variable theme tokens, dark/light), Zustand, CodeMirror 6, lucide icons, embedded Inter font |
 | Inference | llama.cpp `llama-server` (OpenAI-compatible sidecar: prompt cache/`--cache-reuse`, flash attention + Q8_0 KV, `-ngl auto` GPU fit, per-request CJK logit_bias, context compaction with model-written summary); node-llama-cpp 3 worker on the bundled Node 22 runtime as automatic fallback |
 | Vision | llama.cpp `llama-server` + libmtmd sidecar, Qwen2.5-VL (auto-downloaded GGUF + mmproj, RAM-aware auto-upgrade) |
@@ -1151,9 +1175,25 @@ NexoraAIEnvironment/
 
 ## Roadmap
 
+The authoritative plan is [ROADMAP-2026.md](ROADMAP-2026.md), backed by the
+[Current Implementation Truth](docs/CURRENT-TRUTH.md). **Phase 1 — Truth and Safety is
+complete; Phase 2 — Verification OS is active.** Every phase must pass automated gates
+and a visible desktop acceptance test before the roadmap advances.
+
+| 2026 phase | Status | Outcome |
+| --- | --- | --- |
+| 1. Truth and Safety | ✅ Complete | Isolated turns, transactional writes, exact rollback, authoritative capabilities |
+| 2. Verification OS | 🚧 Active | Evidence ledger, truthful results, Proof-of-Edit receipts |
+| 3. Local Engine Autopilot | Planned | Hardware-aware scheduling and lifecycle management |
+| 4. Reliable App Factory | Planned | One canonical build/preview/verify pipeline |
+| 5–8 | Planned | Product UX, extensibility, release engineering, benchmark moat |
+
+The long phase narratives below are historical development records from earlier
+roadmaps; they remain useful context but are not the current source of truth.
+
 Recently shipped (see the [Development Chronicle](#development-chronicle) for the full stories): hardware advisor · plan-first mode · prompt enhancement · smart context + `@` autocomplete · diff approval · permission system · persistent sessions · undo/redo timeline · project rules · custom commands · Prettier & asset repair post-passes · context compaction · dark/light theme system.
 
-The full phased plan lives in **[ROADMAP.md](ROADMAP.md)**. Status in one breath:
+The archived phased plan lives in **[ROADMAP.md](ROADMAP.md)**. Its historical status:
 
 1. **Engine** — ✅ complete: flash attention + Q8_0 KV cache, partial GPU offload with a layer ladder + slider, per-phase sampler presets, compaction summaries, and inference migrated to `llama-server` (prompt caching, worker fallback).
 2. **Making small models masters** — ✅ complete: grammar-enforced edit blocks, plan → file-by-file generation, silent auto-verify after every generation, the section template bank, model-family prompt profiles.

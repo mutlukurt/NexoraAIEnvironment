@@ -10,7 +10,9 @@ import type {
   SessionData,
   SessionFileEntry,
   TaskStep,
-  TurnInspection
+  TurnInspection,
+  PermissionItemKind,
+  AgentAuthorization
 } from '@shared/ipc'
 import type { ImageAspect } from '@shared/imageModels'
 import { makeTaskCard, patchTaskStep, finishTaskCard, deactivateTaskCards } from '@/lib/taskList'
@@ -24,7 +26,9 @@ import { applyLangDir, ALL_LANGS, type Lang } from '@/lib/i18n'
 import { useSettingsStore } from './settingsStore'
 import { useProfilesStore } from './profilesStore'
 import { directiveAllowed, effectiveTrustTier } from '@shared/configProfiles'
-import { parseStreaming, isEditBlock, applySearchReplace } from '@/lib/parseCode'
+import { parseStreaming, isEditBlock, applySearchReplace, hasUnclosedCodeFence } from '@/lib/parseCode'
+import { acceptsStreamEvent, settleAssistantMessage } from '@/lib/turnLifecycle'
+import { decideVerification, type VerificationOutcome } from '@/lib/verificationResult'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
@@ -220,9 +224,9 @@ interface AppState {
   cancelDeleteSession: () => void
   confirmDeleteSession: () => Promise<void>
 
-  /** Riskli agent eylemleri ([RUN]/[FETCH]/[MCP]) için bekleyen izin istemi. */
+  /** Riskli agent capability eylemleri için bekleyen izin istemi. */
   permissionRequest: {
-    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string; impact?: string }>
+    items: Array<{ kind: PermissionItemKind; text: string; reason?: string; impact?: string }>
     resolve: (d: 'once' | 'always' | 'deny') => void
   } | null
   /** 15.1: reboot-dayanıklı bekleyen izinler — diske serileşir (SessionData), çökmede kaybolmaz. */
@@ -423,6 +427,7 @@ async function processQueue(): Promise<void> {
       useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, 'running', Date.now()) }))
       scheduleSessionSave()
       lastPostVerifyClean = null
+      lastPostVerifyOutcome = null
       // Görev tabanı mührü: zaman çizelgesinin şu anki ucu — "bu görev neyi
       // değiştirdi?" incelemesi bu hash'e karşı açılır (git yoksa boş kalır).
       try {
@@ -492,7 +497,9 @@ async function processQueue(): Promise<void> {
         ? 'failed'
         : after.lastBuildError || goalMiss.length > 0
           ? 'needs-review'
-          : 'verified'
+          : lastPostVerifyOutcome === 'passed'
+            ? 'verified'
+            : 'needs-review'
       const summary = after.error
         ? after.error.slice(0, 120)
         : after.lastBuildError
@@ -503,7 +510,7 @@ async function processQueue(): Promise<void> {
               : `request not met: ${goalMiss.slice(0, 3).join(', ')}`
             : lastPostVerifyClean === true
               ? isTr ? 'üretildi · doğrulama temiz' : 'built · verification clean'
-              : isTr ? 'yanıt hazır' : 'answer ready'
+              : isTr ? 'yanıt hazır · doğrulama çalıştırılmadı' : 'answer ready · verification unavailable'
       useAppStore.setState((s) => ({ queuedTasks: transition(s.queuedTasks, next.id, verdict, Date.now(), summary) }))
       logRepair({
         layer: verdict === 'verified' ? 'task-verified' : goalMiss.length > 0 ? 'task-goal-miss' : 'task-review',
@@ -595,6 +602,7 @@ async function writeWalkthrough(notice?: string): Promise<void> {
 let autoFixRounds = 0
 /** 7.7: son üretim-sonrası doğrulamanın hükmü (kuyruk görev durumu için). */
 let lastPostVerifyClean: boolean | null = null
+let lastPostVerifyOutcome: VerificationOutcome | null = null
 
 // Üretim-sonrası otomatik doğrulama (roadmap 2.3): her üretimden sonra
 // dokunulan dosyalar ANINDA denetlenir — katman 1 Babel sözdizimi (ms,
@@ -764,19 +772,22 @@ let lastFixTurnApplied = -1
 
 async function postGenVerify(
   get: () => AppState,
-  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
+  set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void,
+  operationId: string | null = latestTurnRequestId
 ): Promise<void> {
   if (postVerifyActive) return
+  if (operationId && latestTurnRequestId !== operationId) return
   postVerifyActive = true
   // 8.1: bu doğrulama-onarım zinciri hangi tura ait? Kullanıcı Durdur'u epoku
   // artırınca (ya da duraklatınca) zincir daha fazla gizli onarım turu AÇMAZ.
   const pvEpoch = stopEpoch
   let regenerated = false
   let verifiedClean = false
+  let verificationOutcome: VerificationOutcome = 'unverified'
   let lastDiagnosis = ''
   try {
     for (let round = 0; round < 4; round++) {
-      if (pvEpoch !== stopEpoch || queuePaused) return
+      if (pvEpoch !== stopEpoch || queuePaused || (operationId && latestTurnRequestId !== operationId)) return
       const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
         path: f.path,
         content: f.content
@@ -786,7 +797,10 @@ async function postGenVerify(
       // Katman 1: anlık sözdizimi denetimi (hataların ezici çoğunluğu burada)
       const { syntaxCheckFiles } = await import('@/lib/verifyCode')
       const issues = await syntaxCheckFiles(all)
+      if (operationId && latestTurnRequestId !== operationId) return
       let diagnosis = ''
+      let buildCheck: { ok: boolean; skipped?: boolean; error?: string } | null = null
+      let buildCheckUnavailable = false
       if (issues.length > 0) {
         diagnosis =
           'SYNTAX ERROR(S) — caught by the post-generation check, the project will not compile:\n\n' +
@@ -795,20 +809,28 @@ async function postGenVerify(
         // Katman 2: tam derleme — yalnızca proje daha önce kurulduysa
         try {
           const { getProjectName } = await import('@/lib/agentActions')
-          const check = await window.nexora.agent.buildCheck({
+          buildCheck = await window.nexora.agent.buildCheck({
             projectName: getProjectName(),
             files: all,
             onlyIfInstalled: true
           })
-          if (!check.ok && check.error) diagnosis = check.error
+          if (operationId && latestTurnRequestId !== operationId) return
         } catch {
-          /* denetim koşamadıysa sessizce geç — Çalıştır'daki denetim her zaman var */
+          buildCheckUnavailable = true
         }
+      }
+      const decision = decideVerification(diagnosis || null, buildCheck, buildCheckUnavailable)
+      verificationOutcome = decision.outcome
+      diagnosis = decision.outcome === 'failed' ? decision.diagnosis ?? diagnosis : ''
+      if (decision.outcome === 'unverified') {
+        lastDiagnosis = decision.diagnosis ?? 'Build verification was unavailable.'
+        return
       }
       if (diagnosis) lastDiagnosis = diagnosis
 
       if (!diagnosis) {
         verifiedClean = true
+        verificationOutcome = 'passed'
         if (round > 0) {
           set((s) => ({
             messages: [
@@ -909,39 +931,42 @@ async function postGenVerify(
     }
   } finally {
     postVerifyActive = false
-    lastPostVerifyClean = verifiedClean // 7.7: kuyruk görev hükmü buradan okur
-    // 7.2: bekleyen walkthrough varsa doğrulama sonucu belgeye işlenir —
-    // "doğrulandı" sohbet iddiası değil, okunabilir kanıt belgesi olur.
-    if (pendingWalkthrough) {
-      pendingWalkthrough.verify = { clean: verifiedClean, detail: lastDiagnosis || undefined }
-      void writeWalkthrough(
-        get().language === 'tr'
-          ? '📄 Walkthrough hazır — Dosyalar & Kod → Belgeler sekmesinden okuyabilirsin. (Çalıştır sonrası davranış kanıtı da eklenir.)'
-          : '📄 Walkthrough ready — read it under Files & Code → Docs. (Behavior evidence is added after Run.)'
-      )
-    }
-    // Git zaman çizelgesi (roadmap 3.4): bu üretim turunun SON hâli (otomatik
-    // düzeltmeler dahil) bir commit olur. Ateşle-unut: git yoksa ya da proje
-    // bağlı klasörse main süreç sessizce atlar; sohbet akışını asla bekletmez.
-    void (async () => {
-      try {
-        const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
-          path: f.path,
-          content: f.content
-        }))
-        if (all.length === 0) return
-        const { getProjectName } = await import('@/lib/agentActions')
-        await window.nexora.history.commit({
-          projectName: getProjectName(),
-          files: all,
-          // Doğrulamadan geçen sürüm YEŞİL etiketlenir (Kat 3'ün dönüş noktası).
-          green: verifiedClean,
-          message: (verifiedClean ? '✅ ' : '') + (lastVisibleUserPrompt || 'üretim').split('\n')[0]
-        })
-      } catch {
-        /* zaman çizelgesi en-iyi-çaba: hata sohbeti etkilemez */
+    if (!operationId || latestTurnRequestId === operationId) {
+      lastPostVerifyClean = verifiedClean // 7.7: kuyruk görev hükmü buradan okur
+      lastPostVerifyOutcome = verificationOutcome
+      // 7.2: bekleyen walkthrough varsa doğrulama sonucu belgeye işlenir —
+      // "doğrulandı" sohbet iddiası değil, okunabilir kanıt belgesi olur.
+      if (pendingWalkthrough) {
+        pendingWalkthrough.verify = { outcome: verificationOutcome, detail: lastDiagnosis || undefined }
+        void writeWalkthrough(
+          get().language === 'tr'
+            ? '📄 Walkthrough hazır — Dosyalar & Kod → Belgeler sekmesinden okuyabilirsin. (Çalıştır sonrası davranış kanıtı da eklenir.)'
+            : '📄 Walkthrough ready — read it under Files & Code → Docs. (Behavior evidence is added after Run.)'
+        )
       }
-    })()
+      // Git zaman çizelgesi (roadmap 3.4): bu üretim turunun SON hâli (otomatik
+      // düzeltmeler dahil) bir commit olur. Ateşle-unut: git yoksa ya da proje
+      // bağlı klasörse main süreç sessizce atlar; sohbet akışını asla bekletmez.
+      void (async () => {
+        try {
+          const all = Object.values(useArtifactsStore.getState().files).map((f) => ({
+            path: f.path,
+            content: f.content
+          }))
+          if (all.length === 0) return
+          const { getProjectName } = await import('@/lib/agentActions')
+          await window.nexora.history.commit({
+            projectName: getProjectName(),
+            files: all,
+            // Doğrulamadan geçen sürüm YEŞİL etiketlenir (Kat 3'ün dönüş noktası).
+            green: verifiedClean,
+            message: (verifiedClean ? '✅ ' : '') + (lastVisibleUserPrompt || 'üretim').split('\n')[0]
+          })
+        } catch {
+          /* zaman çizelgesi en-iyi-çaba: hata sohbeti etkilemez */
+        }
+      })()
+    }
   }
 }
 
@@ -1416,20 +1441,29 @@ let realityRetries = 0
 let violationStop = false
 let updateTurn = false
 let preTurnPaths: Set<string> = new Set()
-/**
- * 6.4 tur transaction'ı: UPDATE turu başlarken var olan dosyaların içerik
- * anlık görüntüsü. Canlı-uygulama UX'i aynen kalır (dosyalar editöre akar);
- * tur YARIDA KESİLİRSE mevcut dosyalardaki değişiklikler ATOMİK geri alınır
- * (254-div spirali dersi: kesilen tur store'a çöp bırakabiliyordu). Yeni
- * oluşturulan dosyalar bilerek korunur — planlı üretimde Durdur+devam etme
- * iş akışı (11/12 dosya senaryosu) yaşamaya devam eder.
- */
-let turnSnapshot: Map<string, string> | null = null
+/** True while the artifact store owns a complete pre-generation snapshot.
+ * Abort/reject restores that exact file set, including deleted and newly
+ * created paths, so a failed turn cannot leave partial project mutations. */
+let turnSnapshot = false
+
+function rollbackTurnTransaction(): boolean {
+  if (!turnSnapshot) return false
+  const before = JSON.stringify(useArtifactsStore.getState().files)
+  useArtifactsStore.getState().rollbackTransaction()
+  turnSnapshot = false
+  return before !== JSON.stringify(useArtifactsStore.getState().files)
+}
+
+function commitTurnTransaction(): void {
+  if (!turnSnapshot) return
+  useArtifactsStore.getState().commitTransaction()
+  turnSnapshot = false
+}
 
 /**
  * 10.11.1 — diff istatistiği için tur BAŞINDAKİ tüm dosya içerikleri (path→content).
- * turnSnapshot yalnız UPDATE turlarında dolduğundan (rollback), taze build'lerde de
- * doğru +/- vermek için ayrı ve HER turda dolan bir taban tutulur (yeni dosya = hepsi +).
+ * The artifact snapshot is reserved for rollback; this separate immutable map
+ * is retained for accurate +/- statistics (new file = all additions).
  */
 let turnBaseFiles: Map<string, string> = new Map()
 
@@ -1468,6 +1502,11 @@ let queueTurnActive = false
  */
 let stopEpoch = 0
 let currentTurnEpoch = 0
+/** Request identity echoed by main on every stream event. */
+let activeRequestId: string | null = null
+/** Most recently started turn. Detached post-processing from older turns must
+ * never write into a newer turn's project state. */
+let latestTurnRequestId: string | null = null
 /**
  * Kullanıcı Durdur'undan sonra kuyruk/otomatik ilerleme DURUR; yeni bir kullanıcı
  * eylemi (mesaj gönderme / görev ekleme) olana dek gizli hiçbir tur açılmaz.
@@ -1596,10 +1635,12 @@ function armLiveness(turnEpoch: number): void {
 /** 0-bayt sessizlik hükmü: turu geçersiz kıl, sunucuyu iptal et, kilidi aç. */
 function declareStreamDead(turnEpoch: number, silentSec: number): void {
   if (turnEpoch !== stopEpoch) return
+  const requestId = activeRequestId
+  activeRequestId = null
   stopEpoch++ // bu turu ve tüm gizli üreteçlerini geçersiz kıl
   queuePaused = true // kuyruk kalp atışı bunu görüp ilerletmez
   clearLiveness()
-  void window.nexora.chat.abort() // gerçek sunucu-iptali main sürecinde
+  void window.nexora.chat.abort(requestId ?? undefined) // gerçek sunucu-iptali main sürecinde
   cancelScheduledApply()
   stopSmooth() // 20.4 — eased tamponu iptal et (kuyruk kaybını önle)
   const lang = useAppStore.getState().language
@@ -1621,6 +1662,7 @@ function declareStreamDead(turnEpoch: number, silentSec: number): void {
     ]
   }))
   useArtifactsStore.getState().finishStreaming()
+  rollbackTurnTransaction()
   logRepair({ layer: 'stream-dead', notes: [`${silentSec}s sessiz`] })
 }
 
@@ -1890,24 +1932,54 @@ interface ApplyOutcome {
   edits: Array<{ path: string; applied: number; failed: number; failures: string[] }>
   /** Final geçişte tam olarak yazılan dosyalar (formatlama için). */
   written: string[]
+  deleted: string[]
+  /** The response was not safe to commit (for example, an unclosed fence). */
+  rejected?: string
 }
 
 function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
   const edits: ApplyOutcome['edits'] = []
   const written: string[] = []
-  if (!content) return { fileCount: 0, edits, written }
-  const { files } = parseStreaming(content, { final })
+  const deleted: string[] = []
+  if (!content) return { fileCount: 0, edits, written, deleted }
+  const parsed = parseStreaming(content, { final })
+  const { files } = parsed
   const store = useArtifactsStore.getState()
-  let writing: string | null = null
-  // Deliberately no auto-switch to the code tab: the user follows generation
-  // progress from the chat (per-file ✓/spinner card) and switches manually.
+  // Streaming output is a preview only. Project state is mutated once, on the
+  // validated final pass, so aborts cannot leave half-written files behind.
+  if (!final) {
+    const writing = [...files].reverse().find((file) => !file.complete)?.path ?? null
+    store.setWritingPath(writing)
+    return { fileCount: files.length, edits, written, deleted }
+  }
+  if (hasUnclosedCodeFence(content)) {
+    store.setWritingPath(null)
+    return {
+      fileCount: 0,
+      edits,
+      written,
+      deleted,
+      rejected: 'The model response ended inside an unclosed code fence; no files were changed.'
+    }
+  }
 
-  // Process file deletion requests from the LLM output (Format: [DELETE] path/to/file)
-  const deleteMatches = [...content.matchAll(/\[DELETE\]\s+([^\s\n]+)/gi)]
-  for (const m of deleteMatches) {
-    const path = m[1].trim()
-    if (store.files[path]) {
-      store.deleteFile(path)
+  const staged = new Map<string, { content: string; language: FileLanguage }>()
+  const deletions = new Set<string>()
+  const currentFile = (path: string): { content: string; language: FileLanguage } | null => {
+    if (deletions.has(path)) return null
+    const pending = staged.get(path)
+    if (pending) return pending
+    const existing = store.files[path]
+    return existing ? { content: existing.content, language: existing.language } : null
+  }
+
+  // Delete directives are accepted only from prose outside code blocks. An
+  // example shown inside a fenced block can therefore never delete a real file.
+  for (const match of parsed.text.matchAll(/\[DELETE\]\s+([^\s\n]+)/gi)) {
+    const path = match[1].trim()
+    if (currentFile(path)) {
+      staged.delete(path)
+      deletions.add(path)
     }
   }
 
@@ -1926,28 +1998,18 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
     // YOK — hiçbir modele yaramıyordu (zayıf zaten iterasyon yapamıyor, güçlü
     // kendi yapar). Tek koruma yarım-akışa karşı: blok TAMAMLANMADAN finalize etme
     // (canlı akış editöre yansır; tur transaction + üretim-sonrası doğrulama arkada).
-    if (updateTurn && preTurnPaths.has(f.path) && !isEditBlock(f.lang, f.code)) {
-      const completeNow = f.complete || final
-      if (!completeNow) {
-        writing = f.path
-        continue
-      }
-    }
-    // On the final pass the stream is over — every block counts as complete.
-    const complete = f.complete || final
+    const complete = f.complete
 
     // Cerrahi düzenleme bloğu (SEARCH/REPLACE): dosyayı baştan yazmak yerine
     // yalnızca eşleşen bölümü değiştirir. Blok tamamlanmadan uygulanmaz.
     if (isEditBlock(f.lang, f.code)) {
-      if (!complete) {
-        writing = f.path
-        continue
-      }
-      const target = useArtifactsStore.getState().files[f.path]
+      if (!complete) continue
+      const target = currentFile(f.path)
       if (!target) continue
       const res = applySearchReplace(target.content, f.code)
       if (res.applied > 0 && res.content !== target.content) {
-        store.upsertFile(f.path, res.content, target.language)
+        deletions.delete(f.path)
+        staged.set(f.path, { content: res.content, language: target.language })
       }
       if (res.failed > 0) {
         console.warn(`[NexoraAI] ${f.path}: ${res.failed} düzenleme bloğu eşleşmedi`)
@@ -1956,7 +2018,7 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
       continue
     }
     const language: FileLanguage = langToLanguage(f.lang) ?? detectLanguage(f.path)
-    if (!complete && !f.code.trim()) continue
+    if (!complete || !f.code.trim()) continue
     let fileContent = f.code
     if (complete) {
       fileContent = fixNextJsCode({
@@ -1972,17 +2034,19 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
         fileContent = fixTurkishApostrophes(fileContent)
       }
     }
-    const existing = useArtifactsStore.getState().files[f.path]
+    const existing = currentFile(f.path)
     if (!existing || existing.content !== fileContent) {
-      // While generating: follow the file live. On the final pass: no jumping.
-      store.streamUpdateFile(f.path, fileContent, language, !final)
+      deletions.delete(f.path)
+      staged.set(f.path, { content: fileContent, language })
     }
-    if (complete) written.push(f.path)
-    if (!complete) writing = f.path
+    written.push(f.path)
   }
 
-  useArtifactsStore.getState().setWritingPath(final ? null : writing)
-  return { fileCount: files.length, edits, written }
+  const upserts = [...staged].map(([path, value]) => ({ path, ...value }))
+  deleted.push(...deletions)
+  store.applyTransaction({ upserts, deletes: deleted })
+  store.setWritingPath(null)
+  return { fileCount: upserts.length + deleted.length, edits, written, deleted }
 }
 
 function scheduleStreamingApply(): void {
@@ -2013,7 +2077,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
   if (streamUnsub) return
   if (!window.nexora?.chat?.onStream) return
   streamUnsub = window.nexora.chat.onStream((event: ChatStreamEvent) => {
+    if (!acceptsStreamEvent(activeRequestId, event.requestId)) return
     if ('done' in event && event.done) {
+      activeRequestId = null
       const full = event.full
       currentStreamingContent = full
       cancelScheduledApply()
@@ -2103,12 +2169,35 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       // 10.11.1: diff rozetlerini iliştireceğimiz asistan mesajının id'si (finalize
       // set()'i streaming bayrağını temizlemeden ÖNCE yakala).
       const streamMsgId = get().messages.find((m) => m.streaming)?.id
-      let outcome: ApplyOutcome = { fileCount: 0, edits: [], written: [] }
+      const completedRequestId = event.requestId
+      let outcome: ApplyOutcome = { fileCount: 0, edits: [], written: [], deleted: [] }
       // Planlı üretimde her dosya turu otomatik uygulanır: onay planın
       // kendisiyle verildi, dosya başına ayrıca sorulmaz (undo hep açık).
       if ((get().autoApply || plannedBuildActive || queueTurnActive) && full) {
         outcome = applyStreamingContent(full, true)
       }
+      if (outcome.rejected) {
+        rollbackTurnTransaction()
+        set((s) => ({
+          sending: false,
+          generating: false,
+          lastBuildError: outcome.rejected!,
+          messages: [
+            ...s.messages.map((m) =>
+              m.streaming ? { ...m, content: full, streaming: false } : m
+            ),
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: `⚠️ ${outcome.rejected}`
+            }
+          ]
+        }))
+        useArtifactsStore.getState().setWritingPath(null)
+        scheduleSessionSave()
+        return
+      }
+      commitTurnTransaction()
       const count = outcome.fileCount
       set((s) => ({
         sending: false,
@@ -2125,7 +2214,11 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
       }
 
       const touchedPaths = [
-        ...new Set([...outcome.written, ...outcome.edits.filter((e) => e.applied > 0).map((e) => e.path)])
+        ...new Set([
+          ...outcome.written,
+          ...outcome.deleted,
+          ...outcome.edits.filter((e) => e.applied > 0).map((e) => e.path)
+        ])
       ]
 
       // 10.11.1: dokunulan dosyaların +eklenen/−silinen satır dökümü (OpenCode gibi).
@@ -2316,12 +2409,22 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         const fixTurnVerify = pendingBuildVerify
         void (async () => {
           const { formatFileContent } = await import('@/lib/formatCode')
+          if (latestTurnRequestId !== completedRequestId) return
           for (const p of touchedPaths) {
             const f = useArtifactsStore.getState().files[p]
             if (!f) continue
-            const formatted = await formatFileContent(p, f.content)
-            if (formatted) useArtifactsStore.getState().updateFile(p, formatted)
+            const sourceContent = f.content
+            const formatted = await formatFileContent(p, sourceContent)
+            const current = useArtifactsStore.getState().files[p]
+            if (
+              formatted &&
+              latestTurnRequestId === completedRequestId &&
+              current?.content === sourceContent
+            ) {
+              useArtifactsStore.getState().updateFile(p, formatted)
+            }
           }
+          if (latestTurnRequestId !== completedRequestId) return
           scheduleSessionSave()
           // Üretim-sonrası otomatik doğrulama (roadmap 2.3): Prettier bittikten
           // SONRA — düzeltme turu, formatlanmış içerikle yarışmasın. Planlı
@@ -2337,7 +2440,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               lang: get().language === 'tr' ? 'tr' : 'en',
               files: touchedPaths.map((p) => ({ path: p, status: 'done' as const }))
             }
-            void postGenVerify(get, set)
+            void postGenVerify(get, set, completedRequestId)
           }
         })()
       }
@@ -2420,15 +2523,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
           // ATOMİK geri alınır (6.4 tur transaction'ının aynısı); yeni dosyalar korunur.
           let reverted = 0
           if (turnSnapshot) {
-            const filesNow = useArtifactsStore.getState().files
-            for (const [path, original] of turnSnapshot) {
-              const cur = filesNow[path]?.content
-              if (cur !== undefined && cur !== original) {
-                useArtifactsStore.getState().upsertFile(path, original)
-                reverted++
-              }
-            }
-            turnSnapshot = null
+            reverted = rollbackTurnTransaction() ? 1 : 0
           }
           useArtifactsStore.getState().finishStreaming()
           if (reverted > 0) logRepair({ layer: 'violation-rollback', notes: [`${reverted} dosya geri alındı`] })
@@ -2602,6 +2697,7 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
         }
         if (hasDirectives(directives)) {
           void (async () => {
+            if (latestTurnRequestId !== completedRequestId) return
             // 14.2 — RETRIEVAL [SEARCH]/[SYMBOL]: model gerçek arama istedi. Koştur,
             // sonucu geri besle ve turu YENİDEN sür (bounded: retrieval turu bir
             // daha retrieval tetiklerse durur). Diğer direktifler bu partial turda
@@ -2774,11 +2870,26 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             const tier = effectiveTrustTier(activeProfile, trust.trustTier)
             const lists = { allowList: trust.trustAllowList, denyList: trust.trustDenyList }
             let effective = directives
+            const projectAlways = tier === 'read' ? false : isAgentAllowed()
+            let authorization: AgentAuthorization = {
+              tier,
+              approved: false,
+              projectAlways,
+              ...lists,
+              lang: get().language,
+              operationId: nanoid()
+            }
 
             if (tier === 'read') {
-              const proposed = directives.runs.length + directives.fetches.length + directives.mcp.length + (directives.dev ? 1 : 0)
+              const proposed =
+                directives.runs.length +
+                directives.pkgs.length +
+                directives.fonts.length +
+                directives.fetches.length +
+                directives.mcp.length +
+                (directives.dev ? 1 : 0)
               if (proposed > 0) {
-                effective = { ...directives, runs: [], fetches: [], dev: false, mcp: [] }
+                effective = { ...directives, runs: [], pkgs: [], fonts: [], fetches: [], dev: false, mcp: [] }
                 logRepair({ layer: 'trust-deny', notes: ['read-tier', `${proposed} eylem önerildi, çalıştırılmadı`] })
                 set((s) => ({
                   messages: [
@@ -2788,6 +2899,8 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                       role: 'assistant',
                       content: `📖 Salt Okunur kip: ajan ${proposed} eylem önerdi ama hiçbiri çalıştırılmadı:\n${[
                         ...directives.runs.map((r) => '  $ ' + r),
+                        ...directives.pkgs.map((p) => '  📦 ' + p),
+                        ...directives.fonts.map((f) => '  🔤 ' + f),
                         ...directives.fetches.map((f) => '  ⬇ ' + f.url),
                         ...directives.mcp.map((c) => '  🔌 ' + c.server + '.' + c.tool),
                         ...(directives.dev ? ['  ▶ dev sunucusu'] : [])
@@ -2798,7 +2911,6 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 if (!hasDirectives(effective)) return
               }
             } else {
-              const projectAlways = isAgentAllowed()
               const autoRuns: string[] = []
               const askRuns: Array<{ text: string; reason: string }> = []
               const blocked: string[] = []
@@ -2814,6 +2926,9 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               // MCP araç çağrısı da sınır sınıfı: yerel bir süreci tetikler, ne
               // yapacağı araca bağlı. Tam Erişim/proje-izni onaysız koşar.
               const mcpAsk = tier === 'full' || projectAlways ? [] : directives.mcp
+              const pkgsAsk = tier === 'full' || projectAlways ? [] : directives.pkgs
+              const fontsAsk = tier === 'full' || projectAlways ? [] : directives.fonts
+              const devAsk = tier === 'full' || projectAlways ? false : directives.dev
               if (blocked.length > 0) {
                 logRepair({ layer: 'trust-deny', notes: blocked.slice(0, 4) })
                 set((s) => ({
@@ -2828,7 +2943,14 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 }))
               }
               let approvedAsk = true
-              if (askRuns.length > 0 || fetchesAsk.length > 0 || mcpAsk.length > 0) {
+              if (
+                askRuns.length > 0 ||
+                fetchesAsk.length > 0 ||
+                mcpAsk.length > 0 ||
+                pkgsAsk.length > 0 ||
+                fontsAsk.length > 0 ||
+                devAsk
+              ) {
                 // 21.4 DRY-RUN: yıkıcı komutlar için "ne silinecek/üzerine yazılacak"
                 // önizlemesini projenin mevcut dosya listesine karşı hesapla (komut
                 // ÇALIŞMADAN). Kullanıcı kör onay vermesin.
@@ -2850,7 +2972,24 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                     kind: 'mcp' as const,
                     text: `${c.server}.${c.tool}${Object.keys(c.args).length ? ' ' + JSON.stringify(c.args) : ''}`,
                     reason: get().language === 'tr' ? 'yerel MCP aracı — süreç dışı eylem' : 'local MCP tool call'
-                  }))
+                  })),
+                  ...pkgsAsk.map((pkg) => ({
+                    kind: 'package' as const,
+                    text: pkg,
+                    reason: get().language === 'tr' ? 'package.json bağımlılık değişikliği' : 'package manifest change'
+                  })),
+                  ...fontsAsk.map((font) => ({
+                    kind: 'font' as const,
+                    text: font,
+                    reason: get().language === 'tr' ? 'ağdan font indirme' : 'network font download'
+                  })),
+                  ...(devAsk
+                    ? [{
+                        kind: 'dev' as const,
+                        text: 'install dependencies and start the project dev server',
+                        reason: get().language === 'tr' ? 'paket kurulumu ve yerel süreç başlatma' : 'package install and local process execution'
+                      }]
+                    : [])
                 ]
                 // 15.1: onay istemini diske serileştir — çökme/kapanma onu SESSİZCE
                 // kaybetmesin; reboot'ta modal geri gelir, onaylanırsa eylemler yeniden koşar.
@@ -2859,8 +2998,11 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                   id: paId,
                   items,
                   runs: askRuns.map((r) => r.text),
+                  pkgs: pkgsAsk,
+                  fonts: fontsAsk,
                   fetches: fetchesAsk,
                   mcp: mcpAsk,
+                  dev: devAsk,
                   createdAt: Date.now()
                 }
                 set((s) => ({ pendingApprovals: [...s.pendingApprovals, paRecord] }))
@@ -2892,9 +3034,13 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
               effective = {
                 ...directives,
                 runs: [...autoRuns, ...(approvedAsk ? askRuns.map((r) => r.text) : [])],
+                pkgs: approvedAsk ? directives.pkgs : directives.pkgs.filter(() => tier === 'full' || projectAlways),
+                fonts: approvedAsk ? directives.fonts : directives.fonts.filter(() => tier === 'full' || projectAlways),
                 fetches: approvedAsk ? directives.fetches : directives.fetches.filter(() => tier === 'full' || projectAlways),
-                mcp: approvedAsk ? directives.mcp : directives.mcp.filter(() => tier === 'full' || projectAlways)
+                mcp: approvedAsk ? directives.mcp : directives.mcp.filter(() => tier === 'full' || projectAlways),
+                dev: approvedAsk ? directives.dev : directives.dev && (tier === 'full' || projectAlways)
               }
+              authorization = { ...authorization, approved: approvedAsk }
               if (!hasDirectives(effective)) return
             }
             const logId = nanoid()
@@ -2902,12 +3048,13 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
             set((s) => ({
               messages: [...s.messages, { id: logId, role: 'assistant', content: lines[0] }]
             }))
+            if (latestTurnRequestId !== completedRequestId) return
             await executeDirectives(effective, (line) => {
               lines.push(line)
               set((s) => ({
                 messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m))
               }))
-            })
+            }, authorization)
             lines[0] = '⚙️ Agent eylemleri tamamlandı.'
             set((s) => ({
               messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m))
@@ -3249,6 +3396,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   newSession: async () => {
+    if (get().sending || get().generating || activeRequestId) {
+      await get().abort()
+    }
     // Mevcut çalışmayı kaybetmeden yeni sayfa: önce kaydet, sonra temizle.
     await get().saveSessionNow()
     await window.nexora.chat.newSession()
@@ -3899,10 +4049,19 @@ export const useAppStore = create<AppState>((set, get) => ({
             const logId = nanoid()
             const lines = ['⚙️ Kapanışta onay bekleyen eylemler çalışıyor…']
             set((s) => ({ messages: [...s.messages, { id: logId, role: 'assistant', content: lines[0] }] }))
+            const resumedAuthorization: AgentAuthorization = {
+              tier: useSettingsStore.getState().trustTier,
+              approved: true,
+              projectAlways: decision === 'always',
+              allowList: useSettingsStore.getState().trustAllowList,
+              denyList: useSettingsStore.getState().trustDenyList,
+              lang: get().language,
+              operationId: nanoid()
+            }
             void executeDirectives(eff, (line) => {
               lines.push(line)
               set((s) => ({ messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m)) }))
-            }).then(() => {
+            }, resumedAuthorization).then(() => {
               lines[0] = '⚙️ Bekleyen eylemler tamamlandı.'
               set((s) => ({ messages: s.messages.map((m) => (m.id === logId ? { ...m, content: lines.join('\n') } : m)) }))
               void get().saveSessionNow()
@@ -4525,8 +4684,12 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       }
     }
 
-    // Snapshot for the accept/reject cycle (iteration support).
+    // Two separate snapshots: the UI snapshot powers Accept/Reject/Undo after a
+    // successful turn; the transaction snapshot restores exact pre-turn state
+    // on gate/transport/abort/rejection failures.
+    useArtifactsStore.getState().beginTransaction()
     useArtifactsStore.getState().snapshot()
+    turnSnapshot = true
 
     // Görsel akışında kullanıcı mesajı (🖼 adıyla) yukarıda zaten eklendi.
     // Planlı dosya turlarının teknik prompt'u sohbeti kirletmesin: kullanıcı
@@ -4536,6 +4699,22 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       : { id: nanoid(), role: 'user', content: trimmed }
     const asstId = nanoid()
     const asstMsg: ChatMessage = { id: asstId, role: 'assistant', content: '', streaming: true }
+    const requestId = nanoid()
+    latestTurnRequestId = requestId
+    const finishWithoutGeneration = (patch: Partial<ChatMessage>): void => {
+      if (activeRequestId === requestId) activeRequestId = null
+      clearLiveness()
+      cancelScheduledApply()
+      stopSmooth()
+      currentStreamingContent = ''
+      useArtifactsStore.getState().setWritingPath(null)
+      rollbackTurnTransaction()
+      set((s) => ({
+        sending: false,
+        generating: false,
+        messages: settleAssistantMessage(s.messages, asstId, patch)
+      }))
+    }
     // Tur başarısız oldu. ELLE gönderilen turda kırmızı hata gösterilir; KUYRUK/
     // zamanlanmış turda (queueTurnActive) kullanıcıya KIRMIZI HATA GÖSTERİLMEZ:
     // canlı bug — app açılışında model yükken/API henüz hazır değilken bir
@@ -4544,6 +4723,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // (spam yok) ve yumuşak neden gösterilir; kullanıcı bir mesaj gönderince
     // (queuePaused temizlenir) motor hazırken sürdürülür.
     const failTurn = (msg: string): void => {
+      rollbackTurnTransaction()
       if (queueTurnActive) {
         queuePaused = true
         set((s) => ({
@@ -4594,6 +4774,7 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // Durdur/ölü-hüküm epoku artırınca bu turun done'ı ve gizli üreteçleri ölü
     // sayılır; bekçi 0-bayt sessizliği kesip kilidi açar.
     currentTurnEpoch = stopEpoch
+    activeRequestId = requestId
     armLiveness(currentTurnEpoch)
 
     const allFiles = Object.values(useArtifactsStore.getState().files)
@@ -4626,17 +4807,9 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
     // Ciplak duzelt-kelimesi ama ortada ne hata ne dosya var: insaya donusmesin
     // (canli test: bos oturuma "duzelt" yazilinca plan cikarip proje kurdu).
     if (!modelIntent && !fixFlow && FIX_WORDS.test(trimmed) && trimmed.length <= 24 && allFiles.length === 0) {
-      set((st) => ({
-        messages: [
-          ...st.messages,
-          { id: nanoid(), role: 'user', content: trimmed },
-          {
-            id: nanoid(),
-            role: 'assistant',
-            content: 'Düzeltilecek bir derleme hatası ya da proje dosyası görünmüyor. Önce bir proje üretin ya da Çalıştır ile hatayı yakalayalım — sonra "düzelt" yazmanız yeterli.'
-          }
-        ]
-      }))
+      finishWithoutGeneration({
+        content: 'Düzeltilecek bir derleme hatası ya da proje dosyası görünmüyor. Önce bir proje üretin ya da Çalıştır ile hatayı yakalayalım — sonra "düzelt" yazmanız yeterli.'
+      })
       return
     }
     // Prompt güçlendirme: yeni projede (dosya yokken) gündelik tarif önce
@@ -4746,23 +4919,6 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
         !buildReq &&
         (modelIntent ? modelIntent === 'chat' : (allFiles.length === 0 || looksLikeChatIntent(trimmed))))
 
-    // 8.5 GENELLEME: HER yeni-proje build turunda (yalnız PLANLI değil) proje
-    // kimliğini kur. Zayıf yerel model (3B) sectioned build package.json ÜRETMEZ
-    // → getProjectName sessizce 'nexora-projesi' ORTAK ÇÖP dizinine düşer ve
-    // dosya-işlemleri (pillow webp, sil/taşı) o dev/karışık dizinde koşar (canlı
-    // bug: local skeleton→pillow webp yanlış dizine gitti). Idempotent — adı olan
-    // package.json'a asla dokunmaz; planlı build de kendi çağrısını yapar.
-    if (
-      buildReq &&
-      allFiles.length === 0 &&
-      !isChatTurn &&
-      !isEnhanceTurn &&
-      !opts?.expectFile &&
-      !opts?.hideUser
-    ) {
-      ensureProjectIdentity(trimmed)
-    }
-
     // 14.5 — INTENT GATE: YENİ-proje build isteği MUĞLAK ise, tek byte yazmadan
     // önce ucuz bir yerel geçişle netleştir. Net görevlerde SESSİZ (looksUnder-
     // specified ön-filtresi çoğunu eler). clarify → soru sor + bekle; options →
@@ -4783,27 +4939,16 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
         const decision = await runIntentGate(trimmed, get().language === 'tr' ? 'tr' : 'en')
         if (decision.kind === 'clarify' && decision.question) {
           pendingGateRequest = trimmed
-          set((s) => ({
-            sending: false,
-            messages: [...s.messages, { id: nanoid(), role: 'assistant', content: `❓ ${decision.question}` }]
-          }))
+          finishWithoutGeneration({ content: `❓ ${decision.question}` })
           void get().saveSessionNow()
           return
         }
         if (decision.kind === 'options' && decision.options && decision.options.length >= 2) {
           pendingGateRequest = trimmed
-          set((s) => ({
-            sending: false,
-            messages: [
-              ...s.messages,
-              {
-                id: nanoid(),
-                role: 'assistant',
-                content: get().language === 'tr' ? 'Bunu birkaç şekilde anlayabilirim — hangisi?' : 'This could mean a few things — which one?',
-                intentOptions: decision.options
-              }
-            ]
-          }))
+          finishWithoutGeneration({
+            content: get().language === 'tr' ? 'Bunu birkaç şekilde anlayabilirim — hangisi?' : 'This could mean a few things — which one?',
+            intentOptions: decision.options
+          })
           void get().saveSessionNow()
           return
         }
@@ -4811,6 +4956,19 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       } catch {
         /* gate başarısızsa sessizce build et (mevcut davranış) */
       }
+    }
+
+    // Establish project identity only after the intent gate has explicitly
+    // proceeded. Clarification/options turns must have zero artifact effects.
+    if (
+      buildReq &&
+      allFiles.length === 0 &&
+      !isChatTurn &&
+      !isEnhanceTurn &&
+      !opts?.expectFile &&
+      !opts?.hideUser
+    ) {
+      ensureProjectIdentity(trimmed)
     }
 
     // Akıllı bağlam: 8k bağlamı boğmamak için isteğe uyan dosyalar seçilir;
@@ -4898,9 +5056,6 @@ Maddeler halinde, kısa ama ÖLÇÜLEBİLİR yaz. Kaç bölüm varsa HEPSİNİ (
       (updateTurn || fixFlow)
     const frontierTurn = frontierNewBuild || frontierEdit
     preTurnPaths = new Set(allFiles.map((f) => f.path))
-    // 6.4: transaction anlık görüntüsü — yalnızca iterasyon turlarında
-    // (yeni-dosya/plan turlarında null: kesinti dosya kaybettirmez, korur).
-    turnSnapshot = updateTurn ? new Map(allFiles.map((f) => [f.path, f.content])) : null
     // 10.11.1: diff istatistiği tabanı — HER turda (taze build dahil) tur başı içerik.
     turnBaseFiles = new Map(allFiles.map((f) => [f.path, f.content]))
 
@@ -5233,6 +5388,7 @@ ${outgoing}`
     lastOutgoingPrompt = outgoing
     try {
       const res = await window.nexora.chat.send({
+        requestId,
         prompt: outgoing,
         // 10.13: uzak (API) model durumsuz — önceki turları taşı (main yalnız
         // API yolunda kullanır; yerel motor kendi history'sini tutar).
@@ -5255,12 +5411,18 @@ ${outgoing}`
         options: sampling
       })
       if (!res.ok) {
-        failTurn(res.error ?? 'Sohbet hatası')
-        scheduleSessionSave()
+        if (activeRequestId === requestId) {
+          activeRequestId = null
+          failTurn(res.error ?? 'Sohbet hatası')
+          scheduleSessionSave()
+        }
       }
     } catch (err) {
-      failTurn((err as Error).message)
-      scheduleSessionSave()
+      if (activeRequestId === requestId) {
+        activeRequestId = null
+        failTurn((err as Error).message)
+        scheduleSessionSave()
+      }
     } finally {
       // Fidelity yazım kilidi bu turla sınırlıdır — sonraki tur (auto App.tsx
       // vb.) serbest yazabilsin.
@@ -5270,6 +5432,8 @@ ${outgoing}`
 
   abort: async () => {
     const wasActive = get().sending || get().generating
+    const requestId = activeRequestId
+    activeRequestId = null
     // 8.1 MUTLAK DURDUR. Epoku artır → mevcut turun done'ı ve HER gizli üreteci
     // (reality-retry, oversized retry, postGenVerify onarımı, kuyruk sıradakisi,
     // runtime-error onarımı) ölü sayılır. Kuyruğu duraklat → tek Durdur makineyi
@@ -5293,7 +5457,7 @@ ${outgoing}`
     // 8.2: kalp atışını DURDURMA — queuePaused zaten ilerlemeyi keser; kalp atışı
     // "⏸ duraklatıldı" der ve kullanıcı yeni mesaj gönderince kuyruk kendiliğinden
     // devam eder (yeniden kurmaya gerek kalmaz).
-    await window.nexora.chat.abort()
+    await window.nexora.chat.abort(requestId ?? undefined)
     cancelScheduledApply()
     // 20.4 — smooth-streaming açıkken görünen metin eased pozisyonunda geride
     // olabilir; Durdur'da içeriği ALINAN tam metne (currentStreamingContent)
@@ -5307,22 +5471,11 @@ ${outgoing}`
       )
     }))
     useArtifactsStore.getState().finishStreaming()
-    // 6.4 tur transaction'ı: yarıda kesilen iterasyon turunun MEVCUT dosyalara
-    // yazdıkları atomik geri alınır (canlı-uygulama akışı çöp bırakamaz);
-    // bu turda YENİ oluşturulan dosyalar korunur.
+    // Phase 1 transaction guarantee: restore the complete pre-turn snapshot.
     if (wasActive && turnSnapshot) {
-      const filesNow = useArtifactsStore.getState().files
-      let reverted = 0
-      for (const [path, original] of turnSnapshot) {
-        const cur = filesNow[path]?.content
-        if (cur !== undefined && cur !== original) {
-          useArtifactsStore.getState().upsertFile(path, original)
-          reverted++
-        }
-      }
-      turnSnapshot = null
+      const reverted = rollbackTurnTransaction() ? 1 : 0
       if (reverted > 0) {
-        logRepair({ layer: 'turn-rollback', notes: [`${reverted} dosya geri alındı`] })
+        logRepair({ layer: 'turn-rollback', notes: ['proje byte-exact tur anlık görüntüsüne döndü'] })
         set((s) => ({
           messages: [
             ...s.messages,
@@ -5331,8 +5484,8 @@ ${outgoing}`
               role: 'assistant',
               content:
                 get().language === 'tr'
-                  ? `↩️ Yarıda kesilen turun mevcut dosyalardaki değişiklikleri geri alındı (${reverted} dosya) — bu turda yeni oluşturulan dosyalar korundu.`
-                  : `↩️ The interrupted turn's changes to existing files were rolled back (${reverted} file(s)) — files newly created this turn were kept.`
+                  ? '↩️ Yarıda kesilen turun tüm dosya değişiklikleri geri alındı; eklenen, silinen ve değiştirilen dosyalar tur öncesi hâline döndü.'
+                  : '↩️ Every file change from the interrupted turn was rolled back; added, deleted, and modified files now match the pre-turn state.'
             }
           ]
         }))

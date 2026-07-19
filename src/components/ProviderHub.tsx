@@ -61,8 +61,13 @@ export default function ProviderHub({ language }: { language: Lang }) {
 
   const saveKey = async () => {
     if (!sel || !keyInput.trim()) return
-    await window.nexora.providers.setKey({ providerId: sel.id, key: keyInput.trim() })
+    const result = await window.nexora.providers.setKey({ providerId: sel.id, key: keyInput.trim() })
+    if (!result.ok) {
+      setFetchErr(result.error || (tr ? 'OS güvenli depolama kullanılamıyor; anahtar kaydedilmedi.' : 'OS secure storage is unavailable; key was not saved.'))
+      return
+    }
     setKeyInput('')
+    setFetchErr('')
     refreshConfigured()
     // anahtar geldi → aktivasyonu tazele
     setProvider({})

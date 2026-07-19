@@ -1,5 +1,9 @@
 # Piebald & Claude-Code-Prompts study → Phases 15–20 (v0.21+)
 
+> **Historical document.** This file records plans and implementation claims from an
+> earlier development stage. See [ROADMAP-2026.md](ROADMAP-2026.md) and
+> [docs/CURRENT-TRUTH.md](docs/CURRENT-TRUTH.md); current source and evidence win.
+
 > **Provenance.** 2026-07-12: a 7-agent deep research sweep of **Piebald AI** (piebald.ai, docs.piebald.ai incl. `llms.txt`, roadmap, pricing) and the **`Piebald-AI/claude-code-system-prompts`** repo (515+ extracted Claude Code prompt fragments), then an applicability map + roadmap synthesis. Every "already have" claim was verified against NexoraAI's own `file:line`. This doc records what applies, what to skip, and the proposed phases.
 
 ## What Piebald is (and the honest bottom line)

@@ -136,6 +136,15 @@ export async function ensureLlamaBinary(wantGpu = false): Promise<{ bin: string;
   return ensureBinary(wantGpu)
 }
 
+/** Return an already-installed runtime without performing any network I/O. */
+export function findInstalledLlamaBinary(wantGpu = false): { bin: string; gpuCapable: boolean } | null {
+  for (const candidate of binaryCandidates(wantGpu)) {
+    const bin = serverBin(candidate.dir)
+    if (existsSync(bin)) return { bin, gpuCapable: candidate.gpuCapable }
+  }
+  return null
+}
+
 // 14.7 — Turbo (speculative decoding) opt-in bayrağı. Varsayılan KAPALI; kullanıcı
 // Ayarlar'dan açar (yanlış-vocab draft riskine karşı). Sonraki model yüklemede etkir.
 let turboDraftEnabled = false

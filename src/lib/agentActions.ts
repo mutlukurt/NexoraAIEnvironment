@@ -12,6 +12,7 @@
 import { useArtifactsStore, detectLanguage } from '@/store/artifactsStore'
 import { useTermStore } from '@/store/termStore'
 import { looksFileMutating, SYNCABLE_EXT_RE } from '@shared/fileOps'
+import type { AgentAuthorization } from '@shared/ipc'
 
 export interface McpCallDirective {
   server: string
@@ -338,7 +339,11 @@ async function rescanAndSync(projectName: string, log: ActionLogger): Promise<vo
 }
 
 /** Direktifleri sırayla yürütür; her adımı log callback'ine yazar. */
-export async function executeDirectives(d: AgentDirectives, log: ActionLogger): Promise<void> {
+export async function executeDirectives(
+  d: AgentDirectives,
+  log: ActionLogger,
+  authorization: AgentAuthorization
+): Promise<void> {
   const projectName = getProjectName()
 
   for (const pkg of d.pkgs) {
@@ -353,7 +358,7 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
   for (const fam of d.fonts) {
     log(`🔤 Google Font indiriliyor: ${fam}…`)
     const baseDir = isStaticHtmlProject() ? 'css' : 'src/assets'
-    const res = await window.nexora.agent.font({ projectName, files: currentFiles(), family: fam, baseDir })
+    const res = await window.nexora.agent.font({ projectName, files: currentFiles(), family: fam, baseDir, authorization })
     if (res.ok && res.cssPath && res.cssContent) {
       const store = useArtifactsStore.getState()
       store.upsertFile(res.cssPath, res.cssContent, 'css')
@@ -370,7 +375,7 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
 
   for (const f of d.fetches) {
     log(`⬇ İndiriliyor: ${f.url}`)
-    const res = await window.nexora.agent.fetch({ projectName, files: currentFiles(), url: f.url, path: f.path })
+    const res = await window.nexora.agent.fetch({ projectName, files: currentFiles(), url: f.url, path: f.path, authorization })
     if (res.ok && res.path) {
       if (res.isText && res.textContent != null) {
         useArtifactsStore.getState().upsertFile(res.path, res.textContent, detectLanguage(res.path))
@@ -387,7 +392,7 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
     // 7.6 görünür terminal: komut kartı açılır, çıktı TERM_OUTPUT ile canlı
     // akar; sonuç yine sohbet günlüğüne özetlenir (iki yüzey, tek yürütme).
     const execId = useTermStore.getState().register(cmd, 'agent')
-    const res = await window.nexora.agent.run({ projectName, files: currentFiles(), command: cmd, execId })
+    const res = await window.nexora.agent.run({ projectName, files: currentFiles(), command: cmd, execId, authorization })
     useTermStore.getState().finish(execId, { ok: res.ok, exitCode: res.exitCode, fallbackOutput: res.output })
     const tail = res.output ? res.output.slice(-500).trim() : ''
     if (res.ok) {
@@ -404,7 +409,7 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
     const argStr = Object.keys(call.args).length ? ' ' + JSON.stringify(call.args) : ''
     log(`🔌 MCP: ${call.server}.${call.tool}${argStr}`)
     try {
-      const res = await window.nexora.mcp.call({ server: call.server, tool: call.tool, args: call.args })
+      const res = await window.nexora.mcp.call({ projectName, server: call.server, tool: call.tool, args: call.args, authorization })
       const body = res.content.length > 1200 ? res.content.slice(0, 1200) + '…' : res.content
       if (res.ok) log(`✓ ${call.server}.${call.tool} →\n${body}`)
       else log(`✗ ${call.server}.${call.tool} başarısız →\n${body}`)
@@ -416,7 +421,7 @@ export async function executeDirectives(d: AgentDirectives, log: ActionLogger): 
   if (d.dev) {
     log('▶ Proje başlatılıyor (bağımlılıklar kurulacak, tarayıcı açılacak)…')
     const devExecId = useTermStore.getState().register('npm run dev  (dev sunucusu)', 'dev')
-    const res = await window.nexora.agent.devStart({ projectName, files: currentFiles(), execId: devExecId })
+    const res = await window.nexora.agent.devStart({ projectName, files: currentFiles(), execId: devExecId, authorization })
     useTermStore.getState().finish(devExecId, { ok: res.ok, fallbackOutput: res.ok ? `çalışıyor: ${res.url ?? ''}` : res.error })
     if (res.ok && res.url) {
       log(`✓ Proje çalışıyor: ${res.url} (tarayıcıda açıldı)`)

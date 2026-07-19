@@ -54,11 +54,15 @@ check('dev=false, assetAdd=false, build=false', eff.dev === false && eff.assetAd
 // 2) fetch + mcp de taşınır
 const eff2 = reconstructDirectives(mkPending({
   runs: [], items: [],
+  pkgs: ['zod'],
+  fonts: ['Inter'],
   fetches: [{ url: 'https://x.json', path: 'data/x.json' }],
-  mcp: [{ server: 'files', tool: 'read', args: { path: 'a.txt' } }]
+  mcp: [{ server: 'files', tool: 'read', args: { path: 'a.txt' } }],
+  dev: true
 }))
 check('fetches taşınır', eff2.fetches[0]?.url === 'https://x.json' && eff2.fetches[0]?.path === 'data/x.json')
 check('mcp taşınır', eff2.mcp[0]?.server === 'files' && eff2.mcp[0]?.tool === 'read')
+check('package/font/dev capability kapsamı taşınır', eff2.pkgs[0] === 'zod' && eff2.fonts[0] === 'Inter' && eff2.dev === true)
 
 // 3) JSON round-trip (save→load simülasyonu) bekleyen izni korur
 const sessionData = { id: 's1', messages: [], files: {}, pendingApprovals: [mkPending()] }

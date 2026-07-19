@@ -62,8 +62,10 @@ check('directiveAllowed: Coding RUN → true', api.directiveAllowed(coding, 'RUN
 check('directiveAllowed: küçük harf de eşleşir', api.directiveAllowed(ideation, 'run') === false)
 check('directiveAllowed: null profil → hepsi izinli', api.directiveAllowed(null, 'RUN') === true)
 
-// 6) effectiveTrustTier
-check('effectiveTrustTier: profil belirler', api.effectiveTrustTier(ideation, 'full') === 'read')
+// 6) effectiveTrustTier — profil kısıtlayabilir, global ayarı yükseltemez
+check('effectiveTrustTier: profil kısıtlar', api.effectiveTrustTier(ideation, 'full') === 'read')
+check('effectiveTrustTier: Coding global auto ayarını full yapmaz', api.effectiveTrustTier(coding, 'auto') === 'auto')
+check('effectiveTrustTier: Frontend global read ayarını auto yapmaz', api.effectiveTrustTier(frontend, 'read') === 'read')
 check('effectiveTrustTier: null → global', api.effectiveTrustTier(null, 'auto') === 'auto')
 
 // 7) mcpAllowed (boş enabledMcps → hepsi)

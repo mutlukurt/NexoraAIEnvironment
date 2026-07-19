@@ -1,5 +1,9 @@
 # NexoraAI — Next Roadmap (Phase 21+)
 
+> **Historical document.** This file records plans and implementation claims from an
+> earlier development stage. See [ROADMAP-2026.md](ROADMAP-2026.md) and
+> [docs/CURRENT-TRUTH.md](docs/CURRENT-TRUTH.md); current source and evidence win.
+
 *Lead architect synthesis of 8 external research angles + 1 internal source audit. Verified against the real source tree at `~/Masaüstü/NexoraAI` (v0.23.1), not just the roadmap docs. Every proposal keeps LOCAL-FIRST as the default, cloud strictly opt-in + labelled, no telemetry, no paywall, model-agnostic, intent-based (never keyword regex), on an Electron + Node + llama.cpp stack.*
 
 > ## 🔒 HARD INVARIANT — intent-based, across EVERY phase (non-negotiable)

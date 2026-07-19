@@ -38,9 +38,9 @@ const DESTRUCTIVE = /^(rm|rmdir|rd|del|erase|format|mkfs(\.\w+)?|shred|dd)$/i
 const HARD_DENY = /(^|\s|;|&&|\|)\s*(sudo|doas|su)\b|\b(shutdown|reboot|poweroff|halt)\b|:\(\)\s*\{|\bmkfs(\.\w+)?\b/i
 /** Boru-ile-kabuk: indirilen içerik doğrudan kabuğa akar — uzak kod çalıştırma. */
 const PIPE_TO_SHELL = /\b(curl|wget)\b[^|;&]*\|\s*(\w+\s+)*(sh|bash|zsh|dash|node|python3?)\b/i
-/** Çalışma alanı içinde güvenli sayılan komut başlangıçları ('auto' sınıfı). */
-const AUTO_SAFE =
-  /^(npm|npx|yarn|pnpm|node|vite|tsc|eslint|prettier|ls|cat|head|tail|wc|grep|echo|mkdir|touch|cp|mv)\b/i
+/** Auto is deliberately read-oriented. Package scripts, local JS binaries and
+ * mutating shell commands execute project-controlled code and therefore ask. */
+const AUTO_SAFE = /^(ls|cat|head|tail|wc|grep)\b/i
 /** git'in salt-okur alt komutları da 'auto'; yazanlar (push vb.) 'ask'. */
 const GIT_READONLY = /^git\s+(status|log|diff|show|branch|remote\s+-v)\b/i
 
@@ -81,6 +81,9 @@ export function commandVerdict(
   // 1) Koşulsuz yasaklar — Tam Erişim bile aşamaz.
   if (HARD_DENY.test(c)) return { action: 'deny', reason: 'ayrıcalık yükseltme / sistem kapatma / fork-bomb sınıfı' }
   if (PIPE_TO_SHELL.test(c)) return { action: 'deny', reason: 'indirilen içerik doğrudan kabuğa akıyor (uzak kod çalıştırma)' }
+  if (/(^|\s)(>>?|<)\s*\S+/.test(c)) {
+    return { action: 'ask', reason: 'kabuk yönlendirmesi dosya okuyabilir veya yazabilir' }
+  }
 
   // 2) Yıkıcı komut + kök-sınıfı hedef ya da .. kaçışı → deny.
   //    (Antigravity vakası: `rmdir /s /q d:\` bir path-doğrulama hatasıyla

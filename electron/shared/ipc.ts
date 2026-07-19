@@ -80,11 +80,15 @@ export interface AgentRuntimeErrorEvent {
 }
 
 export interface ChatStreamChunk {
+  /** Request-scoped identity. Stale events must never mutate another turn. */
+  requestId: string
   token: string
   done: false
 }
 
 export interface ChatStreamDone {
+  /** Request-scoped identity. Stale events must never mutate another turn. */
+  requestId: string
   done: true
   full: string
   /** 10.12.2: turun token kullanımı. */
@@ -96,6 +100,8 @@ export interface ChatStreamDone {
 export type ChatStreamEvent = ChatStreamChunk | ChatStreamDone
 
 export interface ChatSendInput {
+  /** Renderer-generated request identity, echoed on every stream event. */
+  requestId?: string
   /**
    * Planlı üretim (roadmap 2.2): bu tur çıktısı TAM OLARAK bu yola ait tek
    * fenced blok olmalı — ana süreç GBNF gramerini bundan kurar.
@@ -363,9 +369,11 @@ export interface McpServerConfigInput {
 }
 
 export interface McpCallInput {
+  projectName: string
   server: string
   tool: string
   args?: Record<string, unknown>
+  authorization?: AgentAuthorization
 }
 
 export interface McpCallResult {
@@ -512,17 +520,20 @@ export interface SessionData extends SessionMeta {
   /** 10.4: prompt-başı checkpoint'ler — kod+sohbet durumunu geri sarma. */
   checkpoints?: CheckpointEntry[]
   /**
-   * 15.1: reboot-dayanıklı bekleyen izinler. Bir [RUN]/[FETCH]/[MCP] onay istemi
+   * 15.1: reboot-dayanıklı bekleyen capability izinleri.
    * yalnız bellekteydi; çökme/kapanma onu SESSİZCE kaybediyordu. Artık diske iner:
    * relaunch'ta PermissionModal geri gelir, onaylanırsa yapılandırılmış eylemler
    * (runs/fetches/mcp) yeniden çalışır (items yalnız gösterim içindir).
    */
   pendingApprovals?: Array<{
     id: string
-    items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string; impact?: string }>
+    items: Array<{ kind: PermissionItemKind; text: string; reason?: string; impact?: string }>
     runs: string[]
+    pkgs?: string[]
+    fonts?: string[]
     fetches: Array<{ url: string; path: string }>
     mcp: Array<{ server: string; tool: string; args: Record<string, unknown> }>
+    dev?: boolean
     createdAt: number
   }>
 }
@@ -611,12 +622,29 @@ export interface ArtifactExportInput {
 
 // --- Agent eylemleri ---
 
+export type AgentCapability = 'run' | 'package' | 'fetch' | 'font' | 'dev' | 'mcp'
+
+/** Renderer approval context. Main reclassifies every capability and treats a
+ * missing context as read-only; this prevents accidental direct IPC bypasses. */
+export interface AgentAuthorization {
+  tier: 'read' | 'auto' | 'full'
+  approved?: boolean
+  projectAlways?: boolean
+  allowList?: string[]
+  denyList?: string[]
+  lang?: 'tr' | 'en' | 'es' | 'fr' | 'de' | 'pt' | 'ru' | 'zh' | 'ja' | 'ar'
+  operationId?: string
+}
+
+export type PermissionItemKind = AgentCapability
+
 export interface AgentRunInput {
   projectName: string
   files: Array<{ path: string; content: string }>
   command: string
   /** 7.6: verilirse çıktı bu kimlikle TERM_OUTPUT olayları olarak canlı akar. */
   execId?: string
+  authorization?: AgentAuthorization
 }
 
 /** Çalışma alanını yeniden tarama sonucu (AGENT_RESCAN) — metin + görsel(data-URL). */
@@ -650,6 +678,7 @@ export interface AgentFetchInput {
   files: Array<{ path: string; content: string }>
   url: string
   path: string
+  authorization?: AgentAuthorization
 }
 
 export interface AgentFetchResult {
@@ -667,6 +696,7 @@ export interface AgentFontInput {
   family: string
   /** 'src/assets' (React) veya 'css' (statik HTML) */
   baseDir: string
+  authorization?: AgentAuthorization
 }
 
 export interface AgentFontResult {
@@ -685,6 +715,7 @@ export interface AgentDevInput {
   onlyIfInstalled?: boolean
   /** 7.6: verilirse dev sunucusu durum satırları TERM_OUTPUT olarak akar. */
   execId?: string
+  authorization?: AgentAuthorization
 }
 
 export interface AgentDevResult {

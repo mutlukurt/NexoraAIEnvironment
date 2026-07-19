@@ -74,6 +74,10 @@ const mcp = await import(pathToFileURL(outfile).href)
 
 // ── 3) bağlantı + araç keşfi ────────────────────────────────────────────────
 await mcp.ensureStarted()
+const beforeApproval = await mcp.getServers()
+check('native lifecycle approval olmadan süreç başlamaz', beforeApproval.every((s) => s.connected === false))
+mcp.setLifecycleAuthorized(true)
+await mcp.ensureStarted()
 const servers = await mcp.getServers()
 const mock = servers.find((s) => s.name === 'mock')
 check('sunucu bağlandı', !!mock && mock.connected === true, mock ? String(mock.error) : 'yok')

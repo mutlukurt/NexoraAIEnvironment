@@ -8,15 +8,19 @@
  */
 
 import type { AgentDirectives } from './agentActions'
+import type { PermissionItemKind } from '@shared/ipc'
 
 /** Diske serileşen bekleyen izin kaydı (SessionData.pendingApprovals öğesiyle aynı şekil). */
 export interface PendingApproval {
   id: string
   /** Yalnız GÖSTERİM (PermissionModal) — insan-okur özet. */
-  items: Array<{ kind: 'run' | 'fetch' | 'mcp'; text: string; reason?: string; impact?: string }>
+  items: Array<{ kind: PermissionItemKind; text: string; reason?: string; impact?: string }>
   runs: string[]
+  pkgs?: string[]
+  fonts?: string[]
   fetches: Array<{ url: string; path: string }>
   mcp: Array<{ server: string; tool: string; args: Record<string, unknown> }>
+  dev?: boolean
   createdAt: number
 }
 
@@ -27,11 +31,11 @@ export interface PendingApproval {
  */
 export function reconstructDirectives(pa: PendingApproval): AgentDirectives {
   return {
-    pkgs: [],
-    fonts: [],
+    pkgs: pa.pkgs ?? [],
+    fonts: pa.fonts ?? [],
     fetches: pa.fetches,
     runs: pa.runs,
-    dev: false,
+    dev: pa.dev === true,
     mcp: pa.mcp,
     imgs: [],
     assetAdd: false,

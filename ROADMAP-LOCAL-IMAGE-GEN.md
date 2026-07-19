@@ -1,5 +1,9 @@
 # Phase 13 — Local Image Generation (offline, on-device) — Detailed Spec (→ v0.19)
 
+> **Historical document.** This file records plans and implementation claims from an
+> earlier development stage. See [ROADMAP-2026.md](ROADMAP-2026.md) and
+> [docs/CURRENT-TRUTH.md](docs/CURRENT-TRUTH.md); current source and evidence win.
+
 > Redesigned **2026-07-10** from a **12-agent research + adversarial-verification** sweep (10 research dimensions → lead-architect synthesis → adversarial reviewer). The reviewer **proved the core end-to-end on the real 4 GB RTX 2050**: `sd-server` spawned, internet off, no API key → a real **457 KB PNG in ~33 s**. This spec folds every blocker the reviewer found back into the plan. Source tree is `/home/mutlu/Masaüstü/NexoraAI/` (the app's runtime data dir is `~/NexoraAI/`).
 
 ---

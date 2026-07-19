@@ -1,5 +1,5 @@
-import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
-import { join } from 'path'
+import { app, BrowserWindow, shell, ipcMain, dialog, type IpcMainInvokeEvent } from 'electron'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import {
   loadModel,
   unloadModel,
@@ -54,6 +54,7 @@ import { detectHardware, getAdvisorPlan } from './advisorService'
 import { setApiConfig, promptApi, hasApiOverride, generateImage, type ApiConfig } from './apiEngine'
 import { writeFile, mkdir } from 'fs/promises'
 import { homedir } from 'os'
+import { randomUUID } from 'crypto'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
 import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
 import {
@@ -75,7 +76,8 @@ import {
   readConfig as mcpReadConfig,
   writeConfig as mcpWriteConfig,
   configPath as mcpConfigPath,
-  shutdown as mcpShutdown
+  shutdown as mcpShutdown,
+  setLifecycleAuthorized as mcpSetLifecycleAuthorized
 } from './mcpService'
 import { startServe, stopServe, serveStatus } from './serveEngine'
 import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
@@ -105,6 +107,10 @@ import {
   type McpCallInput,
   type McpServerConfigInput
 } from '../shared/ipc'
+import {
+  authorizeNativeCapability,
+  type NativeCapabilityEffect
+} from '../shared/nativeCapabilityApproval'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 
@@ -123,6 +129,121 @@ if (process.env['NEXORA_HEADLESS']) {
 }
 
 let mainWindow: BrowserWindow | null = null
+/** The UI inference engine is single-flight; every event is request-scoped. */
+let activeChatRequestId: string | null = null
+const approvedExternalPaths = new Set<string>()
+const approvedExternalDirectories = new Set<string>()
+
+function isTrustedIpcSender(event: IpcMainInvokeEvent): boolean {
+  return !!mainWindow && !mainWindow.isDestroyed() && event.sender.id === mainWindow.webContents.id
+}
+
+function escapeConfirmationHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char]!)
+}
+
+let privilegedConfirmationTail: Promise<void> = Promise.resolve()
+
+/** Main-owned final authority for process, network and MCP effects. Renderer
+ * approval flags are never sufficient: the exact frozen effect is shown in a
+ * preload-free sandboxed modal and executed immediately by the same handler.
+ * The modal is used instead of Electron's platform message box because GTK can
+ * focus the affirmative action even when Electron requests a deny default. */
+function confirmNativeCapability(effect: Readonly<NativeCapabilityEffect>, policyReason: string): Promise<boolean> {
+  const run = privilegedConfirmationTail.then(() => new Promise<boolean>((resolveConfirmation) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return resolveConfirmation(false)
+    const modal = new BrowserWindow({
+      parent: mainWindow,
+      modal: true,
+      show: false,
+      width: 680,
+      height: 560,
+      minWidth: 560,
+      minHeight: 460,
+      title: 'Approve privileged action',
+      autoHideMenuBar: true,
+      backgroundColor: '#111827',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        partition: 'nexora-privileged-confirmation'
+      }
+    })
+    let settled = false
+    const settle = (allowed: boolean): void => {
+      if (settled) return
+      settled = true
+      resolveConfirmation(allowed)
+      if (!modal.isDestroyed()) modal.destroy()
+    }
+    modal.on('closed', () => settle(false))
+    modal.on('page-title-updated', (event, title) => {
+      if (title !== 'NEXORA_ALLOW' && title !== 'NEXORA_DENY') return
+      event.preventDefault()
+      settle(title === 'NEXORA_ALLOW')
+    })
+    modal.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    modal.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+    modal.webContents.on('will-navigate', (event) => event.preventDefault())
+    modal.webContents.once('did-finish-load', () => {
+      if (!modal.isDestroyed()) {
+        modal.show()
+        modal.focus()
+        modal.webContents.focus()
+      }
+    })
+    const detail = escapeConfirmationHtml(effect.detail.slice(0, 4000))
+    const project = escapeConfirmationHtml(effect.projectName || '(no project)')
+    const capability = escapeConfirmationHtml(effect.capability)
+    const reason = escapeConfirmationHtml(policyReason)
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><title>Approve privileged action</title><style>
+      :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:#111827;color:#f9fafb;padding:28px}main{max-width:620px;margin:auto}h1{font-size:22px;margin:0 0 8px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;background:#7c2d12;color:#fed7aa;font:700 12px ui-monospace,monospace}.meta{margin:18px 0 8px;color:#9ca3af;font-size:13px}.detail,.policy{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #374151;border-radius:10px;padding:14px;background:#0b1220;font:13px/1.5 ui-monospace,monospace}.policy{margin-top:12px;color:#d1d5db}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}button{border:1px solid #4b5563;border-radius:9px;padding:10px 18px;background:#1f2937;color:#fff;font-weight:700;cursor:pointer}button:focus{outline:3px solid #f59e0b;outline-offset:2px}button.allow{background:#b45309;border-color:#f59e0b}
+    </style></head><body><main><span class="badge">${capability}</span><h1>Approve this exact action once?</h1><p class="meta">Project: ${project}</p><div class="detail">${detail}</div><div class="policy">Policy: ${reason}</div><div class="actions"><button id="deny" autofocus onclick="document.title='NEXORA_DENY'">Deny</button><button class="allow" onclick="document.title='NEXORA_ALLOW'">Allow once</button></div></main><script>addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();document.title='NEXORA_DENY'}});document.getElementById('deny').focus()</script></body></html>`
+    void modal.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`)
+  }))
+  privilegedConfirmationTail = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function confirmDirectPrivilegedEffect(
+  event: IpcMainInvokeEvent,
+  effect: NativeCapabilityEffect,
+  policyReason: string
+): Promise<boolean> {
+  if (!isTrustedIpcSender(event)) return false
+  return confirmNativeCapability(Object.freeze({ ...effect }), policyReason)
+}
+
+function isLoopbackHttpUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw)
+    return (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '::1')
+  } catch {
+    return false
+  }
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const rel = relative(resolve(root), resolve(candidate))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+function isManagedStoragePath(raw: string): boolean {
+  if (!raw) return false
+  const roots = [join(homedir(), 'NexoraAI')]
+  const realHome = process.env.SNAP_REAL_HOME
+  if (realHome) roots.push(join(realHome, 'NexoraAI'))
+  return roots.some((root) => isWithin(root, raw))
+}
+
+function isApprovedExternalPath(raw: string): boolean {
+  const target = resolve(raw)
+  return approvedExternalPaths.has(target) || [...approvedExternalDirectories].some((dir) => isWithin(dir, target))
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -139,7 +260,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true,
+      additionalArguments: [`--nexora-home=${encodeURIComponent(homedir())}`]
     }
   })
 
@@ -167,7 +289,20 @@ function createWindow(): void {
   })
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    void (async () => {
+      let parsed: URL
+      try {
+        parsed = new URL(url)
+      } catch {
+        return
+      }
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return
+      const allowed = await confirmNativeCapability(
+        { capability: 'network', projectName: '', detail: `Open in the system browser:\n${parsed.href}` },
+        'External navigation leaves NexoraAI and may disclose data to another site.'
+      )
+      if (allowed) await shell.openExternal(parsed.href)
+    })()
     return { action: 'deny' }
   })
 
@@ -186,13 +321,22 @@ function registerIpc(): void {
       filters: [{ name: 'GGUF Model', extensions: ['gguf'] }]
     })
     if (res.canceled || res.filePaths.length === 0) return null
+    approvedExternalPaths.add(resolve(res.filePaths[0]))
     return { path: res.filePaths[0] }
   })
 
-  ipcMain.handle(IPC.MODEL_LOAD, async (_e, path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') => {
+  ipcMain.handle(IPC.MODEL_LOAD, async (event, path: string, enableGpu?: boolean, gpuLayers?: number | 'auto') => {
     try {
+      const modelPath = resolve(String(path ?? ''))
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'external-read', projectName: '', detail: `Load and execute model file:\n${modelPath}\nGPU: ${enableGpu === false ? 'disabled' : 'enabled/automatic'}\nGPU layers: ${String(gpuLayers ?? 'automatic')}` },
+        'Model loading starts native inference code and may download the fixed llama.cpp runtime when missing.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
+      approvedExternalPaths.add(modelPath)
       let lastSent = 0
-      const info = await loadModel(path, enableGpu, gpuLayers, (stage, progress) => {
+      const info = await loadModel(modelPath, enableGpu, gpuLayers, (stage, progress) => {
         // ~60ms throttle: onLoadProgress fires per-tensor and would flood IPC.
         const now = Date.now()
         if (progress < 1 && now - lastSent < 60) return
@@ -224,8 +368,22 @@ function registerIpc(): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.MODEL_SET_API_CONFIG, async (_e, config: Partial<ApiConfig>) => {
-    setApiConfig(config)
+  ipcMain.handle(IPC.MODEL_SET_API_CONFIG, async (event, config: Partial<ApiConfig>) => {
+    const frozen = Object.freeze({
+      baseUrl: String(config.baseUrl ?? '').trim(),
+      apiKey: String(config.apiKey ?? ''),
+      model: String(config.model ?? '').trim(),
+      mode: config.mode === 'fix' || config.mode === 'all' ? config.mode : 'off' as const
+    })
+    if (frozen.mode !== 'off') {
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'credential', projectName: '', detail: `Enable remote API route:\n${frozen.baseUrl}\nModel: ${frozen.model}\nMode: ${frozen.mode}\nAPI key: ${frozen.apiKey ? '(provided; value hidden)' : '(none)'}` },
+        'Remote API routing can send prompts, code, and optional images off-device.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
+    }
+    setApiConfig(frozen)
     return { ok: true }
   })
 
@@ -252,26 +410,61 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.CHAT_NEW, async () => {
+    if (activeChatRequestId) {
+      await abortChat()
+      activeChatRequestId = null
+    }
     await resetSession({ resetProfile: true })
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.CHAT_SEND, async (_e, input: ChatSendInput) => {
+  ipcMain.handle(IPC.CHAT_SEND, async (event, input: ChatSendInput) => {
     if (!mainWindow) return { ok: false, error: 'no window' }
+    const imagePath = input.imagePath ? resolve(String(input.imagePath)) : undefined
+    if (imagePath && !isManagedStoragePath(imagePath) && !isApprovedExternalPath(imagePath)) {
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'external-read', projectName: '', detail: `Attach this external image to the chat request:\n${imagePath}` },
+        'The image will be read by native code and may be sent to an already-authorized remote model route.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
+      approvedExternalPaths.add(imagePath)
+    }
+    const frozenInput: ChatSendInput = Object.freeze({ ...input, imagePath })
+    const requestId =
+      typeof frozenInput?.requestId === 'string' && frozenInput.requestId.trim()
+        ? frozenInput.requestId.trim().slice(0, 120)
+        : randomUUID()
+    if (activeChatRequestId && activeChatRequestId !== requestId) {
+      return { ok: false, requestId, error: 'another chat request is still active' }
+    }
+    activeChatRequestId = requestId
     try {
-      const full = await chat(input, (token) => {
-        mainWindow?.webContents.send(IPC.CHAT_STREAM, { token, done: false })
+      const full = await chat(frozenInput, (token) => {
+        if (activeChatRequestId === requestId) {
+          mainWindow?.webContents.send(IPC.CHAT_STREAM, { requestId, token, done: false })
+        }
       })
+      if (activeChatRequestId !== requestId) return { ok: false, requestId, error: 'request superseded' }
       // 10.12.2: turun token kullanımını done olayıyla ilet (motor usage'ı / tahmin).
-      mainWindow.webContents.send(IPC.CHAT_STREAM, { done: true, full, usage: getLastTurnUsage(), inspection: getLastTurnInspection() })
-      return { ok: true }
+      mainWindow.webContents.send(IPC.CHAT_STREAM, { requestId, done: true, full, usage: getLastTurnUsage(), inspection: getLastTurnInspection() })
+      // send() synchronously queues the completion event; release the slot only
+      // after that queueing step so no second IPC request can overtake done.
+      activeChatRequestId = null
+      return { ok: true, requestId }
     } catch (err) {
-      return { ok: false, error: (err as Error).message }
+      return { ok: false, requestId, error: (err as Error).message }
+    } finally {
+      if (activeChatRequestId === requestId) activeChatRequestId = null
     }
   })
 
-  ipcMain.handle(IPC.CHAT_ABORT, async () => {
+  ipcMain.handle(IPC.CHAT_ABORT, async (_e, requestId?: string) => {
+    if (requestId && activeChatRequestId && requestId !== activeChatRequestId) {
+      return { ok: true, ignored: true }
+    }
     await abortChat()
+    activeChatRequestId = null
     return { ok: true }
   })
 
@@ -323,24 +516,48 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle(IPC.HF_SEARCH, async (_e, query: string) => {
+  ipcMain.handle(IPC.HF_SEARCH, async (event, query: string) => {
     try {
-      return { ok: true, results: await searchModels(query) }
+      const frozenQuery = String(query ?? '').trim().slice(0, 300)
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'network', projectName: '', detail: `Search Hugging Face for:\n${frozenQuery}` },
+        'This sends the search query to Hugging Face.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
+      return { ok: true, results: await searchModels(frozenQuery) }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
   })
 
-  ipcMain.handle(IPC.HF_LIST_LOCAL, async (_e, dir: string) => {
+  ipcMain.handle(IPC.HF_LIST_LOCAL, async (event, dir: string) => {
     try {
-      return { ok: true, models: await listLocalModels(dir) }
+      const target = resolve(String(dir ?? ''))
+      if (!isManagedStoragePath(target) && !isApprovedExternalPath(target)) {
+        const allowed = await confirmDirectPrivilegedEffect(
+          event,
+          { capability: 'external-read', projectName: '', detail: `List local models in:\n${target}` },
+          'This reads an external directory chosen outside NexoraAI managed storage.'
+        )
+        if (!allowed) return { ok: false, error: 'Native approval denied.' }
+        approvedExternalDirectories.add(target)
+      }
+      return { ok: true, models: await listLocalModels(target) }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
   })
 
-  ipcMain.handle(IPC.HF_DELETE_LOCAL, async (_e, dir: string, name: string) => {
-    return deleteLocalModel(dir, name)
+  ipcMain.handle(IPC.HF_DELETE_LOCAL, async (event, dir: string, name: string) => {
+    const target = resolve(String(dir ?? ''), String(name ?? ''))
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'external-write', projectName: '', detail: `Permanently delete local model:\n${target}` },
+      'Deleting a model is an irreversible filesystem operation.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
+    return deleteLocalModel(resolve(String(dir ?? '')), String(name ?? ''))
   })
 
   ipcMain.handle(IPC.HF_SELECT_DIR, async () => {
@@ -349,22 +566,30 @@ function registerIpc(): void {
       properties: ['openDirectory', 'createDirectory']
     })
     if (res.canceled || res.filePaths.length === 0) return { ok: false }
+    approvedExternalDirectories.add(resolve(res.filePaths[0]))
     return { ok: true, dir: res.filePaths[0] }
   })
 
-  ipcMain.handle(IPC.HF_DOWNLOAD, async (_e, input: HfDownloadInput) => {
+  ipcMain.handle(IPC.HF_DOWNLOAD, async (event, input: HfDownloadInput) => {
     if (!mainWindow) return { ok: false, error: 'no window' }
     try {
-      const uri = `hf:${input.repo}/${input.file}`
-      const modelPath = await downloadModel(uri, input.dir, (downloaded, total) => {
+      const frozen = Object.freeze({ repo: String(input.repo ?? ''), file: String(input.file ?? ''), dir: resolve(String(input.dir ?? '')) })
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'network', projectName: '', detail: `Download model:\n${frozen.repo}/${frozen.file}\nDestination: ${frozen.dir}` },
+        'This downloads remote content and writes it to disk.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
+      const uri = `hf:${frozen.repo}/${frozen.file}`
+      const modelPath = await downloadModel(uri, frozen.dir, (downloaded, total) => {
         mainWindow?.webContents.send(IPC.HF_PROGRESS, {
-          file: input.file,
+          file: frozen.file,
           downloaded,
           total,
           done: false
         })
       })
-      mainWindow.webContents.send(IPC.HF_PROGRESS, { file: input.file, done: true, total: 0, downloaded: 0 })
+      mainWindow.webContents.send(IPC.HF_PROGRESS, { file: frozen.file, done: true, total: 0, downloaded: 0 })
       return { ok: true, modelPath }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -395,22 +620,18 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC.ARTIFACTS_EXPORT_ZIP,
-    async (_e, input: { files: Array<{ path: string; content: string }>; projectName?: string; savePath?: string }) => {
+    async (_e, input: { files: Array<{ path: string; content: string }>; projectName?: string }) => {
       try {
         const name = input.projectName ?? 'nexora-projesi'
         const built = await exportProjectZipBytes(name, input.files)
         if (!built.ok || !built.bytes) return { ok: false, error: built.error ?? 'zip oluşturulamadı' }
-        // savePath verildiyse (test/otomasyon) dialog'u atla; yoksa native kaydet.
-        let target = input.savePath
-        if (!target) {
-          const res = await dialog.showSaveDialog({
-            title: 'Projeyi .zip olarak kaydet',
-            defaultPath: `${built.slug ?? 'proje'}.zip`,
-            filters: [{ name: 'ZIP', extensions: ['zip'] }]
-          })
-          if (res.canceled || !res.filePath) return { ok: false, canceled: true }
-          target = res.filePath
-        }
+        const res = await dialog.showSaveDialog({
+          title: 'Projeyi .zip olarak kaydet',
+          defaultPath: `${built.slug ?? 'proje'}.zip`,
+          filters: [{ name: 'ZIP', extensions: ['zip'] }]
+        })
+        if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+        const target = res.filePath
         await writeFile(target, Buffer.from(built.bytes))
         return { ok: true, path: target, count: built.count }
       } catch (err) {
@@ -419,15 +640,30 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(IPC.AGENT_RUN, async (_e, input: AgentRunInput) => {
-    await syncWorkspace(input.projectName, input.files)
+  ipcMain.handle(IPC.AGENT_RUN, async (event, input: AgentRunInput) => {
+    if (!isTrustedIpcSender(event)) return { ok: false, output: 'untrusted IPC sender', exitCode: null }
+    const frozen: AgentRunInput = Object.freeze({
+      ...input,
+      projectName: String(input.projectName ?? ''),
+      command: String(input.command ?? '').trim(),
+      files: (input.files ?? []).map((file) => ({ path: String(file.path), content: String(file.content) }))
+    })
+    const authorization = await authorizeNativeCapability(
+      { capability: 'run', projectName: frozen.projectName, command: frozen.command, detail: frozen.command },
+      frozen.authorization,
+      confirmNativeCapability
+    )
+    if (!authorization.allowed) {
+      return { ok: false, output: authorization.reason, exitCode: null }
+    }
+    await syncWorkspace(frozen.projectName, frozen.files)
     // 7.6 görünür terminal: execId verildiyse çıktı canlı olaylarla akar.
-    const execId = input.execId
+    const execId = frozen.execId
     const emit = (ev: Record<string, unknown>) => mainWindow?.webContents.send(IPC.TERM_OUTPUT, ev)
     const started = Date.now()
     const res = await runCommand(
-      input.projectName,
-      input.command,
+      frozen.projectName,
+      frozen.command,
       undefined,
       execId ? (chunk) => emit({ execId, chunk }) : undefined
     )
@@ -435,14 +671,42 @@ function registerIpc(): void {
     return res
   })
 
-  ipcMain.handle(IPC.AGENT_FETCH, async (_e, input: AgentFetchInput) => {
-    await syncWorkspace(input.projectName, input.files)
-    return fetchToFile(input.projectName, input.url, input.path)
+  ipcMain.handle(IPC.AGENT_FETCH, async (event, input: AgentFetchInput) => {
+    if (!isTrustedIpcSender(event)) return { ok: false, error: 'untrusted IPC sender' }
+    const frozen: AgentFetchInput = Object.freeze({
+      ...input,
+      projectName: String(input.projectName ?? ''),
+      url: String(input.url ?? '').trim(),
+      path: String(input.path ?? '').trim(),
+      files: (input.files ?? []).map((file) => ({ path: String(file.path), content: String(file.content) }))
+    })
+    const authorization = await authorizeNativeCapability(
+      { capability: 'fetch', projectName: frozen.projectName, detail: `${frozen.url} → ${frozen.path}` },
+      frozen.authorization,
+      confirmNativeCapability
+    )
+    if (!authorization.allowed) return { ok: false, error: authorization.reason }
+    await syncWorkspace(frozen.projectName, frozen.files)
+    return fetchToFile(frozen.projectName, frozen.url, frozen.path)
   })
 
-  ipcMain.handle(IPC.AGENT_FONT, async (_e, input: AgentFontInput) => {
-    await syncWorkspace(input.projectName, input.files)
-    return addGoogleFont(input.projectName, input.family, input.baseDir)
+  ipcMain.handle(IPC.AGENT_FONT, async (event, input: AgentFontInput) => {
+    if (!isTrustedIpcSender(event)) return { ok: false, error: 'untrusted IPC sender' }
+    const frozen: AgentFontInput = Object.freeze({
+      ...input,
+      projectName: String(input.projectName ?? ''),
+      family: String(input.family ?? '').trim(),
+      baseDir: input.baseDir === 'css' ? 'css' : 'src/assets',
+      files: (input.files ?? []).map((file) => ({ path: String(file.path), content: String(file.content) }))
+    })
+    const authorization = await authorizeNativeCapability(
+      { capability: 'font', projectName: frozen.projectName, detail: `${frozen.family} → ${frozen.baseDir}` },
+      frozen.authorization,
+      confirmNativeCapability
+    )
+    if (!authorization.allowed) return { ok: false, error: authorization.reason }
+    await syncWorkspace(frozen.projectName, frozen.files)
+    return addGoogleFont(frozen.projectName, frozen.family, frozen.baseDir)
   })
 
   // Calisma zamani hata toplayicisi (roadmap 3.2): sayfadaki kanca buraya
@@ -460,22 +724,41 @@ function registerIpc(): void {
   ipcMain.handle(IPC.BENCH_GET, () => readBenchmarks())
 
   // Gerçek runtime debugger (roadmap 6.1): çökme anını CDP ile oku.
-  ipcMain.handle(IPC.DEBUG_INSPECT, (_e, input: { url: string }) => inspectRuntimeException(input.url))
+  ipcMain.handle(IPC.DEBUG_INSPECT, (_e, input: { url: string }) => {
+    if (!isLoopbackHttpUrl(input.url)) return { ok: false, error: 'Only loopback HTTP(S) URLs are allowed.' }
+    return inspectRuntimeException(input.url)
+  })
 
   // Davranışsal doğrulama (roadmap 6.5): siteyi tester gibi gez.
-  ipcMain.handle(IPC.BEHAVIOR_TEST, (_e, input: { url: string }) => runBehaviorTest(input.url))
+  ipcMain.handle(IPC.BEHAVIOR_TEST, (_e, input: { url: string }) => {
+    if (!isLoopbackHttpUrl(input.url)) return { ok: false, error: 'Only loopback HTTP(S) URLs are allowed.' }
+    return runBehaviorTest(input.url)
+  })
 
   // Önce-repro onarım (roadmap 6.6): hata hâlâ üretiliyor mu?
-  ipcMain.handle(IPC.REPRO_CHECK, (_e, input: { url: string; signature: string }) =>
-    reproCheck(input.url, input.signature)
-  )
+  ipcMain.handle(IPC.REPRO_CHECK, (_e, input: { url: string; signature: string }) => {
+    if (!isLoopbackHttpUrl(input.url)) return { ok: false, error: 'Only loopback HTTP(S) URLs are allowed.' }
+    return reproCheck(input.url, input.signature)
+  })
 
   // Öğrenen motor (roadmap 6.7): telemetri → sınıf istatistikleri.
   ipcMain.handle(IPC.REPAIR_STATS, () => readRepairStats())
 
-  ipcMain.handle(IPC.AGENT_DEV_START, async (_e, input: AgentDevInput) => {
-    const devExecId = (input as { execId?: string }).execId
-    const res = await startDev(input.projectName, input.files, (msg) => {
+  ipcMain.handle(IPC.AGENT_DEV_START, async (event, input: AgentDevInput) => {
+    if (!isTrustedIpcSender(event)) return { ok: false, error: 'untrusted IPC sender' }
+    const frozen: AgentDevInput = Object.freeze({
+      ...input,
+      projectName: String(input.projectName ?? ''),
+      files: (input.files ?? []).map((file) => ({ path: String(file.path), content: String(file.content) }))
+    })
+    const authorization = await authorizeNativeCapability(
+      { capability: 'dev', projectName: frozen.projectName, detail: 'Install dependencies when needed and start the development server.' },
+      frozen.authorization,
+      confirmNativeCapability
+    )
+    if (!authorization.allowed) return { ok: false, error: authorization.reason }
+    const devExecId = frozen.execId
+    const res = await startDev(frozen.projectName, frozen.files, (msg) => {
       mainWindow?.webContents.send(IPC.AGENT_DEV_STATUS, { msg })
       // 7.6: dev sunucusu durum satırları Terminal kartına da akar.
       if (devExecId) mainWindow?.webContents.send(IPC.TERM_OUTPUT, { execId: devExecId, chunk: msg + '\n' })
@@ -492,7 +775,7 @@ function registerIpc(): void {
       // Dev sunucusu ayakta ama kod derlenmiyor olabilir (vite tembel derler):
       // arka planda tam derleme denetimi koş, hata varsa chat'e taşınmak üzere
       // renderer'a ilet. Kullanıcı "düzelt" yazınca hata modele otomatik gider.
-      void buildCheck(input.projectName).then((check) => {
+      void buildCheck(frozen.projectName).then((check) => {
         if (!check.ok && check.error) {
           mainWindow?.webContents.send(IPC.AGENT_BUILD_ERROR, { error: check.error })
         }
@@ -503,10 +786,22 @@ function registerIpc(): void {
     return res
   })
 
-  ipcMain.handle(IPC.AGENT_BUILD_CHECK, async (_e, input: AgentDevInput) => {
+  ipcMain.handle(IPC.AGENT_BUILD_CHECK, async (event, input: AgentDevInput) => {
+    if (!isTrustedIpcSender(event)) return { ok: false, error: 'untrusted IPC sender' }
+    const frozen: AgentDevInput = Object.freeze({
+      ...input,
+      projectName: String(input.projectName ?? ''),
+      files: (input.files ?? []).map((file) => ({ path: String(file.path), content: String(file.content) }))
+    })
+    const authorization = await authorizeNativeCapability(
+      { capability: 'build', projectName: frozen.projectName, detail: 'Synchronize the proposed workspace and execute its build verification scripts.' },
+      frozen.authorization,
+      confirmNativeCapability
+    )
+    if (!authorization.allowed) return { ok: false, error: authorization.reason }
     // "düzelt" turundan sonra doğrulama: güncel dosyaları senkronla ve derle
-    await syncWorkspace(input.projectName, input.files)
-    return buildCheck(input.projectName, input.onlyIfInstalled)
+    await syncWorkspace(frozen.projectName, frozen.files)
+    return buildCheck(frozen.projectName, frozen.onlyIfInstalled)
   })
 
   ipcMain.handle(IPC.AGENT_DEV_STOP, async () => {
@@ -540,10 +835,30 @@ function registerIpc(): void {
       filters: [{ name: 'Görseller', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
     })
     if (res.canceled || res.filePaths.length === 0) return null
+    approvedExternalPaths.add(resolve(res.filePaths[0]))
     return { path: res.filePaths[0] }
   })
 
-  ipcMain.handle(IPC.VISION_ANALYZE, async (_e, input: { imagePath: string; prompt: string; modelPath?: string }) => {
+  ipcMain.handle(IPC.VISION_ANALYZE, async (event, input: { imagePath: string; prompt: string; modelPath?: string }) => {
+    const frozen = Object.freeze({
+      imagePath: resolve(String(input.imagePath ?? '')),
+      prompt: String(input.prompt ?? ''),
+      modelPath: input.modelPath ? resolve(String(input.modelPath)) : undefined
+    })
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      {
+        capability: hasApiOverride() ? 'network' : 'external-read',
+        projectName: '',
+        detail: hasApiOverride()
+          ? `Send this image to the active API for analysis:\n${frozen.imagePath}`
+          : `Analyze this image with local native inference:\n${frozen.imagePath}${frozen.modelPath ? `\nModel: ${frozen.modelPath}` : ''}`
+      },
+      hasApiOverride()
+        ? 'The image and analysis prompt will leave the device.'
+        : 'This reads an image and may execute a native vision model.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
     // İKİ AŞAMALI GÖRSEL AKIŞI — 1. AŞAMA (analiz).
     // API modeli aktifse görsel analizini API'nin KENDİSİ yapar (yerel VL ASLA
     // çalışmaz). Görsel + detaylı analiz prompt'u API'ye multimodal gider,
@@ -552,11 +867,11 @@ function registerIpc(): void {
     if (hasApiOverride()) {
       try {
         mainWindow?.webContents.send(IPC.VISION_STATUS, { msg: 'API görseli inceliyor…' })
-        const dataUrl = await imageToDataUrl(input.imagePath)
+        const dataUrl = await imageToDataUrl(frozen.imagePath)
         const sys =
           'You are a meticulous senior UI/UX design analyst. You are shown ONE screenshot of a website/app design. Produce a precise, MEASURABLE reconstruction spec that another developer will build from — never write code, only the spec. Report exact hex colors per region, typography, every section top-to-bottom with its layout and real text content, components and their styles. Read colors and text ONLY from the image; never invent template colors. Be exhaustive: if the page has 6 sections, describe all 6.'
         let text = ''
-        const out = await promptApi(sys, input.prompt, (t) => {
+        const out = await promptApi(sys, frozen.prompt, (t) => {
           text += t
         }, undefined, { imageDataUrl: dataUrl, temperature: 0.2, maxTokens: 4096 })
         const full = (out && out.trim()) || text.trim()
@@ -567,12 +882,12 @@ function registerIpc(): void {
       }
     }
     return analyzeImage(
-      input.imagePath,
-      input.prompt,
+      frozen.imagePath,
+      frozen.prompt,
       (msg) => {
         mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
       },
-      input.modelPath
+      frozen.modelPath
     )
   })
 
@@ -585,7 +900,13 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle(IPC.VISION_PREPARE, async () => {
+  ipcMain.handle(IPC.VISION_PREPARE, async (event) => {
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'network', projectName: '', detail: 'Prepare the local vision runtime and download missing components when required.' },
+      'Preparation may download executable or model assets and start a native sidecar.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
     return ensureVisionReady((msg) => {
       mainWindow?.webContents.send(IPC.VISION_STATUS, { msg })
     })
@@ -597,7 +918,7 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.IMAGE_GENERATE,
     async (
-      _e,
+      event,
       input: {
         prompt: string
         aspect?: import('../shared/imageModels').ImageAspect
@@ -610,6 +931,16 @@ function registerIpc(): void {
       }
     ) => {
       try {
+        const allowed = await confirmDirectPrivilegedEffect(
+          event,
+          {
+            capability: 'network',
+            projectName: '',
+            detail: `Generate ${Math.max(1, Math.min(4, Number(input.count) || 1))} image(s):\n${String(input.prompt ?? '').slice(0, 1200)}${input.referenceImagePath ? `\nReference: ${resolve(input.referenceImagePath)}` : ''}${input.localModelPath ? `\nLocal model: ${resolve(input.localModelPath)}` : ''}`
+          },
+          'Image generation may contact the active API or execute a local native model.'
+        )
+        if (!allowed) return { ok: false, error: 'Native approval denied.' }
         // Görsel→görsel: referans dosyayı data-URL'e çevir (görsel modele gider).
         let referenceImageDataUrl: string | undefined
         if (input.referenceImagePath) {
@@ -697,25 +1028,45 @@ function registerIpc(): void {
   })
 
   // Katalogdan bir görsel modelini tek-tık indir (ilerleme IMAGE_DL_STATUS ile).
-  ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD, async (_e, id: string) => {
+  ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD, async (event, id: string) => {
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'network', projectName: '', detail: `Download image model from the built-in catalog:\n${String(id ?? '')}` },
+      'This downloads remote model content and writes it to managed storage.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
     const li = await import('./localImageService')
     return li.downloadCatalogModel(id, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
   })
 
   // HuggingFace'te ÖZGÜRCE görsel-üretim modeli ara (GGUF bulur gibi).
-  ipcMain.handle(IPC.IMAGE_MODEL_SEARCH, async (_e, query: string) => {
+  ipcMain.handle(IPC.IMAGE_MODEL_SEARCH, async (event, query: string) => {
     try {
+      const frozenQuery = String(query ?? '').trim().slice(0, 300)
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'network', projectName: '', detail: `Search remote image models for:\n${frozenQuery}` },
+        'This sends the search query to a remote model catalogue.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
       const li = await import('./localImageService')
-      return { ok: true, results: await li.searchImageModels(query) }
+      return { ok: true, results: await li.searchImageModels(frozenQuery) }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
   })
 
   // Arama sonucundan (URL) bir görsel modelini indir.
-  ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD_URL, async (_e, input: { url: string; file: string }) => {
+  ipcMain.handle(IPC.IMAGE_MODEL_DOWNLOAD_URL, async (event, input: { url: string; file: string }) => {
+    const frozen = Object.freeze({ url: String(input.url ?? '').trim(), file: String(input.file ?? '').trim() })
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'network', projectName: '', detail: `Download image model:\n${frozen.url}\nFile: ${frozen.file}` },
+      'This downloads content from a renderer-supplied URL and writes it to managed storage.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
     const li = await import('./localImageService')
-    return li.downloadImageUrl(input.url, input.file, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
+    return li.downloadImageUrl(frozen.url, frozen.file, (msg) => mainWindow?.webContents.send(IPC.IMAGE_DL_STATUS, { msg }))
   })
 
   // 20.3 — Yerel Whisper dikte: durum (binary+model hazır mı) + katalog.
@@ -729,10 +1080,17 @@ function registerIpc(): void {
   })
 
   // Renderer'ın yakaladığı WAV'ı offline yazıya çevir (ses cihazda kalır).
-  ipcMain.handle(IPC.WHISPER_TRANSCRIBE, async (_e, input: { wav: ArrayBuffer; lang?: string; modelPath?: string }) => {
+  ipcMain.handle(IPC.WHISPER_TRANSCRIBE, async (event, input: { wav: ArrayBuffer; lang?: string; modelPath?: string }) => {
     try {
+      const modelPath = input.modelPath ? resolve(String(input.modelPath)) : undefined
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'external-read', projectName: '', detail: `Transcribe captured audio with the local Whisper process.${modelPath ? `\nModel: ${modelPath}` : '\nA managed model may be downloaded if none is installed.'}` },
+        'Transcription starts a fixed native process and may download the built-in model when missing.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
       const ws = await import('./whisperService')
-      return await ws.transcribe(input.wav, { lang: input.lang, modelPath: input.modelPath }, (msg) =>
+      return await ws.transcribe(input.wav, { lang: input.lang, modelPath }, (msg) =>
         mainWindow?.webContents.send(IPC.WHISPER_PROGRESS, { msg })
       )
     } catch (err) {
@@ -741,10 +1099,17 @@ function registerIpc(): void {
   })
 
   // Katalogdan whisper ggml modelini tek-tık indir (ilerleme WHISPER_PROGRESS ile).
-  ipcMain.handle(IPC.WHISPER_MODEL_DOWNLOAD, async (_e, id: string) => {
+  ipcMain.handle(IPC.WHISPER_MODEL_DOWNLOAD, async (event, id: string) => {
     try {
+      const frozenId = String(id ?? '')
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'network', projectName: '', detail: `Download Whisper model:\n${frozenId}` },
+        'This downloads remote model content and writes it to managed storage.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
       const ws = await import('./whisperService')
-      return await ws.downloadWhisperModel(id, (msg) => mainWindow?.webContents.send(IPC.WHISPER_PROGRESS, { msg }))
+      return await ws.downloadWhisperModel(frozenId, (msg) => mainWindow?.webContents.send(IPC.WHISPER_PROGRESS, { msg }))
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
@@ -755,7 +1120,9 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.ADVISOR_PLAN, async () => {
-    return getAdvisorPlan()
+    // Startup/UI reads are offline: remote catalogue refresh must become a
+    // separate explicit user action before it may opt into network access.
+    return getAdvisorPlan(false)
   })
 
   ipcMain.handle(IPC.SESSIONS_LIST, async () => {
@@ -831,7 +1198,11 @@ function registerIpc(): void {
   // Klasör Aç (roadmap 3.1): var olan projeyi çalışma alanına bağla.
   ipcMain.handle(IPC.PROJECT_IMPORT, async () => {
     try {
-      return await importProjectFolder()
+      const result = await importProjectFolder()
+      if (result && typeof result === 'object' && 'folderPath' in result && typeof result.folderPath === 'string') {
+        approvedExternalDirectories.add(resolve(result.folderPath))
+      }
+      return result
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
@@ -840,6 +1211,7 @@ function registerIpc(): void {
   // Görsel öz-denetim (roadmap 3.3): dev sayfasının ekran görüntüsü.
   ipcMain.handle(IPC.AGENT_CAPTURE_PAGE, async (_e, input: { url: string }) => {
     try {
+      if (!isLoopbackHttpUrl(input.url)) return { ok: false, error: 'Only loopback HTTP(S) URLs are allowed.' }
       return await capturePage(input.url)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -861,7 +1233,13 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.PROJECT_OPEN, async (_e, dir: string) => {
     try {
-      return await openProjectDir(dir)
+      const target = resolve(String(dir ?? ''))
+      const registered = await listProjects()
+      const known = registered.some((project) => resolve(project.dir) === target)
+      if (!known && !approvedExternalDirectories.has(target)) {
+        return { ok: false, error: 'Project path is not registered or selected through the native folder picker.' }
+      }
+      return await openProjectDir(target)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
@@ -885,15 +1263,27 @@ function registerIpc(): void {
       return []
     }
   })
-  ipcMain.handle(IPC.HISTORY_RESTORE, async (_e, projectName: string, hash: string) => {
+  ipcMain.handle(IPC.HISTORY_RESTORE, async (event, projectName: string, hash: string) => {
     try {
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'history', projectName: String(projectName ?? ''), detail: `Restore Git checkpoint:\n${String(hash ?? '')}` },
+        'Restoring replaces the current managed workspace with historical content.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
       return await historyRestore(projectName, hash)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
   })
-  ipcMain.handle(IPC.HISTORY_RESTORE_GREEN, async (_e, projectName: string) => {
+  ipcMain.handle(IPC.HISTORY_RESTORE_GREEN, async (event, projectName: string) => {
     try {
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'history', projectName: String(projectName ?? ''), detail: 'Restore the latest checkpoint marked green.' },
+        'Restoring replaces the current managed workspace with historical content.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
       return await historyRestoreGreen(projectName)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -922,31 +1312,96 @@ function registerIpc(): void {
   })
 
   // ── 10.1 MCP: yerel stdio araç sunucuları ──────────────────────────────────
-  ipcMain.handle(IPC.MCP_SERVERS, async () => {
+  ipcMain.handle(IPC.MCP_SERVERS, async (event) => {
+    const configured = await mcpReadConfig()
+    if (configured.some((server) => server.enabled !== false)) {
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'mcp-lifecycle', projectName: '', detail: configured.filter((server) => server.enabled !== false).map((server) => `${server.name}: ${server.command} ${(server.args ?? []).join(' ')}`).join('\n') },
+        'Listing MCP servers starts enabled local commands so their tools can be discovered.'
+      )
+      if (!allowed) return { servers: await mcpGetServers(), canceled: true }
+      mcpSetLifecycleAuthorized(true)
+    }
     return { servers: await mcpGetServers() }
   })
-  ipcMain.handle(IPC.MCP_CALL, async (_e, input: McpCallInput) => {
-    return mcpCallTool(input.server, input.tool, input.args || {})
+  ipcMain.handle(IPC.MCP_CALL, async (event, input: McpCallInput) => {
+    if (!isTrustedIpcSender(event)) return { ok: false, content: 'untrusted IPC sender' }
+    const frozen: McpCallInput = Object.freeze({
+      ...input,
+      projectName: String(input.projectName ?? ''),
+      server: String(input.server ?? '').trim(),
+      tool: String(input.tool ?? '').trim(),
+      args: input.args && typeof input.args === 'object' ? structuredClone(input.args) : {}
+    })
+    const authorization = await authorizeNativeCapability(
+      {
+        capability: 'mcp',
+        projectName: frozen.projectName,
+        detail: `${frozen.server}.${frozen.tool} ${JSON.stringify(frozen.args ?? {})}`
+      },
+      frozen.authorization,
+      confirmNativeCapability
+    )
+    if (!authorization.allowed) return { ok: false, content: authorization.reason }
+    mcpSetLifecycleAuthorized(true)
+    return mcpCallTool(frozen.server, frozen.tool, frozen.args || {})
   })
-  ipcMain.handle(IPC.MCP_RELOAD, async () => {
+  ipcMain.handle(IPC.MCP_RELOAD, async (event) => {
+    const configured = await mcpReadConfig()
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'mcp-lifecycle', projectName: '', detail: configured.filter((server) => server.enabled !== false).map((server) => `${server.name}: ${server.command} ${(server.args ?? []).join(' ')}`).join('\n') || '(no enabled servers)' },
+      'Reloading MCP can stop and start configured local processes.'
+    )
+    if (!allowed) return { servers: await mcpGetServers(), canceled: true }
+    mcpSetLifecycleAuthorized(true)
     return { servers: await mcpReload() }
   })
   ipcMain.handle(IPC.MCP_GET_CONFIG, async () => {
-    return { servers: await mcpReadConfig(), path: mcpConfigPath() }
+    const servers = (await mcpReadConfig()).map(({ env: _env, ...server }) => server)
+    return { servers, path: mcpConfigPath(), envRedacted: true }
   })
-  ipcMain.handle(IPC.MCP_SET_CONFIG, async (_e, servers: McpServerConfigInput[]) => {
-    await mcpWriteConfig(servers)
+  ipcMain.handle(IPC.MCP_SET_CONFIG, async (event, servers: McpServerConfigInput[]) => {
+    if (!isTrustedIpcSender(event)) return { servers: await mcpGetServers(), error: 'untrusted IPC sender' }
+    const existing = await mcpReadConfig()
+    const merged = servers.map((server) => {
+      if (server.env && Object.keys(server.env).length > 0) return server
+      const prior = existing.find((entry) => entry.name === server.name)
+      return prior?.env ? { ...server, env: prior.env } : server
+    })
+    const allowed = await confirmNativeCapability(
+      {
+        capability: 'mcp-lifecycle',
+        projectName: '',
+        detail: merged.map((server) => {
+        const env = Object.entries(server.env ?? {}).map(([key, value]) => `${key}=${value}`).join(' ')
+        return `${server.enabled === false ? '○' : '●'} ${server.name}: ${env ? `${env} ` : ''}${server.command} ${(server.args ?? []).join(' ')}`
+        }).join('\n').slice(0, 3000)
+      },
+      'Saving this configuration can start local processes with your user permissions.'
+    )
+    if (!allowed) return { servers: await mcpGetServers(), canceled: true }
+    await mcpWriteConfig(merged)
+    mcpSetLifecycleAuthorized(true)
     return { servers: await mcpReload() }
   })
 
   // ── 10.2 Serve engine: yerel OpenAI-uyumlu uç ────────────────────────────
-  ipcMain.handle(IPC.SERVE_SET, async (_e, input: { enabled: boolean; port?: number }) => {
+  ipcMain.handle(IPC.SERVE_SET, async (event, input: { enabled: boolean; port?: number }) => {
     if (!input.enabled) {
       stopServe()
       return serveStatus()
     }
+    const port = Math.max(1024, Math.min(65535, Number(input.port) || 8787))
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'serve', projectName: '', detail: `Expose the loaded model on localhost TCP port ${port}.` },
+      'Starting the local API binds a network listener accessible to local applications.'
+    )
+    if (!allowed) return { running: false, port: 0, url: '', error: 'Native approval denied.' }
     try {
-      return await startServe(input.port ?? 8787, {
+      return await startServe(port, {
         generate: generateForServe,
         isLoaded: isModelLoaded,
         modelName: () => getLoadedInfo()?.name || 'nexora-local'
@@ -978,20 +1433,59 @@ function registerIpc(): void {
   ipcMain.handle(IPC.COMMANDS_LIST, () => listCommands())
 
   // ── 10.9 Sağlayıcı hub'ı: keychain anahtarlar + aktivasyon + model çekme ──
-  ipcMain.handle(IPC.PROVIDERS_SET_KEY, (_e, input: { providerId: string; key: string }) =>
-    setProviderKey(input.providerId, input.key)
-  )
-  ipcMain.handle(IPC.PROVIDERS_DELETE_KEY, (_e, providerId: string) => deleteProviderKey(providerId))
+  ipcMain.handle(IPC.PROVIDERS_SET_KEY, async (event, input: { providerId: string; key: string }) => {
+    const providerId = String(input.providerId ?? '').trim()
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'credential', projectName: '', detail: `Store an API credential for provider: ${providerId}\nCredential value: (hidden)` },
+      'The credential is persisted through the operating-system storage boundary.'
+    )
+    if (!allowed) return { ok: false, encrypted: false, error: 'Native approval denied.' }
+    return setProviderKey(providerId, String(input.key ?? ''))
+  })
+  ipcMain.handle(IPC.PROVIDERS_DELETE_KEY, async (event, providerId: string) => {
+    const frozenId = String(providerId ?? '').trim()
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'credential', projectName: '', detail: `Delete the stored API credential for provider: ${frozenId}` },
+      'Deleting a credential changes persistent secure storage.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
+    return deleteProviderKey(frozenId)
+  })
   ipcMain.handle(IPC.PROVIDERS_LIST_CONFIGURED, () => listConfiguredProviders())
-  ipcMain.handle(IPC.PROVIDERS_ACTIVATE, (_e, input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) =>
-    activateProvider(input)
-  )
-  ipcMain.handle(IPC.PROVIDERS_FETCH_MODELS, (_e, input: { providerId: string; customBaseUrl?: string }) =>
-    fetchProviderModels(input.providerId, input.customBaseUrl)
-  )
-  ipcMain.handle(IPC.PROVIDERS_SET_ACTIVE_MODEL, (_e, input: { providerId: string; model: string; customBaseUrl?: string }) =>
-    setActiveModel(input)
-  )
+  ipcMain.handle(IPC.PROVIDERS_ACTIVATE, async (event, input: { providerId: string; model: string; mode: 'off' | 'fix' | 'all'; customBaseUrl?: string }) => {
+    const frozen = Object.freeze({ providerId: String(input.providerId ?? ''), model: String(input.model ?? ''), mode: input.mode, customBaseUrl: input.customBaseUrl ? String(input.customBaseUrl) : undefined })
+    if (frozen.mode !== 'off') {
+      const allowed = await confirmDirectPrivilegedEffect(
+        event,
+        { capability: 'network', projectName: '', detail: `Activate remote provider: ${frozen.providerId}\nModel: ${frozen.model}\nMode: ${frozen.mode}${frozen.customBaseUrl ? `\nURL: ${frozen.customBaseUrl}` : ''}` },
+        'The selected route can send prompts, project code, and optional images off-device.'
+      )
+      if (!allowed) return { ok: false, error: 'Native approval denied.' }
+    }
+    return activateProvider(frozen)
+  })
+  ipcMain.handle(IPC.PROVIDERS_FETCH_MODELS, async (event, input: { providerId: string; customBaseUrl?: string }) => {
+    const frozen = Object.freeze({ providerId: String(input.providerId ?? ''), customBaseUrl: input.customBaseUrl ? String(input.customBaseUrl) : undefined })
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'network', projectName: '', detail: `Fetch remote model list for provider: ${frozen.providerId}${frozen.customBaseUrl ? `\nURL: ${frozen.customBaseUrl}` : ''}` },
+      'This contacts the provider models endpoint using the configured credential.'
+    )
+    if (!allowed) return { ok: false, models: [], error: 'Native approval denied.' }
+    return fetchProviderModels(frozen.providerId, frozen.customBaseUrl)
+  })
+  ipcMain.handle(IPC.PROVIDERS_SET_ACTIVE_MODEL, async (event, input: { providerId: string; model: string; customBaseUrl?: string }) => {
+    const frozen = Object.freeze({ providerId: String(input.providerId ?? ''), model: String(input.model ?? ''), customBaseUrl: input.customBaseUrl ? String(input.customBaseUrl) : undefined })
+    const allowed = await confirmDirectPrivilegedEffect(
+      event,
+      { capability: 'network', projectName: '', detail: `Route all model requests to provider: ${frozen.providerId}\nModel: ${frozen.model}${frozen.customBaseUrl ? `\nURL: ${frozen.customBaseUrl}` : ''}` },
+      'The active model route can send prompts, project code, and optional images off-device.'
+    )
+    if (!allowed) return { ok: false, error: 'Native approval denied.' }
+    return setActiveModel(frozen)
+  })
   ipcMain.handle(IPC.PROVIDERS_CLEAR_ACTIVE_MODEL, () => clearActiveModel())
 
   // ── 10.12.1 Kalıcı proje bağlamı: proje-gecmisi.md ───────────────────────

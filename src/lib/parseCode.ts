@@ -140,6 +140,15 @@ export interface StreamingParseResult {
   files: StreamedFileBlock[]
 }
 
+/** True when a model response ended inside a fenced code block. */
+export function hasUnclosedCodeFence(content: string): boolean {
+  let open = false
+  for (const line of content.split('\n')) {
+    if (/^\s*```/.test(line)) open = !open
+  }
+  return open
+}
+
 function trimBlankEdges(arr: string[]): string[] {
   const out = [...arr]
   while (out.length && !out[0].trim()) out.shift()

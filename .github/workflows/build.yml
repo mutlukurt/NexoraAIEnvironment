@@ -5,8 +5,8 @@ name: Build installers (Windows .exe + Linux .deb + macOS .dmg)
 # kendi çeker, electron-builder NSIS installer üretir. Linux .deb de aynı anda çıkar.
 #
 # Tetikleme:
-#   - bir sürüm tag'i push edilince (v*)  → hem .exe hem .deb release'e eklenir
-#   - Actions sekmesinden "Run workflow"  → .exe/.deb indirilebilir ARTIFACT olur
+#   - bir sürüm tag'i push edilince (v*)  → .exe, .deb ve .dmg release'e eklenir
+#   - Actions sekmesinden "Run workflow"  → üç paket de indirilebilir artifact olur
 
 on:
   push:
@@ -19,8 +19,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  quality:
+    name: Required quality gate
+    uses: ./.github/workflows/quality.yml
+
   windows:
     name: Windows installer (.exe)
+    needs: quality
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,6 +64,7 @@ jobs:
 
   linux:
     name: Linux package (.deb)
+    needs: quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +103,7 @@ jobs:
 
   macos:
     name: macOS installer (.dmg, Apple Silicon)
+    needs: quality
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -151,8 +158,9 @@ jobs:
       - name: Attach .exe + .deb + .dmg to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
             dist-artifacts/**/*.exe
             dist-artifacts/**/*.deb
             dist-artifacts/**/*.dmg
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true

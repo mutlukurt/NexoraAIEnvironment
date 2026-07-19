@@ -1313,7 +1313,7 @@ export interface BuildCheckResult {
 
 export async function buildCheck(projectName: string, onlyIfInstalled?: boolean): Promise<BuildCheckResult> {
   const dir = workspaceDir(projectName)
-  if (!existsSync(join(dir, 'package.json'))) return { ok: true } // statik proje: derleme yok
+  if (!existsSync(join(dir, 'package.json'))) return { ok: true, skipped: true } // statik proje: tam derleme uygulanamaz
 
   // Üretim-sonrası sessiz denetim (roadmap 2.3): node_modules kurulu değilse
   // arka planda dakikalarca npm install BAŞLATMA — hızlı sözdizimi katmanı

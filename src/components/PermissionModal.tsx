@@ -9,7 +9,7 @@
 import { useAppStore } from '@/store/appStore'
 import { tt } from '@/lib/i18n'
 import { translations } from '@/lib/translations'
-import { Terminal, Download, ShieldAlert, Plug } from 'lucide-react'
+import { Terminal, Download, ShieldAlert, Plug, Package, Type, Play } from 'lucide-react'
 
 export default function PermissionModal() {
   const request = useAppStore((s) => s.permissionRequest)
@@ -42,6 +42,12 @@ export default function PermissionModal() {
                       ? 'text-red-600 dark:text-red-400'
                       : item.kind === 'mcp'
                         ? 'text-violet-500'
+                        : item.kind === 'package'
+                          ? 'text-amber-500'
+                          : item.kind === 'font'
+                            ? 'text-pink-500'
+                            : item.kind === 'dev'
+                              ? 'text-emerald-500'
                         : 'text-sky-500')
                   }
                 >
@@ -49,13 +55,29 @@ export default function PermissionModal() {
                     <Terminal className="h-4 w-4" />
                   ) : item.kind === 'mcp' ? (
                     <Plug className="h-4 w-4" />
+                  ) : item.kind === 'package' ? (
+                    <Package className="h-4 w-4" />
+                  ) : item.kind === 'font' ? (
+                    <Type className="h-4 w-4" />
+                  ) : item.kind === 'dev' ? (
+                    <Play className="h-4 w-4" />
                   ) : (
                     <Download className="h-4 w-4" />
                   )}
                 </span>
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-ink-dim">
-                    {item.kind === 'run' ? t.permRunLabel : item.kind === 'mcp' ? 'MCP ARAÇ ÇAĞRISI' : t.permFetchLabel}
+                    {item.kind === 'run'
+                      ? t.permRunLabel
+                      : item.kind === 'mcp'
+                        ? 'MCP TOOL CALL'
+                        : item.kind === 'package'
+                          ? 'PACKAGE MANIFEST CHANGE'
+                          : item.kind === 'font'
+                            ? 'FONT DOWNLOAD'
+                            : item.kind === 'dev'
+                              ? 'DEV SERVER / INSTALL'
+                              : t.permFetchLabel}
                   </p>
                   <p className="break-all font-mono text-xs font-semibold text-ink-text">{item.text}</p>
                   {item.reason && (

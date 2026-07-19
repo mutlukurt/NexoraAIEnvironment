@@ -103,9 +103,9 @@ async function cachedCatalog(): Promise<Record<string, CoderDef> | null> {
 }
 
 /** Danışman planı: gömülü + (uzak ya da önbellek) katalog birleşimiyle. */
-export async function getAdvisorPlan(): Promise<AdvisorPlan> {
+export async function getAdvisorPlan(allowNetwork = false): Promise<AdvisorPlan> {
   const hw = await detectHardware()
-  const remote = (await fetchRemoteCatalog()) ?? (await cachedCatalog())
+  const remote = (allowNetwork ? await fetchRemoteCatalog() : null) ?? (await cachedCatalog())
   const catalog = remote ? { ...EMBEDDED_CODERS, ...remote } : EMBEDDED_CODERS
   return buildPlan(hw, catalog)
 }

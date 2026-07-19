@@ -19,6 +19,18 @@ interface ArtifactsState {
   pendingChanges: boolean
   writingPath: string | null
   _snapshot: string | null
+  _turnSnapshot: {
+    files: string
+    selectedPath: string | null
+    view: ArtifactView
+    pendingChanges: boolean
+    writingPath: string | null
+    snapshot: string | null
+    undoStack: string[]
+    redoStack: string[]
+    canUndo: boolean
+    canRedo: boolean
+  } | null
   /** Zaman çizelgesi: her üretim turunun ÖNCESİ (en yenisi sonda, en çok 20). */
   _undoStack: string[]
   _redoStack: string[]
@@ -28,6 +40,11 @@ interface ArtifactsState {
   createFile: (path: string, content: string, language?: FileLanguage) => string
   upsertFile: (path: string, content: string, language?: FileLanguage) => void
   applyFiles: (entries: Array<{ path: string; content: string; language?: FileLanguage }>) => void
+  /** Atomically commit all generated upserts and deletions in one store update. */
+  applyTransaction: (input: {
+    upserts: Array<{ path: string; content: string; language?: FileLanguage }>
+    deletes?: string[]
+  }) => void
   streamUpdateFile: (path: string, content: string, language?: FileLanguage, follow?: boolean) => void
   updateFile: (path: string, content: string) => void
   deleteFile: (path: string) => void
@@ -37,6 +54,9 @@ interface ArtifactsState {
   renameFile: (path: string, newPath: string) => void
   snapshot: () => void
   restoreSnapshot: () => void
+  beginTransaction: () => void
+  rollbackTransaction: () => void
+  commitTransaction: () => void
   acceptChanges: () => void
   /** Oturum yükleme: dosya setini bekleyen-değişiklik üretmeden komple değiştir. */
   replaceAll: (files: Record<string, ArtifactFile>, selectedPath: string | null) => void
@@ -94,6 +114,7 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
   pendingChanges: false,
   writingPath: null,
   _snapshot: null,
+  _turnSnapshot: null,
   _undoStack: [],
   _redoStack: [],
   canUndo: false,
@@ -137,6 +158,43 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
         files,
         selectedPath: entryPath || entries[0].path,
         view: 'code',
+        pendingChanges: true
+      }
+    })
+  },
+
+  applyTransaction: ({ upserts, deletes = [] }) => {
+    if (upserts.length === 0 && deletes.length === 0) return
+    set((s) => {
+      const files = { ...s.files }
+      for (const path of deletes) delete files[path]
+      let entryPath = ''
+      for (const entry of upserts) {
+        const language = entry.language ?? detectLanguage(entry.path)
+        files[entry.path] = {
+          path: entry.path,
+          content: entry.content,
+          language,
+          updatedAt: Date.now()
+        }
+        if (
+          !entryPath ||
+          entry.path === 'src/App.tsx' ||
+          entry.path === 'App.tsx' ||
+          entry.path === 'App.jsx' ||
+          entry.path === 'index.html'
+        ) {
+          entryPath = entry.path
+        }
+      }
+      const selectedPath =
+        entryPath ||
+        (s.selectedPath && files[s.selectedPath] ? s.selectedPath : Object.keys(files)[0] ?? null)
+      return {
+        files,
+        selectedPath,
+        view: 'code' as const,
+        writingPath: null,
         pendingChanges: true
       }
     })
@@ -201,6 +259,7 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
       pendingChanges: false,
       writingPath: null,
       _snapshot: null,
+      _turnSnapshot: null,
       _undoStack: [],
       _redoStack: [],
       canUndo: false,
@@ -215,6 +274,7 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
       pendingChanges: false,
       writingPath: null,
       _snapshot: null,
+      _turnSnapshot: null,
       _undoStack: [],
       _redoStack: [],
       canUndo: false,
@@ -230,6 +290,44 @@ export const useArtifactsStore = create<ArtifactsState>((set, get) => ({
       return { _snapshot: snap, _undoStack, _redoStack: [], canUndo: _undoStack.length > 0, canRedo: false }
     })
   },
+
+  beginTransaction: () => {
+    const s = get()
+    set({
+      _turnSnapshot: {
+        files: JSON.stringify(s.files),
+        selectedPath: s.selectedPath,
+        view: s.view,
+        pendingChanges: s.pendingChanges,
+        writingPath: s.writingPath,
+        snapshot: s._snapshot,
+        undoStack: [...s._undoStack],
+        redoStack: [...s._redoStack],
+        canUndo: s.canUndo,
+        canRedo: s.canRedo
+      }
+    })
+  },
+
+  rollbackTransaction: () => {
+    const tx = get()._turnSnapshot
+    if (!tx) return
+    set({
+      files: JSON.parse(tx.files) as Record<string, ArtifactFile>,
+      selectedPath: tx.selectedPath,
+      view: tx.view,
+      pendingChanges: tx.pendingChanges,
+      writingPath: tx.writingPath,
+      _snapshot: tx.snapshot,
+      _turnSnapshot: null,
+      _undoStack: tx.undoStack,
+      _redoStack: tx.redoStack,
+      canUndo: tx.canUndo,
+      canRedo: tx.canRedo
+    })
+  },
+
+  commitTransaction: () => set({ _turnSnapshot: null }),
 
   restoreSnapshot: () => {
     const snap = get()._snapshot

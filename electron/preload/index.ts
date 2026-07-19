@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { homedir } from 'os'
 import {
   IPC,
   type ChatSendInput,
@@ -35,6 +34,7 @@ export type ModelSelectResponse = { path: string } | null
 
 export interface ChatSendResponse {
   ok: boolean
+  requestId?: string
   error?: string
 }
 
@@ -80,7 +80,7 @@ export interface NexoraApi {
   chat: {
     newSession: () => Promise<{ ok: boolean }>
     send: (input: ChatSendInput) => Promise<ChatSendResponse>
-    abort: () => Promise<{ ok: boolean }>
+    abort: (requestId?: string) => Promise<{ ok: boolean; ignored?: boolean }>
     onStream: (cb: (event: ChatStreamEvent) => void) => () => void
     /** Faz 13 — yerel motor geçmişini UI sohbetiyle tohumla (model değişimi / oturum açılışı). */
     seedHistory: (turns: Array<{ role: 'user' | 'assistant'; content: string }>) => Promise<{ ok: boolean }>
@@ -99,7 +99,6 @@ export interface NexoraApi {
     exportZip: (input: {
       files: Array<{ path: string; content: string }>
       projectName?: string
-      savePath?: string
     }) => Promise<{ ok: boolean; path?: string; count?: number; canceled?: boolean; error?: string }>
   }
   agent: {
@@ -282,7 +281,7 @@ export interface NexoraApi {
   }
   providers: {
     /** 10.9: sağlayıcı API anahtarını OS keychain'e (safeStorage) yaz. */
-    setKey: (input: { providerId: string; key: string }) => Promise<{ ok: boolean; encrypted: boolean }>
+    setKey: (input: { providerId: string; key: string }) => Promise<{ ok: boolean; encrypted: boolean; error?: string }>
     deleteKey: (providerId: string) => Promise<{ ok: boolean }>
     /** Anahtarı olan sağlayıcı id'leri (anahtarın kendisi DÖNMEZ). */
     listConfigured: () => Promise<{ ids: string[]; encrypted: boolean }>
@@ -297,9 +296,10 @@ export interface NexoraApi {
   }
 }
 
+const encodedHome = process.argv.find((arg) => arg.startsWith('--nexora-home='))?.slice('--nexora-home='.length) ?? ''
 const api: NexoraApi = {
   platform: process.platform,
-  home: homedir(),
+  home: encodedHome ? decodeURIComponent(encodedHome) : '',
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -324,7 +324,7 @@ const api: NexoraApi = {
   chat: {
     newSession: () => ipcRenderer.invoke(IPC.CHAT_NEW),
     send: (input: ChatSendInput) => ipcRenderer.invoke(IPC.CHAT_SEND, input),
-    abort: () => ipcRenderer.invoke(IPC.CHAT_ABORT),
+    abort: (requestId?: string) => ipcRenderer.invoke(IPC.CHAT_ABORT, requestId),
     onStream: (cb) => {
       const handler = (_e: unknown, data: ChatStreamEvent) => cb(data)
       ipcRenderer.on(IPC.CHAT_STREAM, handler as never)
@@ -365,7 +365,7 @@ const api: NexoraApi = {
   },
   artifacts: {
     export: (input: ArtifactExportInput) => ipcRenderer.invoke(IPC.ARTIFACTS_EXPORT, input),
-    exportZip: (input: { files: Array<{ path: string; content: string }>; projectName?: string; savePath?: string }) =>
+    exportZip: (input: { files: Array<{ path: string; content: string }>; projectName?: string }) =>
       ipcRenderer.invoke(IPC.ARTIFACTS_EXPORT_ZIP, input)
   },
   agent: {
@@ -499,7 +499,7 @@ const api: NexoraApi = {
   },
   mcp: {
     servers: () => ipcRenderer.invoke(IPC.MCP_SERVERS),
-    call: (input: { server: string; tool: string; args?: Record<string, unknown> }) =>
+    call: (input: import('../shared/ipc').McpCallInput) =>
       ipcRenderer.invoke(IPC.MCP_CALL, input),
     reload: () => ipcRenderer.invoke(IPC.MCP_RELOAD),
     getConfig: () => ipcRenderer.invoke(IPC.MCP_GET_CONFIG),

@@ -12,7 +12,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { readdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
-import { ensureLlamaBinary } from './llamaServerEngine'
+import { findInstalledLlamaBinary } from './llamaServerEngine'
 
 const MODELS_DIR = join(homedir(), 'NexoraAI', 'models')
 const EMBED_PORT = 8093
@@ -46,12 +46,9 @@ async function ensureServer(): Promise<{ ok: boolean; error?: string }> {
   if (proc) stopEmbedServer()
   modelInUse = model
   readyP = (async () => {
-    let bin: string
-    try {
-      bin = (await ensureLlamaBinary(false)).bin
-    } catch (e) {
-      return { ok: false, error: (e as Error).message }
-    }
+    const installed = findInstalledLlamaBinary(false)
+    if (!installed) return { ok: false, error: 'Yerel llama-server kurulu değil; önce bir metin modeli yükleyin.' }
+    const bin = installed.bin
     return new Promise<{ ok: boolean; error?: string }>((resolve) => {
       const child = spawn(
         bin,

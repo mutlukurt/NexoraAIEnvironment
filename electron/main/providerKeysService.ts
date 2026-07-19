@@ -1,9 +1,8 @@
 /**
  * 10.9 — Sağlayıcı API anahtarları: OS keychain'de (safeStorage) şifreli saklanır.
  *
- * Anahtarlar ASLA localStorage'a düz yazılmaz. safeStorage varsa OS keychain ile
- * şifrelenir; yoksa (bazı Linux ortamları) base64'e düşülür ve UI'de "şifreleme
- * yok" uyarısı verilir. Dosya: ~/NexoraAI/provider-keys.json (şifreli blob'lar).
+ * Anahtarlar ASLA localStorage'a veya base64 "fallback" depoya düz yazılmaz.
+ * OS safeStorage kullanılamıyorsa kayıt açıkça reddedilir.
  */
 import { safeStorage } from 'electron'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -42,10 +41,11 @@ function encAvailable(): boolean {
   }
 }
 
-export async function setProviderKey(providerId: string, key: string): Promise<{ ok: boolean; encrypted: boolean }> {
+export async function setProviderKey(providerId: string, key: string): Promise<{ ok: boolean; encrypted: boolean; error?: string }> {
   const store = await readStore()
   const enc = encAvailable()
-  const blob = enc ? safeStorage.encryptString(key).toString('base64') : Buffer.from(key, 'utf8').toString('base64')
+  if (!enc) return { ok: false, encrypted: false, error: 'OS secure storage is unavailable; the credential was not saved.' }
+  const blob = safeStorage.encryptString(key).toString('base64')
   store.keys[providerId] = blob
   // Karışık şifreleme olmasın: tüm dosya tek moda ait (ilk yazımda belirlenir).
   store.encrypted = enc
@@ -55,11 +55,12 @@ export async function setProviderKey(providerId: string, key: string): Promise<{
 
 export async function getProviderKey(providerId: string): Promise<string | null> {
   const store = await readStore()
+  if (!store.encrypted || !encAvailable()) return null
   const blob = store.keys[providerId]
   if (!blob) return null
   try {
     const buf = Buffer.from(blob, 'base64')
-    return store.encrypted && encAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8')
+    return safeStorage.decryptString(buf)
   } catch {
     return null
   }
@@ -75,7 +76,8 @@ export async function deleteProviderKey(providerId: string): Promise<{ ok: boole
 /** Anahtarı olan sağlayıcı id'leri (anahtarın kendisi ASLA dönmez). */
 export async function listConfiguredProviders(): Promise<{ ids: string[]; encrypted: boolean }> {
   const store = await readStore()
-  return { ids: Object.keys(store.keys), encrypted: store.encrypted }
+  const secure = store.encrypted && encAvailable()
+  return { ids: secure ? Object.keys(store.keys) : [], encrypted: secure }
 }
 
 export function encryptionAvailable(): boolean {

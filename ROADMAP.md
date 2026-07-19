@@ -1,5 +1,9 @@
 # NexoraAI Roadmap
 
+> **Historical document.** This file records plans and implementation claims from an
+> earlier development stage. See [ROADMAP-2026.md](ROADMAP-2026.md) and
+> [docs/CURRENT-TRUTH.md](docs/CURRENT-TRUTH.md); current source and evidence win.
+
 The plan for going from **1 to 10**: first make the engine faster on the same hardware, then make small models act like masters, then give the agent eyes, and finally widen the platform. Each item is checked off as it ships.
 
 **Guiding principle** (same one that built this app): don't ask the model nicely — make failure impossible, verify everything deterministically, and hide model mistakes from the user.

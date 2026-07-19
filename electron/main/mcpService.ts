@@ -272,9 +272,18 @@ class McpConnection {
 
 const connections = new Map<string, McpConnection>()
 let started = false
+// Renderer activity (opening a panel or sending a chat) must never auto-spawn
+// configured commands. Electron main sets this only after a native confirmation.
+let lifecycleAuthorized = false
+
+export function setLifecycleAuthorized(authorized: boolean): void {
+  lifecycleAuthorized = authorized
+  if (!authorized) shutdown()
+}
 
 /** Config'i okur, etkin sunucuları (henüz başlamamışsa) paralel başlatır. */
 export async function ensureStarted(): Promise<void> {
+  if (!lifecycleAuthorized) return
   const cfgs = await readConfig()
   const names = new Set(cfgs.map((c) => c.name))
 
@@ -330,6 +339,7 @@ export async function getServers(): Promise<McpServerState[]> {
 
 /** Ajan prompt'una gömülecek düz araç listesi (sadece bağlı sunucular). */
 export async function toolsForPrompt(): Promise<Array<{ server: string; tool: string; description: string }>> {
+  if (!lifecycleAuthorized) return []
   if (!started) await ensureStarted()
   const out: Array<{ server: string; tool: string; description: string }> = []
   for (const conn of connections.values()) {
@@ -346,6 +356,7 @@ export async function callTool(
   tool: string,
   args: Record<string, unknown>
 ): Promise<{ ok: boolean; content: string }> {
+  if (!lifecycleAuthorized) return { ok: false, content: 'MCP lifecycle is not natively authorized.' }
   if (!started) await ensureStarted()
   const conn = connections.get(server)
   if (!conn) return { ok: false, content: `MCP sunucusu bulunamadı: ${server}` }
@@ -358,6 +369,7 @@ export async function callTool(
 }
 
 export async function reload(): Promise<McpServerState[]> {
+  if (!lifecycleAuthorized) return getServers()
   for (const conn of connections.values()) conn.kill()
   connections.clear()
   started = false

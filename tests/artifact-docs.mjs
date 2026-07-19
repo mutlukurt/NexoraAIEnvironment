@@ -49,7 +49,7 @@ const wt = api.composeWalkthrough({
     { path: 'src/components/Hero.tsx', desc: 'hero: başlık, CTA [şablon: hero]', status: 'done' },
     { path: 'src/components/Menu.tsx', desc: 'menü ızgarası', status: 'failed' }
   ],
-  verify: { clean: true },
+  verify: { outcome: 'passed' },
   behavior: {
     rows: ['görseller 2/2 ✓', 'menü bağlantıları 3/3 ✓', 'konsol temiz ✓'],
     fails: ['nav hedefi yok: #olmayan'],
@@ -78,6 +78,14 @@ const wtPending = api.composeWalkthrough({
 })
 check('walkthrough: doğrulama/davranış yokken dürüst "henüz" notları',
   wtPending.includes('henüz') && wtPending.includes('Davranış testi henüz koşmadı'), wtPending)
+
+const wtUnverified = api.composeWalkthrough({
+  request: 'x', when: 'T', lang: 'tr',
+  files: [{ path: 'a.tsx', status: 'done' }],
+  verify: { outcome: 'unverified', detail: 'Dependencies are not installed; build skipped.' }
+})
+check('walkthrough: skipped build başarısız değil unverified gösterilir',
+  wtUnverified.includes('kanıt üretemedi') && !wtUnverified.includes('hata bıraktı'), wtUnverified)
 
 const td = api.composeTaskDoc('Planlı üretim — 3 dosya', [
   { label: 'a.css', status: 'done', detail: 'otomatik' },
