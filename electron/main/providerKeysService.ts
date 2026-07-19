@@ -61,10 +61,23 @@ export async function getProviderKey(providerId: string): Promise<string | null>
   const store = await readStore()
   const blob = store.keys[providerId]
   if (!blob) return null
+  const buf = Buffer.from(blob, 'base64')
+  // The stored `encrypted` flag can DISAGREE with the blob: an older store that
+  // was written safeStorage-encrypted (a long ~150-char blob) may have had its
+  // flag later rewritten to false by a migration/regression — then a naive
+  // utf8 read yields a garbage key and every API call 401s. So don't trust the
+  // flag blindly. If the OS keychain can decrypt this blob, THAT is the real
+  // key; if it can't (a base64 plaintext blob, or no keychain), fall back to
+  // the utf8 plaintext. This self-heals the mismatch on read.
+  if (encAvailable()) {
+    try {
+      return safeStorage.decryptString(buf)
+    } catch {
+      /* not a safeStorage blob → base64 plaintext fallback below */
+    }
+  }
   try {
-    const buf = Buffer.from(blob, 'base64')
-    // Şifreli store ise safeStorage ile çöz; base64 fallback ise düz UTF-8 oku.
-    return store.encrypted && encAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8')
+    return buf.toString('utf8')
   } catch {
     return null
   }

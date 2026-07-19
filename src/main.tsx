@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
-import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, setStreamLivenessMs, setBehaviorTiming } from '@/store/appStore'
+import { useAppStore, applyTheme, themeInitial, getLastOutgoingPrompt, getLastVerificationLedger, setStreamLivenessMs, setBehaviorTiming } from '@/store/appStore'
 import { useHfStore } from '@/store/hfStore'
 import { useArtifactsStore } from '@/store/artifactsStore'
 import { useSettingsStore, applyUiScale, uiScaleInitial, clampUiScale } from '@/store/settingsStore'
@@ -50,6 +50,7 @@ window.addEventListener('keydown', (e) => {
   artifacts: useArtifactsStore,
   settings: useSettingsStore,
   lastPrompt: getLastOutgoingPrompt,
+  lastLedger: getLastVerificationLedger,
   setStreamLivenessMs,
   setBehaviorTiming,
   // 21.5 sahte-paket kalkanı canlı testi: ajanın komut-karar yolunu ve kalkanı

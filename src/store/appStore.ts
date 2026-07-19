@@ -337,6 +337,11 @@ export function getLastOutgoingPrompt(): string {
   return lastOutgoingPrompt
 }
 
+/** Faz 2 — son turun Doğrulama Defteri (CDP/test sürücüsü + ileride UI rozeti). */
+export function getLastVerificationLedger(): VerificationLedger | null {
+  return lastVerificationLedger
+}
+
 export function scheduleSessionSave(): void {
   if (sessionSaveTimer) clearTimeout(sessionSaveTimer)
   sessionSaveTimer = setTimeout(() => {
@@ -940,6 +945,36 @@ async function postGenVerify(
     }
   } finally {
     postVerifyActive = false
+    // Faz 2 — Doğrulama Defteri: turun gerçek olaylarından bir kanıt defteri kur.
+    // GUARD DIŞINDA + koşulsuz: post-verify bir ONARIM turu tetiklediğinde
+    // latestTurnRequestId değişir; defteri aşağıdaki walkthrough guard'ına bağlarsak
+    // onarımlı build'lerde kanıt SESSİZCE kaybolur (canlı-test bulgusu). Makbuzlar
+    // tur-öncesi içerik (turnBaseFiles) ile şimdiki içeriği karşılaştırır — dokunulan
+    // TÜM dosyalar; hükmü Judge satırlardan hesaplar (elle yazılmaz).
+    try {
+      const nowFiles = useArtifactsStore.getState().files
+      const changedPaths = new Set<string>([...turnBaseFiles.keys(), ...Object.keys(nowFiles)])
+      const receipts = [...changedPaths]
+        .map((p) => editReceipt(p, turnBaseFiles.get(p) ?? '', nowFiles[p]?.content ?? ''))
+        .filter((r) => r.beforeHash !== r.afterHash)
+      if (receipts.length > 0 || verificationOutcome !== 'unverified') {
+        lastVerificationLedger = buildLedger({
+          turnId: operationId || latestTurnRequestId || nanoid(),
+          rows: [
+            ledgerRow({
+              id: 'post-verify',
+              kind: 'post-verify',
+              outcome: verificationOutcome,
+              diagnostic: lastDiagnosis || undefined,
+              evidence: receipts,
+              at: Date.now()
+            })
+          ]
+        })
+      }
+    } catch {
+      /* defter üretimi asla akışı bozmaz */
+    }
     if (!operationId || latestTurnRequestId === operationId) {
       lastPostVerifyClean = verifiedClean // 7.7: kuyruk görev hükmü buradan okur
       lastPostVerifyOutcome = verificationOutcome
@@ -947,31 +982,7 @@ async function postGenVerify(
       // "doğrulandı" sohbet iddiası değil, okunabilir kanıt belgesi olur.
       if (pendingWalkthrough) {
         pendingWalkthrough.verify = { outcome: verificationOutcome, detail: lastDiagnosis || undefined }
-        // Faz 2 — Doğrulama Defteri: turun gerçek olaylarından bir kanıt defteri
-        // kur. Dosya makbuzları tur-öncesi içerik (turnBaseFiles) ile şimdiki
-        // içeriği karşılaştırır; hükmü Judge satırlardan hesaplar (elle yazılmaz).
-        try {
-          const nowFiles = useArtifactsStore.getState().files
-          const receipts = pendingWalkthrough.files.map((f) =>
-            editReceipt(f.path, turnBaseFiles.get(f.path) ?? '', nowFiles[f.path]?.content ?? '')
-          )
-          lastVerificationLedger = buildLedger({
-            turnId: operationId || latestTurnRequestId || nanoid(),
-            rows: [
-              ledgerRow({
-                id: 'post-verify',
-                kind: 'post-verify',
-                outcome: verificationOutcome,
-                diagnostic: lastDiagnosis || undefined,
-                evidence: receipts,
-                at: Date.now()
-              })
-            ]
-          })
-          pendingWalkthrough.ledger = lastVerificationLedger
-        } catch {
-          /* defter üretimi asla akışı bozmaz */
-        }
+        if (lastVerificationLedger) pendingWalkthrough.ledger = lastVerificationLedger
         void writeWalkthrough(
           get().language === 'tr'
             ? '📄 Walkthrough hazır — Dosyalar & Kod → Belgeler sekmesinden okuyabilirsin. (Çalıştır sonrası davranış kanıtı da eklenir.)'
