@@ -83,9 +83,11 @@ is the combination of:
 
 ### Still partial or unreliable (Phase 2+ work)
 
-- The tri-state outcome exists, but there is not yet one authoritative, evidence-backed
-  verification ledger: `passed` rows do not all link to machine-readable proof, and
-  Proof-of-Edit receipts are not yet structured records. (Phase 2.)
+- The per-turn Verification Ledger, its deterministic Judge, and structured Proof-of-Edit
+  receipts now exist (Phase 2 slice 1, on `main`). What remains: splitting the single
+  post-verify row into per-check rows, wiring every `passed` row to machine-readable proof
+  across the build/queue/history/browser surfaces, the three-state UI badge, and EARS
+  acceptance criteria. (Phase 2, later slices.)
 - Turbo is wired, but the bundled llama.cpp version requires newer speculative-decoding
   flags and stronger draft-model compatibility checks. (Phase 3.)
 - Browser behavior checks and SpecVerifier exist, but do not yet form one authoritative
@@ -289,17 +291,20 @@ user can open, not a chat sentence.
 
 - [done] `passed`, `failed`, and `unverified` are the only verification outcomes.
 - [done] Skipped/unavailable state is preserved and never promoted to passed.
-- Add a per-turn **Verification Ledger**: an ordered list of evidence rows, one per
-  check (syntax, build, goal-fidelity, post-verify, and — later — browser).
-- Attach to each row: check id, outcome, the command run, exit code, the changed-file
-  paths with before/after content hashes, the diagnostic text, and a timestamp.
-- Add **Proof-of-Edit receipts**: a structured per-file record (path, before-hash,
+- [done] A per-turn **Verification Ledger** (`src/lib/verificationLedger.ts`): evidence
+  rows carrying outcome, command, exit code, diagnostic, timestamp, and per-file
+  receipts. Currently one `post-verify` row per turn; splitting into per-check
+  (syntax/build/goal, and — later — browser) rows is the next slice.
+- [done] **Proof-of-Edit receipts**: a structured per-file record (path, before-hash,
   after-hash, applied-edit count, added/removed line counts) instead of a prose claim.
-- Add a deterministic **Judge** that computes the turn's overall outcome purely from
+- [done] A deterministic **Judge** that computes the turn's overall outcome purely from
   the ledger rows (worst-outcome wins; any `failed` → failed, else any `unverified`
   → unverified, else `passed`), so the headline can never disagree with its evidence.
-- Surface the ledger in the walkthrough/receipt document and distinguish the three
-  states visibly in the UI (not just in prose).
+- [done] Surface the ledger in the walkthrough/receipt document. *(A distinct three-state
+  UI badge is the next slice — the document already renders all three states.)*
+- Split the single post-verify row into per-check rows (syntax / build / goal, then
+  browser) each with its own command, exit code, and evidence.
+- Add the three-state verification UI badge (passed / failed / unverified).
 - Wire EARS-style acceptance criteria into the production build flow (feeds Phase 4).
 
 ### Data model (target)
@@ -318,13 +323,30 @@ the model.
 
 ### Implementation slice order
 
-1. Pure ledger + Judge module with a characterization test (worst-outcome wins;
+1. [done] Pure ledger + Judge module with a characterization test (worst-outcome wins;
    skipped never becomes passed; empty ledger is `unverified`, not `passed`).
-2. Proof-of-Edit receipts computed from the existing apply/transaction outcome.
-3. Populate the ledger from the existing post-verify pass (syntax/build/goal rows).
-4. Render the ledger in the walkthrough document and the three-state UI badge.
-5. Adversarial review, then desktop live acceptance on passed/failed/unverified
-   projects.
+2. [done] Proof-of-Edit receipts computed from the turn's `turnBaseFiles`→current diff.
+3. [done] Populate the ledger from the post-verify pass (one `post-verify` row for now;
+   per-check syntax/build/goal rows are the next slice).
+4. [done] Render the ledger in the walkthrough document. *(Three-state UI badge: next.)*
+5. Split per-check rows + the three-state UI badge, then desktop live acceptance across
+   passed / failed / unverified projects.
+
+### Slice 1 checkpoint (unreleased, on `main`)
+
+The ledger, Judge, and Proof-of-Edit receipts are implemented, unit-tested
+(`tests/verification-ledger.mjs`, 20 assertions, wired into `test:engine`), and were
+**live-verified end to end via the qwen-plus API**: a real build produced a ledger with
+truthful Judge outcomes (`failed` on a genuine syntax error; `unverified` when the build
+check was unavailable — never falsely green) and real receipts (path, +/- lines,
+before→after content hashes) for `package.json` and `src/App.tsx`. Inspectable at
+runtime via `__nexoraDebug.lastLedger`. Two defects the live test surfaced were fixed in
+the same pass: a credential-decode robustness bug (a safeStorage-encrypted key whose
+`encrypted` flag had been rewritten to false decoded as garbage → the read now tries the
+keychain regardless of the flag) and a ledger-flow bug (the ledger was lost when
+post-verify fired a repair turn → it is now assembled unconditionally). The flow is
+model-agnostic: the same post-verify path runs for local and API builds, so a strong
+local model (≥ ~9 GB) produces the same ledger offline, no API required.
 
 ### Exit criteria
 

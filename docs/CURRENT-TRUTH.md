@@ -97,9 +97,12 @@ Provider keys are stored only in a main-process file, never in renderer local st
 and legacy local-storage API keys are migrated out. They are encrypted with Electron
 `safeStorage` whenever the OS keychain is available; on keyring-less Linux they fall
 back to a base64 store the UI flags as unencrypted, so an existing key stays usable
-instead of becoming silently unreadable (the v0.25.0 behavior). The store records which
-mode it used, and decryption only invokes `safeStorage` when the store was written
-encrypted. Startup advice is offline, and local
+instead of becoming silently unreadable (the v0.25.0 behavior). On read, `getProviderKey`
+attempts `safeStorage` decryption whenever the OS keychain is available and, only if that
+fails (a base64 plaintext blob, or no keychain), falls back to utf8 plaintext — so a
+stored encrypted/plaintext-flag mismatch self-heals on read instead of yielding an
+unreadable key. (This read-robustness fix is unreleased, on `main`, after v0.25.1.)
+Startup advice is offline, and local
 semantic indexing cannot silently download or start a missing embedding binary.
 
 Package-manifest staging is classified as a managed-workspace write. It does not
@@ -122,10 +125,25 @@ desktop build (local model) then filled files incrementally with no modal and no
 
 ## Phase 2 truth
 
-Phase 2 is active. Tri-state primitives (`passed`, `failed`, and `unverified`) already
-exist, but one authoritative, evidence-backed verification ledger is not yet complete.
-Build, queue, history, browser, UI, and proof-of-edit surfaces must preserve those
-states without promoting skipped or unavailable checks to green.
+Phase 2 is active. Tri-state primitives (`passed`, `failed`, and `unverified`) exist and
+never promote a skipped or unavailable check to green.
+
+Slice 1 of the Verification Ledger is implemented on `main` (not yet in a tagged
+release): `src/lib/verificationLedger.ts` is a pure module with a deterministic Judge
+(worst-outcome wins; an empty ledger is `unverified`, never `passed`) and Proof-of-Edit
+receipts (path, before/after content hash, applied-edit count, +/- lines). The
+post-verify pass assembles a per-turn ledger from the turn's real `turnBaseFiles`→current
+diff and renders it into the walkthrough document, so "verified" is an inspectable record
+rather than a chat sentence. It is model-agnostic — the same post-verify path runs for
+local and API builds — and was live-verified end to end via the qwen-plus API (truthful
+`failed`/`unverified` Judge outcomes plus real receipts), inspectable at runtime through
+`__nexoraDebug.lastLedger`. It is unit-tested (`tests/verification-ledger.mjs`, in
+`test:engine`).
+
+Still open for later Phase 2 slices: splitting the single `post-verify` row into
+per-check rows (syntax / build / goal, then browser) each with its own command and exit
+code; a distinct three-state verification UI badge; and EARS-style acceptance criteria.
+Build, queue, history, browser, and UI surfaces must keep preserving the three states.
 
 ## Packaging truth
 

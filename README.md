@@ -1178,13 +1178,22 @@ NexoraAIEnvironment/
 
 The authoritative plan is [ROADMAP-2026.md](ROADMAP-2026.md), backed by the
 [Current Implementation Truth](docs/CURRENT-TRUTH.md). **Phase 1 — Truth and Safety is
-complete; Phase 2 — Verification OS is active.** Every phase must pass automated gates
-and a visible desktop acceptance test before the roadmap advances.
+complete; Phase 2 — Verification OS is active.** Every phase must pass automated gates,
+an independent adversarial review, and a visible desktop acceptance test before the
+roadmap advances.
+
+Phase 2 slice 1 is implemented and verified on `main` (unreleased): a per-turn
+**Verification Ledger** (`src/lib/verificationLedger.ts`) with a deterministic Judge
+(worst-outcome wins; an empty ledger is `unverified`, never falsely green) and structured
+**Proof-of-Edit receipts** (path, before→after content hash, +/- lines), rendered into
+the walkthrough document. It is unit-tested (`test:engine` green) and live-verified
+end-to-end via the qwen-plus API — and it is model-agnostic, so a strong local model
+produces the same evidence offline, no API required.
 
 | 2026 phase | Status | Outcome |
 | --- | --- | --- |
 | 1. Truth and Safety | ✅ Complete | Isolated turns, transactional writes, exact rollback, authoritative capabilities |
-| 2. Verification OS | 🚧 Active | Evidence ledger, truthful results, Proof-of-Edit receipts |
+| 2. Verification OS | 🚧 Active | Ledger + Judge + Proof-of-Edit receipts (slice 1 done on `main`); per-check rows, three-state badge, EARS next |
 | 3. Local Engine Autopilot | Planned | Hardware-aware scheduling and lifecycle management |
 | 4. Reliable App Factory | Planned | One canonical build/preview/verify pipeline |
 | 5–8 | Planned | Product UX, extensibility, release engineering, benchmark moat |
