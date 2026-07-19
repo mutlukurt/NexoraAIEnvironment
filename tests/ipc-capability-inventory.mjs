@@ -57,7 +57,14 @@ const keyStore = readFileSync(join(repo, 'electron/main/providerKeysService.ts')
 const settingsStore = readFileSync(join(repo, 'src/store/settingsStore.ts'), 'utf8')
 const persistenceEnd = settingsStore.indexOf('// Hibrit API (4.1)')
 const persistedSettings = settingsStore.slice(settingsStore.lastIndexOf('localStorage.setItem(', persistenceEnd), persistenceEnd)
-check('provider credentials have no plaintext/base64 fallback', /if \(!enc\) return \{ ok: false/.test(keyStore) && !/Buffer\.from\(key, ['"]utf8['"]\)/.test(keyStore))
+// Keys are encrypted with the OS keychain WHEN it is available, and the store
+// records which mode it used so the UI can warn. A base64 fallback is allowed
+// only for keyring-less Linux (else the user's existing key becomes unreadable,
+// v0.25.0 regression) — never a silent plaintext store, and never localStorage.
+check('provider credentials use safeStorage when available',
+  /safeStorage\.encryptString\(key\)/.test(keyStore)
+    && /store\.encrypted = enc/.test(keyStore)
+    && /store\.encrypted && encAvailable\(\)/.test(keyStore))
 check('legacy renderer API credentials are migrated out of localStorage', /delete parsed\.apiKey/.test(settingsStore) && !/apiKey/.test(persistedSettings))
 
 rmSync(work, { recursive: true, force: true })

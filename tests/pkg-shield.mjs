@@ -86,22 +86,22 @@ check('komut: crossenv → şüpheli', api.screenInstallCommand('npm i crossenv'
 check('komut: kurulum yok → temiz', api.screenInstallCommand('npm run build').suspicious === false)
 
 // ── trust.ts entegrasyonu ──────────────────────────────────────────────
-check('trust: gerçek paket kurulumu → ask (kod yürütme)', api.commandVerdict('npm install react').action === 'ask')
-check('trust: çoklu gerçek → ask', api.commandVerdict('npm i react react-dom tailwindcss').action === 'ask')
+check('trust: gerçek paket kurulumu → auto', api.commandVerdict('npm install react').action === 'auto')
+check('trust: çoklu gerçek → auto', api.commandVerdict('npm i react react-dom tailwindcss').action === 'auto')
 const v1 = api.commandVerdict('npm install reactt')
 check('trust: uydurma paket → ask (varsayılan en)', v1.action === 'ask' && /fake package/i.test(v1.reason))
 // i18n: gerekçe dile göre gelir (lang opts'tan geçer)
 check('trust: reason TR', /sahte paket/.test(api.commandVerdict('npm install reactt', { lang: 'tr' }).reason))
 check('trust: reason DE', /gefälschtes Paket/.test(api.commandVerdict('npm install reactt', { lang: 'de' }).reason))
 check('trust: crossenv → ask', api.commandVerdict('yarn add crossenv').action === 'ask')
-check('trust: bilinmeyen özel paket → ask', api.commandVerdict('npm install my-internal-widget-x9').action === 'ask')
-check('trust: paketsiz npm install → ask', api.commandVerdict('npm install').action === 'ask')
+check('trust: bilinmeyen özel paket → auto (nag yok)', api.commandVerdict('npm install my-internal-widget-x9').action === 'auto')
+check('trust: paketsiz npm install → auto', api.commandVerdict('npm install').action === 'auto')
 // güvenlik önceliği korunur
 check('trust: rm -rf / hâlâ deny', api.commandVerdict('rm -rf /').action === 'deny')
 check('trust: sudo hâlâ deny (kurulumda bile)', api.commandVerdict('sudo npm install reactt').action === 'deny')
 // karar katmanı: auto tier'da typosquat SORULUR
 check('karar: auto tier + typosquat → ask', api.decideCommand('npm install reactt', 'auto').decision === 'ask')
-check('karar: auto tier + gerçek → ask', api.decideCommand('npm install react', 'auto').decision === 'ask')
+check('karar: auto tier + gerçek → run', api.decideCommand('npm install react', 'auto').decision === 'run')
 check('karar: read tier → block', api.decideCommand('npm install reactt', 'read').decision === 'block')
 
 rmSync(work, { recursive: true, force: true })

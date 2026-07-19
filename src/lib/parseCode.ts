@@ -140,13 +140,34 @@ export interface StreamingParseResult {
   files: StreamedFileBlock[]
 }
 
-/** True when a model response ended inside a fenced code block. */
+/**
+ * True when a model response genuinely ended INSIDE an unclosed file block.
+ *
+ * A naive ``` parity toggle (the old implementation) false-positived on any file
+ * whose CONTENT contained a fence (README examples, template literals, markdown),
+ * which then rejected and rolled back the whole — complete — multi-file turn,
+ * discarding every generated file. This block-aware version pairs an OPENING file
+ * fence (```lang / ```lang path — a fence with a tag after it) with the next BARE
+ * closing ```; fences seen while already inside a block are treated as content and
+ * do not close it. Only a truly dangling opening fence at end-of-response returns true.
+ */
 export function hasUnclosedCodeFence(content: string): boolean {
-  let open = false
+  let insideBlock = false
   for (const line of content.split('\n')) {
-    if (/^\s*```/.test(line)) open = !open
+    const m = /^\s*```(.*)$/.exec(line)
+    if (!m) continue
+    const afterFence = m[1].trim()
+    if (!insideBlock) {
+      // Enter a block only on an opening fence (has a language/path tag). A bare
+      // ``` in prose without a tag is not a file-block opener.
+      if (afterFence !== '') insideBlock = true
+    } else if (afterFence === '') {
+      // Bare closing fence ends the current file block.
+      insideBlock = false
+    }
+    // else: a tagged fence while inside a block = nested content, ignored.
   }
-  return open
+  return insideBlock
 }
 
 function trimBlankEdges(arr: string[]): string[] {

@@ -493,13 +493,19 @@ async function processQueue(): Promise<void> {
         }
       }
       const isTr = after.language === 'tr'
+      // needs-review is reserved for a CONCRETE failure (error, build error,
+      // unmet goal, or a verification that ran and FAILED). A clean task whose
+      // verification simply did not run — the common cases: a chat/prose answer,
+      // or a freshly generated project whose deps aren't installed so the build
+      // check skipped — is NOT a review item; it is done. The summary below still
+      // honestly says "verification unavailable" vs "verification clean", so the
+      // truthful tri-state is preserved in the label without flooding the inbox
+      // with false review flags (the v0.25.0 regression).
       const verdict: QueuedTask['state'] = after.error
         ? 'failed'
-        : after.lastBuildError || goalMiss.length > 0
+        : after.lastBuildError || goalMiss.length > 0 || lastPostVerifyOutcome === 'failed'
           ? 'needs-review'
-          : lastPostVerifyOutcome === 'passed'
-            ? 'verified'
-            : 'needs-review'
+          : 'verified'
       const summary = after.error
         ? after.error.slice(0, 120)
         : after.lastBuildError
@@ -1945,10 +1951,21 @@ function applyStreamingContent(content: string, final: boolean): ApplyOutcome {
   const parsed = parseStreaming(content, { final })
   const { files } = parsed
   const store = useArtifactsStore.getState()
-  // Streaming output is a preview only. Project state is mutated once, on the
-  // validated final pass, so aborts cannot leave half-written files behind.
+  // LIVE STREAMING: write each file's current bytes into the store as they
+  // arrive so the editor fills in real time (the Bolt-style preview users rely
+  // on). Codex's v0.25 staging removed this — files only appeared at the final
+  // 'done' pass, so the whole turn looked frozen. The pre-turn transaction
+  // snapshot (beginTransaction at turn start) still guarantees an exact rollback
+  // on abort/rejection, so live preview and atomic rollback coexist. follow=false
+  // respects the user's "no forced code-tab switch" preference.
   if (!final) {
-    const writing = [...files].reverse().find((file) => !file.complete)?.path ?? null
+    let writing: string | null = null
+    for (const f of files) {
+      if (isDirectiveOnlyContent(f.code)) continue
+      if (restrictWriteToPath && f.path !== restrictWriteToPath) continue
+      store.streamUpdateFile(f.path, f.code, undefined, false)
+      if (!f.complete) writing = f.path
+    }
     store.setWritingPath(writing)
     return { fileCount: files.length, edits, written, deleted }
   }

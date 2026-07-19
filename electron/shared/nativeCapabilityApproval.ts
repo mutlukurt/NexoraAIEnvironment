@@ -54,8 +54,14 @@ export async function authorizeNativeCapability(
         ? authorizeBoundary(effect.capability, untrustedClaimsRemoved)
         : { allowed: false, needsApproval: false, reason: `Unsupported policy capability: ${effect.capability}` }
 
-  // Read-only and structural hard-deny decisions happen before any dialog.
-  if (!policy.allowed && !policy.needsApproval) return policy
+  // No dialog when approval is not required: this covers BOTH read-only /
+  // hard-deny (allowed=false) AND auto-safe classes the main-side policy already
+  // cleared (allowed=true, e.g. `ls`/`npm test`/plain `npm install` in auto tier).
+  // Only genuinely ask-class effects (network egress, MCP, typosquat installs,
+  // dangerous commands) reach the main-owned confirmation. Renderer approved/
+  // projectAlways claims were already stripped above, so a forged "auto" claim on
+  // an ask-class command is still reclassified by main → still prompts.
+  if (!policy.needsApproval) return policy
 
   const confirmed = await confirm(Object.freeze({ ...effect }), policy.reason)
   return {

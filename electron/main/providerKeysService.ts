@@ -1,8 +1,12 @@
 /**
  * 10.9 — Sağlayıcı API anahtarları: OS keychain'de (safeStorage) şifreli saklanır.
  *
- * Anahtarlar ASLA localStorage'a veya base64 "fallback" depoya düz yazılmaz.
- * OS safeStorage kullanılamıyorsa kayıt açıkça reddedilir.
+ * Anahtarlar ASLA localStorage'a düz yazılmaz. safeStorage varsa OS keychain ile
+ * şifrelenir; kullanılamıyorsa (yaygın: keyring/secret-service çalışmayan Linux)
+ * base64'e düşülür ve UI'de "şifreleme yok" uyarısı verilir — çünkü keyring'siz
+ * Linux'ta anahtarı hiç saklamamak kullanıcıyı API'siz bırakır (v0.25.0'da öyle
+ * oldu, kullanıcının mevcut anahtarı sessizce okunamaz hale geldi). Güvenlik
+ * niyeti korunur (varsa şifreli), ama kullanılabilirlik geri getirildi.
  */
 import { safeStorage } from 'electron'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -44,8 +48,8 @@ function encAvailable(): boolean {
 export async function setProviderKey(providerId: string, key: string): Promise<{ ok: boolean; encrypted: boolean; error?: string }> {
   const store = await readStore()
   const enc = encAvailable()
-  if (!enc) return { ok: false, encrypted: false, error: 'OS secure storage is unavailable; the credential was not saved.' }
-  const blob = safeStorage.encryptString(key).toString('base64')
+  // safeStorage yoksa base64 (şifresiz — UI'de "encrypted:false" uyarısı gösterir).
+  const blob = enc ? safeStorage.encryptString(key).toString('base64') : Buffer.from(key, 'utf8').toString('base64')
   store.keys[providerId] = blob
   // Karışık şifreleme olmasın: tüm dosya tek moda ait (ilk yazımda belirlenir).
   store.encrypted = enc
@@ -55,12 +59,12 @@ export async function setProviderKey(providerId: string, key: string): Promise<{
 
 export async function getProviderKey(providerId: string): Promise<string | null> {
   const store = await readStore()
-  if (!store.encrypted || !encAvailable()) return null
   const blob = store.keys[providerId]
   if (!blob) return null
   try {
     const buf = Buffer.from(blob, 'base64')
-    return safeStorage.decryptString(buf)
+    // Şifreli store ise safeStorage ile çöz; base64 fallback ise düz UTF-8 oku.
+    return store.encrypted && encAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8')
   } catch {
     return null
   }
@@ -76,8 +80,7 @@ export async function deleteProviderKey(providerId: string): Promise<{ ok: boole
 /** Anahtarı olan sağlayıcı id'leri (anahtarın kendisi ASLA dönmez). */
 export async function listConfiguredProviders(): Promise<{ ids: string[]; encrypted: boolean }> {
   const store = await readStore()
-  const secure = store.encrypted && encAvailable()
-  return { ids: secure ? Object.keys(store.keys) : [], encrypted: secure }
+  return { ids: Object.keys(store.keys), encrypted: store.encrypted && encAvailable() }
 }
 
 export function encryptionAvailable(): boolean {

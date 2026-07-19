@@ -158,9 +158,14 @@ jobs:
       - name: Attach .exe + .deb + .dmg to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          # No body/body_path and NO generate_release_notes: the release is created
+          # WITH authored English notes via `gh release create --notes-file` BEFORE
+          # this job runs; softprops only sets fields it is given, so omitting the
+          # body preserves those notes. generate_release_notes:true clobbered them.
           files: |
             dist-artifacts/**/*.exe
             dist-artifacts/**/*.deb
             dist-artifacts/**/*.dmg
-          fail_on_unmatched_files: true
+          # Keep false: a partial platform build must still publish the installers
+          # that DID build rather than failing the whole attach step.
+          fail_on_unmatched_files: false

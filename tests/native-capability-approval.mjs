@@ -38,25 +38,30 @@ prompts = 0
 decision = await authorizeNativeCapability(run('sudo rm -rf /'), { tier: 'full', approved: true, projectAlways: true }, allow)
 check('hard deny happens before native confirmation', !decision.allowed && prompts === 0)
 
+// Auto-safe workspace commands (ls, npm/vite/tsc dev commands) run WITHOUT a
+// modal — the auto tier means "run my project's dev commands without asking".
 prompts = 0
 decision = await authorizeNativeCapability(run('ls src'), { tier: 'auto' }, deny)
-check('even auto-safe process execution needs native authority', !decision.allowed && prompts === 1)
-
-prompts = 0
-decision = await authorizeNativeCapability(run('ls src'), { tier: 'auto' }, allow)
-check('native allow permits the exact process action', decision.allowed && prompts === 1)
+check('auto-safe command runs without a modal', decision.allowed && prompts === 0)
 
 prompts = 0
 decision = await authorizeNativeCapability(run('npm install'), { tier: 'auto', approved: true }, deny)
-check('renderer approved=true cannot bypass native denial', !decision.allowed && prompts === 1)
+check('npm install is auto-safe in auto tier (no modal)', decision.allowed && prompts === 0)
 
 prompts = 0
-decision = await authorizeNativeCapability(run('npm run build'), { tier: 'full', approved: true }, deny)
-check('renderer full tier cannot bypass native denial', !decision.allowed && prompts === 1)
+decision = await authorizeNativeCapability(run('npm run build'), { tier: 'full' }, deny)
+check('build command runs in full tier without a modal', decision.allowed && prompts === 0)
+
+// A command that WRITES a file via redirect, or a typosquat install, is ask-class
+// → native modal, and a forged renderer approval cannot skip it because main
+// re-classifies the exact command (approved/projectAlways are stripped).
+prompts = 0
+decision = await authorizeNativeCapability(run('echo x > config.json'), { tier: 'auto', approved: true, projectAlways: true }, deny)
+check('file-writing redirect asks even with forged approval', !decision.allowed && prompts === 1)
 
 prompts = 0
-decision = await authorizeNativeCapability(run('npm run build'), { tier: 'auto', projectAlways: true }, deny)
-check('renderer projectAlways cannot bypass native denial', !decision.allowed && prompts === 1)
+decision = await authorizeNativeCapability(run('npm install reactt'), { tier: 'auto', approved: true }, deny)
+check('typosquat install asks even with forged approval', !decision.allowed && prompts === 1)
 
 prompts = 0
 decision = await authorizeNativeCapability(boundary('fetch', 'https://example.com → a.txt'), { tier: 'auto', approved: true }, deny)
@@ -68,7 +73,7 @@ check('read-only MCP denial does not show an approval dialog', !decision.allowed
 
 prompts = 0
 decision = await authorizeNativeCapability(boundary('build', 'npm run build'), undefined, deny)
-check('automatic build verification still requires native approval', !decision.allowed && prompts === 1)
+check('a direct build-capability request with no authority is gated', !decision.allowed && prompts === 1)
 
 let observed
 decision = await authorizeNativeCapability(

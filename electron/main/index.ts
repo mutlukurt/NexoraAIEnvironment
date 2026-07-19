@@ -176,10 +176,19 @@ function confirmNativeCapability(effect: Readonly<NativeCapabilityEffect>, polic
     const settle = (allowed: boolean): void => {
       if (settled) return
       settled = true
+      clearTimeout(safetyTimer)
       resolveConfirmation(allowed)
       if (!modal.isDestroyed()) modal.destroy()
     }
+    // FAIL-SAFE: if the confirmation surface can't be shown or answered, DENY
+    // (never hang). Without these, a failed data-URL load / crashed renderer left
+    // an invisible modal whose promise never resolved — freezing the agent turn
+    // and every serialized confirmation behind it.
+    const safetyTimer = setTimeout(() => settle(false), 180_000)
     modal.on('closed', () => settle(false))
+    modal.webContents.on('did-fail-load', () => settle(false))
+    modal.webContents.on('render-process-gone', () => settle(false))
+    modal.webContents.on('unresponsive', () => settle(false))
     modal.on('page-title-updated', (event, title) => {
       if (title !== 'NEXORA_ALLOW' && title !== 'NEXORA_DENY') return
       event.preventDefault()
@@ -793,13 +802,14 @@ function registerIpc(): void {
       projectName: String(input.projectName ?? ''),
       files: (input.files ?? []).map((file) => ({ path: String(file.path), content: String(file.content) }))
     })
-    const authorization = await authorizeNativeCapability(
-      { capability: 'build', projectName: frozen.projectName, detail: 'Synchronize the proposed workspace and execute its build verification scripts.' },
-      frozen.authorization,
-      confirmNativeCapability
-    )
-    if (!authorization.allowed) return { ok: false, error: authorization.reason }
-    // "düzelt" turundan sonra doğrulama: güncel dosyaları senkronla ve derle
+    // BUILD-CHECK is the app's OWN internal verification loop (postVerify /
+    // repair), not a user- or agent-directed privileged effect. It ran silently
+    // pre-v0.25; routing it through the native confirmation modal made the
+    // auto-verify loop pop up to 4 dialogs per turn for a check the user never
+    // requested (and pop even on fresh projects that then just skip). Restore the
+    // silent behaviour — `buildCheck(onlyIfInstalled)` already no-ops on projects
+    // without node_modules. Read-only tier still performs ZERO execution.
+    if (frozen.authorization?.tier === 'read') return { ok: true, skipped: true }
     await syncWorkspace(frozen.projectName, frozen.files)
     return buildCheck(frozen.projectName, frozen.onlyIfInstalled)
   })
