@@ -2,11 +2,11 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.25.0
+**Current release:** v0.25.1
 
 **Product position:** Local Verified App Factory
 
-**Status:** Phase 1 complete — Phase 2 active
+**Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 active
 
 ## Product promise
 
@@ -37,11 +37,21 @@ is the combination of:
    turns must not leave partially applied projects.
 5. **The privileged boundary lives in Electron main.** Renderer decisions alone may
    never authorize process, filesystem, network, package, or MCP capabilities.
-6. **Every phase has two gates.** Automated verification must pass first; then the
-   packaged or development desktop application must pass a real live acceptance test
-   on the user's computer.
+6. **Every phase has three gates.** Automated verification must pass first; then an
+   independent adversarial review must actively try to break the change and find
+   regressions; then the packaged or development desktop application must pass a real
+   live acceptance test on the user's computer. The middle gate is not optional — a
+   phase can pass its own tests and live checklist and still ship regressions the
+   author did not think to test. (Phase 1 did: it passed both gates, was declared
+   complete, and a later six-agent adversarial review still found nine real
+   regressions. The review gate exists because of that.)
 7. **No phase advances on documentation claims.** Source code, automated evidence,
-   and the live desktop test are the source of truth.
+   the adversarial review, and the live desktop test are the source of truth.
+8. **No new gate without a happy-path guard.** Every safety, permission, or
+   verification gate ships with a paired test proving the legitimate common workflow
+   still runs without added friction. A security control that blocks the everyday path
+   is a regression, not a feature. (Earned from v0.25.0, where a new allow-list popped
+   an approval modal on every ordinary build.)
 
 ## Starting v0.24.1 baseline
 
@@ -58,20 +68,32 @@ is the combination of:
 - Trust tiers, hard-deny rules, package typo protection, and destructive-action preview.
 - Windows, Linux, and macOS packaging jobs.
 
-### Partially integrated or unreliable areas
+### Resolved by Phase 1 (v0.25.0 → hardened v0.25.1)
 
-- Turn, session, permission, directive, and stream continuations are not consistently
-  request-scoped.
-- Streaming file application and rollback are not fully atomic.
-- Verification can currently promote skipped or weak checks to a green state.
-- Trust coverage differs between RUN, DEV, PKG, FONT, FETCH, and MCP paths.
+- Turn, session, permission, directive, and stream continuations are now request-scoped;
+  stale continuations from an old turn are rejected.
+- Streaming file application and rollback are transactional with byte-exact rollback.
+- One capability policy in Electron main now covers RUN, DEV, PKG, FONT, FETCH, browser,
+  and MCP; renderer claims cannot authorize a privileged effect.
+- The tri-state verification primitive (`passed`/`failed`/`unverified`) exists and no
+  longer promotes a skipped or unavailable build to green.
+- v0.25.1 additionally removed the over-gating the first cut introduced (a modal on every
+  build), restored live file streaming and keyring-less credential storage, and added a
+  confirmation-modal safety timeout.
+
+### Still partial or unreliable (Phase 2+ work)
+
+- The tri-state outcome exists, but there is not yet one authoritative, evidence-backed
+  verification ledger: `passed` rows do not all link to machine-readable proof, and
+  Proof-of-Edit receipts are not yet structured records. (Phase 2.)
 - Turbo is wired, but the bundled llama.cpp version requires newer speculative-decoding
-  flags and stronger draft-model compatibility checks.
+  flags and stronger draft-model compatibility checks. (Phase 3.)
 - Browser behavior checks and SpecVerifier exist, but do not yet form one authoritative
-  evidence model.
+  evidence model. (Phase 2/4.)
 - Preview code exists but is not currently a productized in-app real-runtime surface.
+  (Phase 5.)
 - The active configuration profile behaves globally despite session-scoped claims.
-- Documentation contains stale and contradictory implementation claims.
+- Documentation still requires continuous reconciliation against source and live evidence.
 
 ## Phase delivery protocol
 
@@ -80,11 +102,16 @@ Every phase follows this fixed sequence:
 1. Add characterization or regression tests for the current behavior.
 2. Implement the smallest behavior-preserving slice.
 3. Run targeted tests, full typecheck, the engine suite, and the production build.
-4. Launch NexoraAI on the user's desktop.
-5. Execute the phase's live acceptance checklist using real UI interactions.
-6. Inspect visible output, runtime logs, changed files, and persisted state.
-7. Record pass/fail evidence in the phase notes.
-8. Advance only after every mandatory live item passes.
+4. Run an independent adversarial review: separate agents/passes whose only job is to
+   find what the change broke — regressions, over-gated happy paths, and untested
+   edge cases — not to confirm it works. Fix every confirmed finding and re-run step 3.
+5. Launch NexoraAI on the user's desktop.
+6. Execute the phase's live acceptance checklist using real UI interactions.
+7. Inspect visible output, runtime logs, changed files, and persisted state.
+8. Record pass/fail evidence, including the adversarial findings and their fixes, in
+   the phase notes.
+9. Advance only after the adversarial review is clean and every mandatory live item
+   passes.
 
 ## Phase 1 — Truth and Safety
 
@@ -216,26 +243,95 @@ a host GTK launch failure. The final closure pass ran the repository's host Elec
 environment variable. Both passes loaded this repository's
 `out/renderer/index.html`, not a packaged renderer.
 
+### Hardening checkpoint — v0.25.1 (2026-07-19)
+
+Phase 1 passed both of its original gates, yet a six-agent adversarial review of the
+shipped v0.25.0 found nine real regressions. This is why the phase protocol now has a
+mandatory adversarial-review gate. v0.25.1 kept the entire capability boundary and
+fixed the regressions:
+
+- The main-side safe-command allow-list had been narrowed to a few read commands, so
+  ordinary `npm`/`vite`/`tsc`/`eslint` builds each raised a native approval modal. The
+  full dev-command allow-list was restored: under the `auto` tier the project's own
+  build/dev commands run without a modal, while main still re-derives the command's
+  class from the exact string so a forged `auto` claim cannot smuggle an ask-class or
+  network action.
+- Live per-file streaming had regressed to whole-turn application; it was restored so
+  files fill incrementally as the model writes them.
+- Provider-key storage rejected any non-`safeStorage` store, which silently made an
+  existing key unreadable on keyring-less Linux. A base64 fallback (UI-flagged as
+  unencrypted, never written to renderer storage) was restored; `safeStorage` is still
+  used whenever the OS keychain is available.
+- The confirmation modal gained a safety timeout and now settles Deny on
+  did-fail-load, render-process-gone, or unresponsive, so a broken modal cannot wedge a
+  turn.
+- `AGENT_BUILD_CHECK` was reclassified from native-confirm to constrained-local, since
+  it runs fixed local build binaries rather than a privileged effect.
+
+Evidence: `typecheck` clean, full `test:engine` green (including the corrected IPC
+inventory and native-authority assertions), production `build` green, and a live
+desktop build with a local Qwen2.5-Coder 3B model that filled files incrementally
+(687 → 6280 characters) with no approval modal and no error.
+
 ## Phase 2 — Verification OS
 
 **Status:** Active
 
 **Goal:** make every success claim truthful, inspectable, and evidence-backed.
 
+The tri-state outcome primitive already exists (`src/lib/verificationResult.ts`,
+`decideVerification`) and never promotes a skipped build to green. Phase 2 turns that
+single outcome into an **authoritative per-turn ledger**: a structured record of every
+check that ran, each carrying machine-readable evidence, so "verified" is a document a
+user can open, not a chat sentence.
+
 ### Work
 
-- Introduce `passed`, `failed`, and `unverified` as the only verification outcomes.
-- Preserve skipped/unavailable state through build, queue, history, and UI layers.
-- Add a deterministic Judge and a per-turn Verification Ledger.
-- Attach file hashes, command, exit code, diagnostics, DOM assertions, screenshots, and
-  timestamps to verification rows.
-- Add Proof-of-Edit receipts and structured ActionResult records.
-- Wire EARS-style acceptance criteria into the production build flow.
+- [done] `passed`, `failed`, and `unverified` are the only verification outcomes.
+- [done] Skipped/unavailable state is preserved and never promoted to passed.
+- Add a per-turn **Verification Ledger**: an ordered list of evidence rows, one per
+  check (syntax, build, goal-fidelity, post-verify, and — later — browser).
+- Attach to each row: check id, outcome, the command run, exit code, the changed-file
+  paths with before/after content hashes, the diagnostic text, and a timestamp.
+- Add **Proof-of-Edit receipts**: a structured per-file record (path, before-hash,
+  after-hash, applied-edit count, added/removed line counts) instead of a prose claim.
+- Add a deterministic **Judge** that computes the turn's overall outcome purely from
+  the ledger rows (worst-outcome wins; any `failed` → failed, else any `unverified`
+  → unverified, else `passed`), so the headline can never disagree with its evidence.
+- Surface the ledger in the walkthrough/receipt document and distinguish the three
+  states visibly in the UI (not just in prose).
+- Wire EARS-style acceptance criteria into the production build flow (feeds Phase 4).
+
+### Data model (target)
+
+```
+VerificationLedger { turnId, projectId, baseHash, rows: LedgerRow[], outcome }
+LedgerRow { id, kind: 'syntax'|'build'|'goal'|'post-verify'|'browser',
+            outcome: 'passed'|'failed'|'unverified',
+            command?, exitCode?, diagnostic?, evidence: EditReceipt[], at }
+EditReceipt { path, beforeHash, afterHash, editsApplied, linesAdded, linesRemoved }
+```
+
+Hashes are content hashes of the file before and after the turn; an unchanged file has
+`beforeHash === afterHash`. The ledger is derived from real events, never authored by
+the model.
+
+### Implementation slice order
+
+1. Pure ledger + Judge module with a characterization test (worst-outcome wins;
+   skipped never becomes passed; empty ledger is `unverified`, not `passed`).
+2. Proof-of-Edit receipts computed from the existing apply/transaction outcome.
+3. Populate the ledger from the existing post-verify pass (syntax/build/goal rows).
+4. Render the ledger in the walkthrough document and the three-state UI badge.
+5. Adversarial review, then desktop live acceptance on passed/failed/unverified
+   projects.
 
 ### Exit criteria
 
 - A skipped check can never become passed or green.
-- Every passed row links to machine-readable evidence.
+- Every passed row links to machine-readable evidence (command/exit code and/or
+  before/after hashes), and the headline outcome always equals the Judge's reading of
+  the rows.
 - False-verified rate is below 1% on the canonical mutant fixture set.
 - The desktop live test visibly distinguishes passed, failed, and unverified projects.
 
