@@ -32,6 +32,7 @@ import type {
 } from './engineTypes'
 import { findNodeBinary } from './llamaWorkerEngine'
 import { chatSystemPrompt } from '../shared/prompts'
+import { fitGpuLayers, planRungs, type RungPlan } from '../shared/gpuPlan'
 import {
   pumpWithLiveness,
   StreamDeadError,
@@ -199,6 +200,10 @@ interface GgufMeta {
   blockCount: number | null
   trainCtx: number
   family: import('../shared/prompts').ModelFamily
+  // KV-önbelleği boyutu için (kart belleğine sığdırma hesabı — Faz 3):
+  embeddingLength: number | null
+  headCount: number | null
+  headCountKv: number | null
 }
 
 async function readMeta(path: string): Promise<GgufMeta> {
@@ -219,13 +224,19 @@ async function readMeta(path: string): Promise<GgufMeta> {
     const archMd = arch ? (md[arch] ?? {}) : {}
     const blockCount = typeof archMd.block_count === 'number' ? (archMd.block_count as number) : null
     const trainCtx = typeof archMd.context_length === 'number' ? (archMd.context_length as number) : 4096
+    // KV-önbelleği ölçüleri (kart belleğine sığdırma hesabı için): gizli boyut +
+    // dikkat başlıkları. attention alt-nesnesinde durur; yoksa null (kaba tahmine düşer).
+    const attn = (archMd.attention ?? {}) as Record<string, unknown>
+    const embeddingLength = typeof archMd.embedding_length === 'number' ? (archMd.embedding_length as number) : null
+    const headCount = typeof attn.head_count === 'number' ? (attn.head_count as number) : null
+    const headCountKv = typeof attn.head_count_kv === 'number' ? (attn.head_count_kv as number) : headCount
     // Aile: mimari + model adı + dosya adı birlikte (roadmap 2.5).
     const family = detectFamily(`${arch ?? ''} ${String(general.name ?? '')} ${fname}`)
-    return { paramCount, blockCount, trainCtx, family }
+    return { paramCount, blockCount, trainCtx, family, embeddingLength, headCount, headCountKv }
   } catch (err) {
     console.warn('[llamaServerEngine] GGUF metadata okunamadı:', (err as Error).message)
     // Metadata okunamasa bile aileyi dosya adından tahmin et.
-    return { paramCount: null, blockCount: null, trainCtx: 4096, family: detectFamily(fname) }
+    return { paramCount: null, blockCount: null, trainCtx: 4096, family: detectFamily(fname), embeddingLength: null, headCount: null, headCountKv: null }
   }
 }
 
@@ -316,6 +327,21 @@ function freePort(): Promise<number> {
   })
 }
 
+// Faz 3 — kart belleği (VRAM) bir kez ölçülür ve saklanır; her model açılışında
+// nvidia-smi'yi tekrar çalıştırmayalım. Bilinmiyorsa 0 (o zaman eski davranış).
+let cachedVramGb: number | null = null
+async function getVramGb(): Promise<number> {
+  if (cachedVramGb !== null) return cachedVramGb
+  try {
+    const { detectHardware } = await import('./advisorService')
+    const hw = await detectHardware()
+    cachedVramGb = hw?.gpu?.vramGb ?? 0
+  } catch {
+    cachedVramGb = 0
+  }
+  return cachedVramGb
+}
+
 /** llamaWorker.pickContextSize ile aynı mantık: RAM kademesi, q8_0'da 2×. */
 function pickContextSize(trainCtx: number, quantizedKv: boolean): number {
   const freeGb = freemem() / 1e9
@@ -324,31 +350,8 @@ function pickContextSize(trainCtx: number, quantizedKv: boolean): number {
   return Math.min(preferred, trainCtx)
 }
 
-interface SpawnRung {
-  ctx: number
-  ngl: number | 'auto' | 0
-  quantKv: boolean
-}
-
-function buildRungs(preferredCtx: number, gpu: boolean, gpuLayers: number | 'auto', blockCount: number | null): SpawnRung[] {
-  const rungs: SpawnRung[] = []
-  const half = Math.max(4096, Math.floor(preferredCtx / 2))
-  if (gpu) {
-    rungs.push({ ctx: preferredCtx, ngl: gpuLayers, quantKv: true })
-    rungs.push({ ctx: half, ngl: gpuLayers, quantKv: true })
-    // Katman merdiveni (1.2 ile aynı felsefe): auto bile OOM olabilir.
-    if (blockCount) {
-      const base = typeof gpuLayers === 'number' ? Math.min(gpuLayers, blockCount) : blockCount
-      for (const f of [0.6, 0.4, 0.2]) {
-        const n = Math.floor(base * f)
-        if (n >= 1) rungs.push({ ctx: half, ngl: n, quantKv: true })
-      }
-    }
-  }
-  rungs.push({ ctx: preferredCtx, ngl: 0, quantKv: true })
-  rungs.push({ ctx: 4096, ngl: 0, quantKv: false })
-  return rungs
-}
+// Deneme (rung) planı gpuPlan.ts'e taşındı (saf + test edilebilir: planRungs).
+type SpawnRung = RungPlan
 
 async function killProc(): Promise<void> {
   if (!proc) return
@@ -659,7 +662,46 @@ export const serverEngine: InferenceEngine = {
     const port = await freePort()
     baseUrl = `http://${HOST}:${port}`
     const preferred = pickContextSize(meta.trainCtx, true)
-    const rungs = buildRungs(preferred, useGpu, useGpu ? opts.gpuLayers : 0, meta.blockCount)
+    // Faz 3 — GPU açıksa ve kart belleği biliniyorsa, ilk denemeyi cihaza SIĞDIR:
+    // fitGpuLayers kaç katmanın VRAM'e sığdığını hesaplar → planRungs onu sıraya koyar.
+    // Rezerv bağlam boyuyla büyür (yüksek bağlamda KV önbelleği daha çok yer kaplar).
+    let fittedNgl: number | undefined
+    let vramGbForLog = 0
+    // Model AĞIRLIKLARI karta sığar mı? Sığmıyorsa 'auto' (hepsi) kesin taşar →
+    // planRungs doğrudan sığan boyutla başlar. Sığıyorsa 'auto' önce denenir (hızlı).
+    let weightsFitVram = true
+    if (useGpu && meta.blockCount) {
+      vramGbForLog = await getVramGb()
+      if (vramGbForLog > 0) {
+        fittedNgl = fitGpuLayers({
+          vramGb: vramGbForLog,
+          modelSizeBytes: file.size,
+          blockCount: meta.blockCount,
+          ctxTokens: preferred,
+          embeddingLength: meta.embeddingLength,
+          headCount: meta.headCount,
+          headCountKv: meta.headCountKv,
+          bytesPerKvElem: 1.1, // uygulama q8_0 KV kullanır (aşağıda -ctk/-ctv q8_0)
+        })
+        weightsFitVram = file.size < vramGbForLog * 1e9
+      }
+    }
+    const rungs = planRungs(
+      preferred,
+      useGpu,
+      useGpu ? opts.gpuLayers : 0,
+      meta.blockCount,
+      fittedNgl,
+      weightsFitVram
+    )
+    console.log(
+      '[llamaServerEngine] GPU planı:',
+      useGpu
+        ? `vram=${vramGbForLog ? vramGbForLog.toFixed(1) + 'GB' : 'bilinmiyor'} ` +
+            `sığan=${fittedNgl ?? 'n/a'}/${meta.blockCount ?? '?'} ctx=${preferred} ` +
+            `ağırlık-sığar=${weightsFitVram} ilk-deneme=ngl:${String(rungs[0]?.ngl)}`
+        : 'CPU'
+    )
 
     let started: SpawnRung | null = null
     for (const rung of rungs) {
