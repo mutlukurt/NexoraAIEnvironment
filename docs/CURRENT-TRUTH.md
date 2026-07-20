@@ -156,9 +156,15 @@ parse-valid semantic mutants degrade to `unverified`, never a false `passed` (a 
 verdict requires a real build check to run and succeed). All four Phase 2 exit criteria
 are now met on `main`.
 
-Still open as later Phase 2 enrichment (not gating the exit criteria): browser-check
-ledger rows and per-row command/exit-code capture, plus EARS-style acceptance criteria
-(which feeds Phase 4). Build, queue, history, browser, and UI surfaces must keep
+The per-check rows now cover the full picture: a `syntax` row, a `build` row carrying the
+real `npx vite build` command + exit code, and a `browser` row appended from the post-Run
+behavior test via an immutable `appendRow` that re-runs the Judge (worst-outcome — a
+failing behavior test downgrades the badge, a passing one never upgrades). Both slices
+passed a clean adversarial review.
+
+Still open as later Phase 2 enrichment (not gating the exit criteria): EARS-style
+acceptance criteria (which feeds Phase 4), and optionally a strict per-snapshot file-hash
+guard on the browser row. Build, queue, history, browser, and UI surfaces must keep
 preserving the three states.
 
 ## Packaging truth

@@ -7,7 +7,8 @@
 **Product position:** Local Verified App Factory
 
 **Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 active; all four Phase 2
-exit criteria met on `main` (unreleased), enrichment (browser rows, EARS) remaining
+exit criteria met on `main` (unreleased); syntax/build/browser ledger rows + the
+three-state badge shipped, only EARS acceptance criteria remaining as enrichment
 
 ## Product promise
 
@@ -303,9 +304,10 @@ user can open, not a chat sentence.
   → unverified, else `passed`), so the headline can never disagree with its evidence.
 - [done] Surface the ledger in the walkthrough/receipt document. *(A distinct three-state
   UI badge is the next slice — the document already renders all three states.)*
-- [done] Split the single post-verify row into per-check rows: a `syntax` row (always)
-  and a `build` row (when syntax passed), each with its own outcome + diagnostic.
-  Browser rows and per-row command/exit-code capture are the remaining enrichment.
+- [done] Split the single post-verify row into per-check rows: a `syntax` row (always),
+  a `build` row (when syntax passed, now carrying the real `npx vite build` command +
+  exit code), and a `browser` row appended from the post-Run behavior test (worst-outcome
+  Judge: a failing behavior test downgrades the badge, a passing one never upgrades).
 - [done] Add the three-state verification UI badge (passed / failed / unverified) in the
   workspace header — colored, 10-language, hover shows the per-check breakdown.
 - Wire EARS-style acceptance criteria into the production build flow (feeds Phase 4).
@@ -336,8 +338,11 @@ the model.
    in the desktop app (a real API build rendered the red "Failed" badge with its
    syntax-row diagnostic; an adversarial review then closed a false-green early-return
    regression and a cross-session badge leak before commit).
-6. Remaining: browser-check rows + per-row command/exit capture, EARS acceptance
-   criteria, and the sub-1% false-verified rate on the canonical mutant fixture set.
+6. [done] Browser-check ledger row (from the post-Run behavior test) + per-row build
+   command/exit capture; `appendRow` re-judges immutably (6 unit tests, clean adversarial
+   pass). The sub-1% false-verified rate is proven (`tests/verification-mutants.mjs`).
+7. Remaining Phase 2 enrichment (non-gating): EARS-style acceptance criteria (feeds
+   Phase 4); a strict per-snapshot file-hash guard on the browser row is optional.
 
 ### Slice 1 checkpoint (unreleased, on `main`)
 
