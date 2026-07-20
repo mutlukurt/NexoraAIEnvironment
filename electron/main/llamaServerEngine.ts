@@ -157,8 +157,11 @@ export function isTurboDraft(): boolean {
 // 22.1 — son spawn'da fiilen seçilen draft modelinin adı (yoksa null). UI durumu:
 // "Turbo aktif · draft: <ad>" veya "Turbo açık ama uyumlu draft yok → indir".
 let pickedDraft: string | null = null
-export function getTurboStatus(): { enabled: boolean; draft: string | null } {
-  return { enabled: turboDraftEnabled, draft: pickedDraft }
+// Faz 3 — draft seçilemediğinde SEBEP (uyumsuz vocab / metadata / aday yok): UI
+// "Turbo açık ama uyumsuz vocab (152064≠151936) → otomatik kapatıldı" der.
+let pickedDraftReason: string | null = null
+export function getTurboStatus(): { enabled: boolean; draft: string | null; reason: string | null } {
+  return { enabled: turboDraftEnabled, draft: pickedDraft, reason: pickedDraftReason }
 }
 
 async function ensureBinary(wantGpu: boolean): Promise<{ bin: string; gpuCapable: boolean }> {
@@ -223,6 +226,33 @@ async function readMeta(path: string): Promise<GgufMeta> {
     console.warn('[llamaServerEngine] GGUF metadata okunamadı:', (err as Error).message)
     // Metadata okunamasa bile aileyi dosya adından tahmin et.
     return { paramCount: null, blockCount: null, trainCtx: 4096, family: detectFamily(fname) }
+  }
+}
+
+/**
+ * Faz 3 — bir GGUF'un tokenizer/vocab imzası (inference YOK, yalnız metadata).
+ * pickDraftModelChecked'e ENJEKTE edilir: draft/target speculative-decoding uyumu
+ * aile-adıyla değil GERÇEK vocab'la kararlaştırılır. Okunamazsa null → turbo kapanır.
+ */
+async function readVocabSig(path: string): Promise<import('../shared/turboEngine').VocabSig | null> {
+  try {
+    const m = await import('node-llama-cpp')
+    const info = await m.readGgufFileInfo(path)
+    const md = info.metadata as unknown as Record<string, Record<string, unknown>>
+    const tok = (md.tokenizer?.ggml ?? {}) as Record<string, unknown>
+    const tokens = tok.tokens as unknown[] | undefined
+    const nVocab = Array.isArray(tokens) ? tokens.length : NaN
+    const tokenizerModel = typeof tok.model === 'string' ? (tok.model as string) : ''
+    if (!Number.isFinite(nVocab) || nVocab <= 0 || !tokenizerModel) return null
+    return {
+      nVocab,
+      tokenizerModel,
+      tokenizerPre: typeof tok.pre === 'string' ? (tok.pre as string) : '',
+      eos: typeof tok.eos_token_id === 'number' ? (tok.eos_token_id as number) : -1,
+      bos: typeof tok.bos_token_id === 'number' ? (tok.bos_token_id as number) : -1
+    }
+  } catch {
+    return null
   }
 }
 
@@ -385,24 +415,29 @@ async function spawnServer(bin: string, modelPath: string, rung: SpawnRung, port
   // (yanlış-vocab draft server'ı bozabilir; opt-in, worker fallback yine korur).
   if (turboDraftEnabled) {
     try {
-      const { pickDraftModel, draftArgs } = await import('../shared/turboEngine')
+      const { pickDraftModelChecked, draftArgs } = await import('../shared/turboEngine')
       const { readdirSync, statSync } = await import('fs')
       const dir = join(homedir(), 'NexoraAI', 'models')
       const cands = readdirSync(dir).filter((f) => /\.gguf$/i.test(f)).map((f) => {
         const p = join(dir, f)
         return { path: p, sizeBytes: (() => { try { return statSync(p).size } catch { return 0 } })() }
       })
-      const draft = pickDraftModel(modelPath, sizeBytes, cands)
-      pickedDraft = draft ? (draft.split('/').pop() ?? draft) : null
-      if (draft) {
-        args.push(...draftArgs(draft))
+      // Faz 3 — aile+boyut ön-filtresi + GERÇEK vocab imzası uyum kapısı. Uyumsuz
+      // (ör. 14B vocab≠3B) ASLA seçilmez; hedef/aday metadata okunamazsa da seçilmez
+      // (pozitif kanıt şart). readVocabSig enjekte edilir (node-llama-cpp, main).
+      const pick = await pickDraftModelChecked(modelPath, sizeBytes, cands, readVocabSig)
+      pickedDraft = pick.path ? (pick.path.split('/').pop() ?? pick.path) : null
+      pickedDraftReason = pick.path ? null : (pick.reason ?? null)
+      if (pick.path) {
+        args.push(...draftArgs(pick.path))
         console.log('[llamaServerEngine] TURBO draft:', pickedDraft)
       } else {
-        console.log('[llamaServerEngine] TURBO açık ama uyumlu draft yok')
+        console.log('[llamaServerEngine] TURBO açık ama uyumlu draft yok → otomatik kapatıldı:', pickedDraftReason)
       }
-    } catch { pickedDraft = null /* draft edinilemezse turbosuz devam */ }
+    } catch { pickedDraft = null; pickedDraftReason = 'metadata' /* draft edinilemezse turbosuz devam */ }
   } else {
     pickedDraft = null
+    pickedDraftReason = null
   }
   console.log('[llamaServerEngine] deneme:', `ctx=${rung.ctx} ngl=${rung.ngl} kv=${rung.quantKv ? 'q8_0' : 'f16'}`)
   procLog = ''

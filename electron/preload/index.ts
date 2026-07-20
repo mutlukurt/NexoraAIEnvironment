@@ -74,7 +74,7 @@ export interface NexoraApi {
     status: () => Promise<{ loaded: false } | { loaded: true; info: ModelLoadedInfo }>
     setSystemPrompt: (prompt: string) => Promise<{ ok: boolean }>
     setTurbo: (enabled: boolean) => Promise<{ ok: boolean; enabled?: boolean; error?: string }>
-    turboStatus: () => Promise<{ ok: boolean; enabled?: boolean; draft?: string | null; error?: string }>
+    turboStatus: () => Promise<{ ok: boolean; enabled?: boolean; draft?: string | null; reason?: string | null; error?: string }>
     onLoadProgress: (cb: (event: ModelLoadProgressEvent) => void) => () => void
   }
   chat: {

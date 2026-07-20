@@ -14,9 +14,9 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-turbo-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { pickDraftModel, slotFileFor, draftArgs, slotArgs, DRAFT_CATALOG, recommendDraft } from '${join(repo, 'electron/shared/turboEngine.ts')}'\n`)
+writeFileSync(entry, `export { pickDraftModel, slotFileFor, draftArgs, slotArgs, DRAFT_CATALOG, recommendDraft, isDraftCompatible, pickDraftModelChecked } from '${join(repo, 'electron/shared/turboEngine.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { pickDraftModel, slotFileFor, draftArgs, slotArgs, DRAFT_CATALOG, recommendDraft } = await import(pathToFileURL(outfile).href)
+const { pickDraftModel, slotFileFor, draftArgs, slotArgs, DRAFT_CATALOG, recommendDraft, isDraftCompatible, pickDraftModelChecked } = await import(pathToFileURL(outfile).href)
 
 let pass = 0, fail = 0
 const failures = []
@@ -82,6 +82,58 @@ const GB = 1e9
   // ana model zaten küçükse (1B, draft ~0.4GB > %60'ı değil ama) — boyut kapısı: 0.6GB main
   ok(recommendDraft('/m/Qwen2.5-0.5B-Q4.gguf', 0.4 * GB) === null, 'çok küçük ana model → öneri yok (kazanç yok)')
 }
+
+// ── Faz 3: draftArgs b9870 flag'leri (eski --draft-max KALDIRILDI) ───────
+{
+  const a = draftArgs('/m/draft.gguf')
+  ok(a.includes('--spec-draft-n-max') && a.includes('--spec-draft-n-min'), 'draftArgs b9870 flag: --spec-draft-n-max/-min')
+  ok(!a.includes('--draft-max') && !a.includes('--draft-min'), 'draftArgs eski (kaldırılmış) --draft-max/-min GÖNDERMEZ')
+  ok(a.includes('--model-draft') && a.includes('-ngld'), 'draftArgs --model-draft + -ngld (b9870 geçerli) korunur')
+  ok(draftArgs(null).length === 0, 'draft yoksa boş')
+}
+
+// ── Faz 3: isDraftCompatible — kesin tokenizer-imza kapısı ───────────────
+{
+  const T = { nVocab: 152064, tokenizerModel: 'gpt2', tokenizerPre: 'qwen2', eos: 151645, bos: 151643 }
+  ok(isDraftCompatible(T, { ...T }).ok, 'aynı imza → uyumlu')
+  // CANLI counterexample: Qwen2.5-14B (152064) vs qwen2.5-3b (151936) — aynı aile, farklı vocab
+  ok(isDraftCompatible(T, { ...T, nVocab: 151936 }).reason === 'vocab-size', '14B vs 3B vocab farkı → vocab-size (canlı bug)')
+  ok(isDraftCompatible(T, { ...T, tokenizerModel: 'gemma4' }).reason === 'tokenizer-model', 'gpt2 vs gemma4 → tokenizer-model')
+  ok(isDraftCompatible(T, { ...T, tokenizerPre: 'qwen3' }).reason === 'tokenizer-pre', 'farklı pre → tokenizer-pre')
+  ok(isDraftCompatible(T, { ...T, eos: 999 }).reason === 'eos', 'farklı eos → eos')
+  ok(!isDraftCompatible(T, { ...T, nVocab: 151936 }).ok, 'vocab farkı → uyumsuz (asla seçilmez)')
+}
+
+// ── Faz 3: pickDraftModelChecked — pozitif kanıt şartı + enjekte IO ──────
+await (async () => {
+  const main = { path: '/m/Qwen2.5-Coder-14B-Q4.gguf', sizeBytes: 9 * GB }
+  const draft3b = { path: '/m/qwen2.5-coder-3b-Q4.gguf', sizeBytes: 2 * GB }
+  const draft05b = { path: '/m/qwen2.5-0.5b-Q4.gguf', sizeBytes: 0.4 * GB }
+  const SIG = {
+    '/m/Qwen2.5-Coder-14B-Q4.gguf': { nVocab: 152064, tokenizerModel: 'gpt2', tokenizerPre: 'qwen2', eos: 151645, bos: 151643 },
+    '/m/qwen2.5-coder-3b-Q4.gguf': { nVocab: 151936, tokenizerModel: 'gpt2', tokenizerPre: 'qwen2', eos: 151645, bos: 151643 }, // FARKLI vocab
+    '/m/qwen2.5-0.5b-Q4.gguf': { nVocab: 152064, tokenizerModel: 'gpt2', tokenizerPre: 'qwen2', eos: 151645, bos: 151643 } // AYNI vocab
+  }
+  const resolve = async (p) => SIG[p] ?? null
+
+  // 3b uyumsuz (vocab-size) → 0.5b uyumlu seçilir (family+size'ı geçse de 3b elenir)
+  const r1 = await pickDraftModelChecked(main.path, main.sizeBytes, [draft3b, draft05b], resolve)
+  ok(r1.path === draft05b.path, 'uyumsuz 3b elenir, uyumlu 0.5b seçilir')
+
+  // yalnız uyumsuz 3b varsa → turbo KAPANIR (reason vocab-size), eski kod onu seçerdi
+  const r2 = await pickDraftModelChecked(main.path, main.sizeBytes, [draft3b], resolve)
+  ok(r2.path === null && r2.reason === 'vocab-size', 'yalnız uyumsuz draft → kapanır (reason vocab-size)')
+  // ESKİ pickDraftModel aynı girdide 3b\'yi SEÇERDİ (regresyon kanıtı):
+  ok(pickDraftModel(main.path, main.sizeBytes, [draft3b]) === draft3b.path, 'eski pickDraftModel uyumsuz 3b\'yi seçerdi (kapı bunu düzeltir)')
+
+  // hedef metadata okunamazsa → pozitif kanıt yok → turbo kapanır (uyumsuz asla seçilmez)
+  const r3 = await pickDraftModelChecked('/m/unknown-qwen.gguf', 9 * GB, [draft05b], async () => null)
+  ok(r3.path === null && r3.reason === 'metadata', 'hedef metadata yok → kapanır (metadata)')
+
+  // aday yoksa → no-candidate; generic aile → family
+  ok((await pickDraftModelChecked(main.path, main.sizeBytes, [], resolve)).reason === 'no-candidate', 'aday yok → no-candidate')
+  ok((await pickDraftModelChecked('/m/mystery.gguf', 9 * GB, [draft05b], resolve)).reason === 'family', 'generic aile → family')
+})()
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nturbo-engine: ${pass} geçti, ${fail} kaldı`)

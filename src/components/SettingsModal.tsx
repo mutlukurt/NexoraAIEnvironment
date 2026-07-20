@@ -35,6 +35,18 @@ export default function SettingsModal() {
   const hfDownloads = useHfStore((s) => s.downloads)
   const gpuLayers = useSettingsStore((s) => s.gpuLayers)
   const setGpuLayers = useSettingsStore((s) => s.setGpuLayers)
+  // Faz 3 — son model yüklemesinde turbo fiilen aktive oldu mu (draft) yoksa
+  // uyumsuz vocab/tokenizer yüzünden otomatik mi kapandı (reason). Sessiz düşme yok.
+  const [turboStat, setTurboStat] = useState<{ draft?: string | null; reason?: string | null } | null>(null)
+  useEffect(() => {
+    if (!open || !turboEnabled) { setTurboStat(null); return }
+    void window.nexora.model
+      .turboStatus?.()
+      .then((s: { ok: boolean; draft?: string | null; reason?: string | null }) =>
+        setTurboStat(s.ok ? { draft: s.draft, reason: s.reason } : null)
+      )
+      .catch(() => setTurboStat(null))
+  }, [open, turboEnabled, modelInfo])
   const visionModelPath = useSettingsStore((s) => s.visionModelPath)
   const setVisionModelPath = useSettingsStore((s) => s.setVisionModelPath)
   const [visionModels, setVisionModels] = useState<
@@ -453,6 +465,22 @@ export default function SettingsModal() {
             </button>
           </div>
 
+          {/* Faz 3 — son yüklemede turbo fiilen aktive oldu mu / neden kapandı. */}
+          {section === 'models' && turboEnabled && modelInfo && turboStat && (
+            turboStat.draft ? (
+              <p className="text-[11px] font-bold text-emerald-500">
+                ⚡ {tt(language, "Turbo active")} · draft: {turboStat.draft}
+              </p>
+            ) : turboStat.reason && /vocab-size|tokenizer|eos/.test(turboStat.reason) ? (
+              <p className="text-[11px] font-medium text-amber-500">
+                {tt(language, "Turbo is on, but the available draft model is incompatible with this model (different vocabulary/tokenizer) — auto-disabled to avoid a broken load.")}
+              </p>
+            ) : turboStat.reason === 'metadata' ? (
+              <p className="text-[11px] font-medium text-amber-500">
+                {tt(language, "Turbo is on, but this model's metadata couldn't be read to verify draft compatibility — auto-disabled to be safe.")}
+              </p>
+            ) : null
+          )}
           {/* 22.2 — Turbo açıkken: yüklü modele uygun draft'ı tek tıkla indir. */}
           {section === 'models' && turboEnabled && (
             <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-4 shadow-sm">

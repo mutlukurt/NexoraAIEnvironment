@@ -67,6 +67,78 @@ export function pickDraftModel(mainPath: string, mainSizeBytes: number, candidat
   return viable[0].path
 }
 
+/**
+ * Faz 3 — draft/target tokenizer imzası (GGUF metadata'sından, inference YOK).
+ * Speculative decoding taslak ve ana modelin AYNI vocab'ı paylaşmasını ister;
+ * aile-adı (dosya adı regex'i) sağlam bir vekil DEĞİL — aynı aileden iki model
+ * farklı vocab boyutuna sahip olabilir (canlı: Qwen2.5-14B n_vocab=152064 vs
+ * qwen2.5-3b=151936). Bu imza gerçek metadata'dan gelir ve kesin karar verir.
+ */
+export interface VocabSig {
+  nVocab: number
+  tokenizerModel: string
+  tokenizerPre: string
+  eos: number
+  bos: number
+}
+
+/**
+ * Draft, target ile speculative decoding için UYUMLU mu? Muhafazakâr: llama.cpp'nin
+ * sessizce reddettiği/bozduğu çiftleri ELE — aynı tokenizer modeli + pre + eos + AYNI
+ * vocab boyutu ŞART. En küçük fark (128 token) bile speculative'i bozar. reason
+ * makine-okur (UI "neden kapandı"yı söyler).
+ */
+export function isDraftCompatible(
+  target: VocabSig,
+  draft: VocabSig
+): { ok: boolean; reason?: 'tokenizer-model' | 'tokenizer-pre' | 'eos' | 'vocab-size' } {
+  if (target.tokenizerModel !== draft.tokenizerModel) return { ok: false, reason: 'tokenizer-model' }
+  if (target.tokenizerPre !== draft.tokenizerPre) return { ok: false, reason: 'tokenizer-pre' }
+  if (target.eos !== draft.eos) return { ok: false, reason: 'eos' }
+  if (target.nVocab !== draft.nVocab) return { ok: false, reason: 'vocab-size' }
+  return { ok: true }
+}
+
+export interface DraftPick {
+  path: string | null
+  /** null ise turbo neden kendini kapattı (UI'ye + telemetriye). */
+  reason?: 'family' | 'no-candidate' | 'metadata' | 'tokenizer-model' | 'tokenizer-pre' | 'eos' | 'vocab-size'
+}
+
+/**
+ * Faz 3 — UYUM-farkında draft seçimi: pickDraftModel'in family+size ön-filtresi +
+ * tokenizer-imza kapısı. POZİTİF uyum kanıtı ŞART — hedef ya da aday metadata'sı
+ * okunamazsa turbo KAPANIR (uyumsuz asla seçilmez, çıkış kriteri). resolveSig
+ * ENJEKTE edilir: gerçek okuma main'de (node-llama-cpp), burada saf + test edilebilir.
+ */
+export async function pickDraftModelChecked(
+  mainPath: string,
+  mainSizeBytes: number,
+  candidates: ModelCandidate[],
+  resolveSig: (path: string) => Promise<VocabSig | null>
+): Promise<DraftPick> {
+  const mainFam = detectFamily(mainPath.split('/').pop() ?? mainPath)
+  if (mainFam === 'generic') return { path: null, reason: 'family' }
+  const viable = candidates
+    .filter((c) => c.path !== mainPath)
+    .filter((c) => detectFamily(c.path.split('/').pop() ?? c.path) === mainFam)
+    .filter((c) => c.sizeBytes > 0 && c.sizeBytes <= mainSizeBytes * 0.5)
+    .filter((c) => !/(mmproj|[-_.]vl[-_.]|embed|nomic|bge|stable-diffusion|sdxl|flux)/i.test(c.path))
+    .sort((a, b) => a.sizeBytes - b.sizeBytes)
+  if (viable.length === 0) return { path: null, reason: 'no-candidate' }
+  const targetSig = await resolveSig(mainPath)
+  if (!targetSig) return { path: null, reason: 'metadata' } // hedef doğrulanamadı → seçme
+  let lastReason: DraftPick['reason'] = 'metadata'
+  for (const c of viable) {
+    const sig = await resolveSig(c.path)
+    if (!sig) continue
+    const compat = isDraftCompatible(targetSig, sig)
+    if (compat.ok) return { path: c.path }
+    lastReason = compat.reason
+  }
+  return { path: null, reason: lastReason }
+}
+
 /** Bir oturum/proje anahtarından KARARLI, güvenli KV-slot dosya adı (resume). */
 export function slotFileFor(key: string): string {
   const safe = (key || 'default').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'default'
@@ -76,9 +148,11 @@ export function slotFileFor(key: string): string {
 /** llama-server draft spawn argümanları (draft yoksa boş dizi). */
 export function draftArgs(draftPath: string | null): string[] {
   if (!draftPath) return []
-  // --draft-max: kabul edilirse sıçranan taslak token sayısı; -ngl 0 draft CPU'da
-  // (küçük olduğu için ucuz), ana modelin VRAM'ini yemesin.
-  return ['--model-draft', draftPath, '--draft-max', '16', '--draft-min', '2', '-ngld', '0']
+  // spec-draft-n-max: kabul edilirse sıçranan taslak token sayısı; -ngld 0 draft
+  // CPU'da (küçük olduğu için ucuz), ana modelin VRAM'ini yemesin.
+  // ⚠️ b9870: eski --draft-max/--draft-min KALDIRILDI (binary arg-parse'ta çıkıyordu,
+  // turbo açık her yüklemeyi kırıyordu) → --spec-draft-n-max/-min (canlı --help doğrulandı).
+  return ['--model-draft', draftPath, '--spec-draft-n-max', '16', '--spec-draft-n-min', '2', '-ngld', '0']
 }
 
 /** llama-server slot-save-path argümanları (resume dizini). */

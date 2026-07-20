@@ -2,6 +2,32 @@ import type { Lang } from './i18n'
 
 // OTOMATIK URETILDI (gen-i18n.mjs) — satir-ici UI metinleri, Ingilizce anahtarli.
 export const UI: Record<string, Partial<Record<Lang, string>>> = {
+  "Turbo active": {
+    "tr": "Turbo aktif", "es": "Turbo activo", "fr": "Turbo actif", "de": "Turbo aktiv",
+    "pt": "Turbo ativo", "ru": "Турбо активен", "zh": "Turbo 已启用", "ja": "Turbo 有効", "ar": "تيربو مُفعّل"
+  },
+  "Turbo is on, but this model's metadata couldn't be read to verify draft compatibility — auto-disabled to be safe.": {
+    "tr": "Turbo açık ama bu modelin metadata'sı okunup draft uyumu doğrulanamadı — güvenli olsun diye otomatik kapatıldı.",
+    "es": "Turbo está activado, pero no se pudieron leer los metadatos de este modelo para verificar la compatibilidad del borrador — desactivado automáticamente por seguridad.",
+    "fr": "Turbo est activé, mais les métadonnées de ce modèle n'ont pas pu être lues pour vérifier la compatibilité du brouillon — désactivé automatiquement par sécurité.",
+    "de": "Turbo ist an, aber die Metadaten dieses Modells konnten nicht gelesen werden, um die Entwurfs-Kompatibilität zu prüfen — sicherheitshalber automatisch deaktiviert.",
+    "pt": "O Turbo está ligado, mas não foi possível ler os metadados deste modelo para verificar a compatibilidade do rascunho — desativado automaticamente por segurança.",
+    "ru": "Турбо включён, но метаданные этой модели не удалось прочитать для проверки совместимости черновика — автоматически отключён для безопасности.",
+    "zh": "Turbo 已开启，但无法读取此模型的元数据来验证草稿兼容性——为安全起见已自动禁用。",
+    "ja": "Turbo は有効ですが、このモデルのメタデータを読み取ってドラフト互換性を確認できませんでした — 安全のため自動的に無効化しました。",
+    "ar": "تيربو مُفعّل، لكن تعذّر قراءة بيانات هذا النموذج الوصفية للتحقق من توافق المسودة — تم تعطيله تلقائيًا للأمان."
+  },
+  "Turbo is on, but the available draft model is incompatible with this model (different vocabulary/tokenizer) — auto-disabled to avoid a broken load.": {
+    "tr": "Turbo açık ama eldeki draft modeli bu modelle uyumsuz (farklı sözcük dağarcığı/tokenizer) — bozuk yükleme olmasın diye otomatik kapatıldı.",
+    "es": "Turbo está activado, pero el modelo borrador disponible es incompatible con este modelo (vocabulario/tokenizador distinto) — desactivado automáticamente para evitar una carga rota.",
+    "fr": "Turbo est activé, mais le modèle brouillon disponible est incompatible avec ce modèle (vocabulaire/tokenizer différent) — désactivé automatiquement pour éviter un chargement cassé.",
+    "de": "Turbo ist an, aber das verfügbare Entwurfsmodell ist mit diesem Modell inkompatibel (anderes Vokabular/Tokenizer) — automatisch deaktiviert, um einen fehlerhaften Ladevorgang zu vermeiden.",
+    "pt": "O Turbo está ligado, mas o modelo de rascunho disponível é incompatível com este modelo (vocabulário/tokenizador diferente) — desativado automaticamente para evitar um carregamento quebrado.",
+    "ru": "Турбо включён, но доступная черновая модель несовместима с этой моделью (другой словарь/токенизатор) — автоматически отключён во избежание сбоя загрузки.",
+    "zh": "Turbo 已开启，但可用的草稿模型与此模型不兼容（词表/分词器不同）——已自动禁用以避免加载失败。",
+    "ja": "Turbo は有効ですが、利用可能なドラフトモデルはこのモデルと互換性がありません（語彙/トークナイザーが異なる）— 読み込み失敗を避けるため自動的に無効化しました。",
+    "ar": "تيربو مُفعّل، لكن نموذج المسودة المتاح غير متوافق مع هذا النموذج (مفردات/مُجزّئ مختلف) — تم تعطيله تلقائيًا لتجنّب تحميل معطوب."
+  },
   "Verified": {
     "tr": "Doğrulandı", "es": "Verificado", "fr": "Vérifié", "de": "Verifiziert",
     "pt": "Verificado", "ru": "Проверено", "zh": "已验证", "ja": "検証済み", "ar": "تم التحقق"
