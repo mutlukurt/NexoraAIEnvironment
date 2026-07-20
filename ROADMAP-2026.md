@@ -6,7 +6,8 @@
 
 **Product position:** Local Verified App Factory
 
-**Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 active
+**Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 active; all four Phase 2
+exit criteria met on `main` (unreleased), enrichment (browser rows, EARS) remaining
 
 ## Product promise
 
@@ -356,12 +357,21 @@ local model (≥ ~9 GB) produces the same ledger offline, no API required.
 
 ### Exit criteria
 
-- A skipped check can never become passed or green.
-- Every passed row links to machine-readable evidence (command/exit code and/or
-  before/after hashes), and the headline outcome always equals the Judge's reading of
-  the rows.
-- False-verified rate is below 1% on the canonical mutant fixture set.
-- The desktop live test visibly distinguishes passed, failed, and unverified projects.
+- [met] A skipped check can never become passed or green. (`decideVerification` +
+  the false-green guard in `postGenVerify`; proven on the mutant set.)
+- [met] Every passed row links to machine-readable evidence (before/after hashes; per-row
+  command/exit is the remaining enrichment), and the headline outcome always equals the
+  Judge's reading of the rows (`buildLedger` computes it via `judge`; asserted per fixture).
+- [met] False-verified rate is below 1% on the canonical mutant fixture set.
+  `tests/verification-mutants.mjs`: 13 broken fixtures, **0.00%** false-verified
+  (10/10 parse mutants caught as `failed`; 3 semantic mutants degrade to `unverified`,
+  never a false `passed`).
+- [met] The desktop live test visibly distinguishes passed, failed, and unverified
+  projects — the three-state header badge, live-verified via a real API build.
+
+All four Phase 2 exit criteria are now met on `main` (unreleased). Remaining Phase 2
+enrichment (not gating): browser-check ledger rows, per-row command/exit capture, and
+EARS-style acceptance criteria (the latter feeds Phase 4).
 
 ## Phase 3 — Local Engine Autopilot
 

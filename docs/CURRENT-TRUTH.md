@@ -148,10 +148,18 @@ adversarial review before commit closed a false-green early-return regression (t
 is now built only when a check actually completed this turn) and a cross-session badge
 leak.
 
-Still open for later Phase 2 slices: browser-check rows and per-row command/exit-code
-capture; EARS-style acceptance criteria; and demonstrating the sub-1% false-verified rate
-on the canonical mutant fixture set. Build, queue, history, browser, and UI surfaces must
-keep preserving the three states.
+The sub-1% false-verified exit criterion is demonstrated on a canonical mutant fixture
+set (`tests/verification-mutants.mjs`, in `test:engine`): 13 broken fixtures run through
+the real `syntaxCheckFiles` → `decideVerification` → ledger-Judge pipeline yield a
+**0.00% false-verified rate** — 10 parse-level mutants are caught as `failed`, and 3
+parse-valid semantic mutants degrade to `unverified`, never a false `passed` (a `passed`
+verdict requires a real build check to run and succeed). All four Phase 2 exit criteria
+are now met on `main`.
+
+Still open as later Phase 2 enrichment (not gating the exit criteria): browser-check
+ledger rows and per-row command/exit-code capture, plus EARS-style acceptance criteria
+(which feeds Phase 4). Build, queue, history, browser, and UI surfaces must keep
+preserving the three states.
 
 ## Packaging truth
 
