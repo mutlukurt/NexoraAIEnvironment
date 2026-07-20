@@ -11,7 +11,8 @@ in v0.26.0**: all four exit criteria met, syntax/build/browser ledger rows, the
 three-state badge, EARS acceptance criteria, and a 0%-false-verified mutant set, each
 slice adversarially reviewed. **Phase 3 — Local Engine Autopilot is active** (on `main`,
 unreleased): slice 1 fixed the Turbo b9870 flag regression + added the draft/target
-vocab-compatibility gate.
+vocab-compatibility gate; slice 2 added the central sidecar teardown registry (no more
+orphaned sd-server/embed on quit).
 
 ## Product promise
 
@@ -402,7 +403,13 @@ EARS-style acceptance criteria (the latter feeds Phase 4).
   silently degraded. Directly meets the "incompatible pairs never selected" exit
   criterion. (`tests/turbo-engine.mjs`, 36/36; adversarially reviewed.)
 - Add request-scoped inference scheduling, cancellation, and backpressure.
-- Add one lifecycle manager for text, vision, image, embedding, and Whisper sidecars.
+- [partial] One lifecycle manager for text, vision, image, embedding, and Whisper
+  sidecars. Done: a central teardown registry (`sidecarLifecycle.ts`) — every sidecar
+  registers its stop; `stopAllSidecars()` runs them concurrently, each isolated, on
+  before-quit, so the previously-orphaned detached sd-server + embed no longer leak on
+  quit (`tests/sidecar-lifecycle.mjs`, 11/11; adversarial review caught + fixed a
+  serial-await teardown race). Remaining: the spawn side — a co-residence/OOM guard
+  (text + VL loaded together) and one owner for start ordering.
 - Budget context/output from real tokens, model metadata, RAM, VRAM, and KV cost.
 - Expose TTFT, prefill/decode speed, cache use, memory, and draft acceptance locally.
 - Improve semantic-index persistence and changed-file-only indexing.
