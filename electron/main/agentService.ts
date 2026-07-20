@@ -1309,6 +1309,9 @@ export interface BuildCheckResult {
   error?: string
   /** node_modules kurulu olmadığı için tam derleme atlandı (onlyIfInstalled). */
   skipped?: boolean
+  /** Faz 2 — çalıştırılan komut + süreç çıkış kodu (defterin build satırı taşır). */
+  command?: string
+  exitCode?: number
 }
 
 export async function buildCheck(projectName: string, onlyIfInstalled?: boolean): Promise<BuildCheckResult> {
@@ -1322,8 +1325,9 @@ export async function buildCheck(projectName: string, onlyIfInstalled?: boolean)
     return { ok: true, skipped: true }
   }
 
-  const res = await runCommand(projectName, 'npx vite build --logLevel error', 240_000)
-  if (res.ok) return { ok: true }
+  const BUILD_CMD = 'npx vite build --logLevel error'
+  const res = await runCommand(projectName, BUILD_CMD, 240_000)
+  if (res.ok) return { ok: true, command: BUILD_CMD, exitCode: res.exitCode ?? undefined }
 
   // Hata bölümünü çıkar: ilk "error" satırından itibaren, mutlak yolları
   // proje-görece yollara çevirerek (model dosyaları o adlarla tanıyor).
@@ -1360,7 +1364,7 @@ export async function buildCheck(projectName: string, onlyIfInstalled?: boolean)
       }
     }
   }
-  return { ok: false, error }
+  return { ok: false, error, command: BUILD_CMD, exitCode: res.exitCode ?? undefined }
 }
 
 // ---------------------------------------------------------------------------

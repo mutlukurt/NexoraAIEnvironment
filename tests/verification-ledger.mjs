@@ -11,7 +11,7 @@ const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
 writeFileSync(entry, `export * from '${join(repo, 'src/lib/verificationLedger.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
-const { judge, contentHash, editReceipt, ledgerRow, buildLedger, ledgerTouchedNothing } =
+const { judge, contentHash, editReceipt, ledgerRow, buildLedger, ledgerTouchedNothing, appendRow } =
   await import(pathToFileURL(outfile).href)
 
 let pass = 0
@@ -74,6 +74,27 @@ const touched = buildLedger({ turnId: 't3', rows: [
   ledgerRow({ id: 'r', kind: 'post-verify', outcome: 'passed', evidence: [editReceipt('a.ts', 'k\n', 'k2\n')] })
 ] })
 ok(ledgerTouchedNothing(touched) === false, 'a changed receipt → touched something')
+
+// ── appendRow: dedup-by-id, re-judge, immutable ─────────────────────────
+const seed = buildLedger({ turnId: 't', rows: [
+  ledgerRow({ id: 'syntax', kind: 'syntax', outcome: 'passed', at: 1 }),
+  ledgerRow({ id: 'build', kind: 'build', outcome: 'passed', at: 2 })
+] })
+ok(seed.outcome === 'passed', 'seed ledger is passed')
+
+const withBrowserOk = appendRow(seed, ledgerRow({ id: 'browser', kind: 'browser', outcome: 'passed', at: 3 }))
+ok(withBrowserOk.rows.length === 3 && withBrowserOk.outcome === 'passed', 'append passing browser row keeps passed + grows to 3 rows')
+
+const withBrowserFail = appendRow(seed, ledgerRow({ id: 'browser', kind: 'browser', outcome: 'failed', diagnostic: 'nav target missing', at: 3 }))
+ok(withBrowserFail.outcome === 'failed', 'append failing browser row flips outcome to failed (worst-outcome-wins)')
+
+const replaced = appendRow(withBrowserFail, ledgerRow({ id: 'browser', kind: 'browser', outcome: 'passed', at: 4 }))
+ok(replaced.rows.length === 3 && replaced.rows.filter((r) => r.id === 'browser').length === 1 && replaced.outcome === 'passed',
+  'a second browser row REPLACES the first (dedup-by-id), re-judges to passed')
+
+ok(seed.rows.length === 2 && !seed.rows.some((r) => r.id === 'browser') && seed.outcome === 'passed',
+  'appendRow is immutable — the original ledger is untouched')
+ok(withBrowserFail !== seed && withBrowserFail.rows !== seed.rows, 'appendRow returns a new object + new rows array')
 
 rmSync(work, { recursive: true, force: true })
 console.log(`\nverification-ledger: ${pass} passed, ${fail} failed`)

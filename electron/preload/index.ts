@@ -107,7 +107,7 @@ export interface NexoraApi {
     font: (input: AgentFontInput) => Promise<AgentFontResult>
     devStart: (input: AgentDevInput) => Promise<AgentDevResult>
     devStop: () => Promise<{ ok: boolean }>
-    buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string; skipped?: boolean }>
+    buildCheck: (input: AgentDevInput) => Promise<{ ok: boolean; error?: string; skipped?: boolean; command?: string; exitCode?: number }>
     rescan: (projectName: string) => Promise<import('../shared/ipc').AgentRescanResult>
     onDevStatus: (cb: (event: { msg: string }) => void) => () => void
     /** 5.7 değer probu: koşan dev sunucusunun URL'i (yoksa null). */

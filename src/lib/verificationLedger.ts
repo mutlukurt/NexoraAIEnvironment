@@ -156,6 +156,18 @@ export function buildLedger(input: {
   }
 }
 
+/**
+ * Append a row (or replace an existing row of the same `id`) and re-run the
+ * Judge. Immutable — returns a NEW ledger with a NEW rows array, so a store
+ * subscription re-renders and an already-rendered document is never mutated
+ * retroactively. Dedup-by-id means a second Run replaces the `browser` row
+ * instead of stacking a duplicate.
+ */
+export function appendRow(ledger: VerificationLedger, row: LedgerRow): VerificationLedger {
+  const rows = [...ledger.rows.filter((r) => r.id !== row.id), row]
+  return { ...ledger, rows, outcome: judge(rows) }
+}
+
 /** True when every file in the receipts is byte-identical before and after. */
 export function ledgerTouchedNothing(ledger: VerificationLedger): boolean {
   return ledger.rows.every((r) => r.evidence.every((e) => e.beforeHash === e.afterHash))

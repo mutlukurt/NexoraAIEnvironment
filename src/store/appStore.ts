@@ -29,7 +29,7 @@ import { directiveAllowed, effectiveTrustTier } from '@shared/configProfiles'
 import { parseStreaming, isEditBlock, applySearchReplace, hasUnclosedCodeFence } from '@/lib/parseCode'
 import { acceptsStreamEvent, settleAssistantMessage } from '@/lib/turnLifecycle'
 import { decideVerification, type VerificationOutcome } from '@/lib/verificationResult'
-import { buildLedger, ledgerRow, editReceipt, type VerificationLedger } from '@/lib/verificationLedger'
+import { buildLedger, ledgerRow, editReceipt, appendRow, type VerificationLedger } from '@/lib/verificationLedger'
 import { selectContextFiles, CONTEXT_CHAR_BUDGET, CONTEXT_MAX_FILES } from '@/lib/contextSelect'
 import { findSectionTemplate, SECTION_TEMPLATES } from '@/lib/sectionTemplates'
 import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBuildRequest, looksLikeChatIntent, planEligible } from '@/lib/sectionPlan'
@@ -812,6 +812,8 @@ async function postGenVerify(
   let lastBuildRan = false
   let lastBuildOutcome: VerificationOutcome = 'unverified'
   let lastBuildDiag = ''
+  let lastBuildCommand: string | undefined
+  let lastBuildExit: number | undefined
   try {
     for (let round = 0; round < 4; round++) {
       if (pvEpoch !== stopEpoch || queuePaused || (operationId && latestTurnRequestId !== operationId)) return
@@ -826,7 +828,7 @@ async function postGenVerify(
       const issues = await syntaxCheckFiles(all)
       if (operationId && latestTurnRequestId !== operationId) return
       let diagnosis = ''
-      let buildCheck: { ok: boolean; skipped?: boolean; error?: string } | null = null
+      let buildCheck: { ok: boolean; skipped?: boolean; error?: string; command?: string; exitCode?: number } | null = null
       let buildCheckUnavailable = false
       if (issues.length > 0) {
         diagnosis =
@@ -854,6 +856,9 @@ async function postGenVerify(
       lastSyntaxDiag = issues.length > 0 ? diagnosis : ''
       if (issues.length === 0) {
         lastBuildRan = true
+        // Faz 2 — gerçek build komutu + çıkış kodu (defterin build satırı taşır).
+        lastBuildCommand = buildCheck?.command
+        lastBuildExit = buildCheck?.exitCode
         if (buildCheckUnavailable || !buildCheck) {
           lastBuildOutcome = 'unverified'
           lastBuildDiag = 'Build verification was unavailable.'
@@ -1014,6 +1019,8 @@ async function postGenVerify(
               id: 'build',
               kind: 'build',
               outcome: lastBuildOutcome,
+              command: lastBuildCommand,
+              exitCode: lastBuildExit,
               diagnostic: lastBuildDiag || undefined,
               at
             })
@@ -3735,10 +3742,30 @@ export const useAppStore = create<AppState>((set, get) => ({
         ]
       }))
       logRepair({ layer: fails.length === 0 ? 'behavior-pass' : 'behavior-fail', notes: fails.slice(0, 4) })
+      // Faz 2 — defterin 3. denetimi: browser satırı (syntax → build → browser).
+      // Yalnız APPEND: mevcut defter (bu turun syntax/build satırları) varsa ona
+      // eklenir; tek başına Run bir defter UYDURMAZ (no-unproven-green). Judge
+      // en-kötü-kazanır → kusurlu davranış testi yeşil rozeti "failed"a düşürür.
+      // NOT: browser satırı ŞU ANKİ çalışan uygulamayı yansıtır; kullanıcı build
+      // ile Run arasında dosya düzenlediyse syntax/build satırlarından daha yeni
+      // bir dosya durumuna ait olabilir — ama yalnızca DÜŞÜREBİLİR (geçen davranış
+      // yeşile YÜKSELTMEZ), dolayısıyla sahte-doğrulama üretemez (adversaryal not).
+      if (lastVerificationLedger) {
+        const browserRow = ledgerRow({
+          id: 'browser',
+          kind: 'browser',
+          outcome: fails.length === 0 ? 'passed' : 'failed',
+          diagnostic: fails.length > 0 ? fails.join('; ').slice(0, 400) : undefined,
+          at: Date.now()
+        })
+        lastVerificationLedger = appendRow(lastVerificationLedger, browserRow)
+        set({ verificationLedger: lastVerificationLedger })
+      }
       // 7.2: davranış kanıtı walkthrough'a işlenir — satırlar, kusurlar ve
       // ekran şeridi belgeye gömülür; önceki sürüm .resolved.N olarak kalır.
       if (pendingWalkthrough) {
         pendingWalkthrough.behavior = { rows, fails, shots: r.shots ?? [] }
+        if (lastVerificationLedger) pendingWalkthrough.ledger = lastVerificationLedger
         void writeWalkthrough(
           isTr
             ? '📄 Walkthrough güncellendi — davranış testi kanıtı ve ekran kareleri belgeye eklendi (Dosyalar & Kod → Belgeler).'
