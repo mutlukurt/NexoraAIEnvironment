@@ -2,14 +2,14 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.25.1
+**Current release:** v0.26.0
 
 **Product position:** Local Verified App Factory
 
-**Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 feature-complete on `main`
-(unreleased): all four exit criteria met, syntax/build/browser ledger rows, the
-three-state badge, and EARS acceptance criteria all shipped and adversarially reviewed.
-Next: package as a release, then Phase 3 — Local Engine Autopilot
+**Status:** Phase 1 complete and hardened (v0.25.1); **Phase 2 — Verification OS shipped
+in v0.26.0**: all four exit criteria met, syntax/build/browser ledger rows, the
+three-state badge, EARS acceptance criteria, and a 0%-false-verified mutant set, each
+slice adversarially reviewed. Next: Phase 3 — Local Engine Autopilot.
 
 ## Product promise
 

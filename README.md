@@ -113,10 +113,11 @@ After installing, open the in-app **Model Browser** to download a GGUF model (or
 Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
 
 <details open>
-<summary><b>📜 Full release history — v0.6.4 → v0.25.1 (44 releases)</b></summary>
+<summary><b>📜 Full release history — v0.6.4 → v0.26.0 (45 releases)</b></summary>
 
 | Version | Date | What it brought |
 | --- | --- | --- |
+| [v0.26.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.26.0) | 2026-07-20 | **Verification OS** (2026 Roadmap Phase 2) — a per-turn **Verification Ledger** with a deterministic Judge and Proof-of-Edit receipts; per-check rows (syntax → build → browser) carrying the real build command + exit code; a **three-state badge** (passed / failed / unverified) in the workspace header; **EARS acceptance criteria** derived from the evidence; and a canonical mutant fixture set proving a **0% false-verified rate**. Model-agnostic — works with local models, no API required. Each slice adversarially reviewed |
 | [v0.25.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.1) | 2026-07-19 | **Truth & Safety, hardened** — keeps the v0.25.0 capability boundary but fixes the regressions a 6-agent adversarial review found: builds run without a modal on every command again, live file streaming restored, the existing API key stays readable on keyring-less Linux, and a broken confirmation modal can no longer wedge a turn |
 | [v0.25.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.0) | 2026-07-19 | **Truth & Safety** — request-scoped turns, stale-event isolation, transactional artifact writes with exact rollback, tri-state verification foundations, a complete 108-method renderer→main IPC capability inventory, main-owned exact-effect confirmation, renderer sandboxing, secure credential storage, MCP lifecycle authority, and mandatory CI + visible desktop acceptance |
 | [v0.24.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.24.1) | 2026-07-15 | **Full localization of the v0.24 features into all 10 languages** — fit pill, privacy indicator, storage/rename/zip UI + the MCP / Serve / Scheduled-Tasks Settings panels + the shield/dry-run reasons now render in every supported language |
@@ -163,6 +164,20 @@ Every version, newest first. Deep-dive scorecards for the recent milestones foll
 | [v0.6.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.4) | 2026-07-03 | Early build |
 
 </details>
+
+---
+
+## Verification OS — the v0.26 Scorecard (2026 Roadmap, Phase 2)
+
+v0.26 makes "verified" a document you can open, not a sentence the model wrote. Every build turn now produces evidence you can inspect, and a broken project is never reported as green — proven, not promised. It is **model-agnostic**: the same verification runs for a local model and an API model, so a capable local model gets the same evidence offline, no API required.
+
+**📋 The Verification Ledger.** Each turn produces a per-turn ledger: an ordered list of **per-check rows** — `syntax`, `build` (carrying the real `npx vite build` command + exit code), and a `browser` row appended from the post-Run behavior walk. A deterministic **Judge** computes the headline from the rows (worst-outcome wins), so the summary can never disagree with its own evidence. Each row carries **Proof-of-Edit receipts** — per file: before→after content hash and +/- line counts — derived from real events, never authored by the model.
+
+**🚦 A three-state badge you can see.** The workspace header shows the last turn's verdict — 🟢 **Verified** / 🔴 **Failed** / 🟡 **Unverified** — colored, localized in all ten languages, with the per-check breakdown on hover. A skipped or unavailable check is honestly **Unverified**, never promoted to green.
+
+**📐 EARS acceptance criteria.** The verification signals are expressed as EARS acceptance criteria ("WHEN the project is built, the app SHALL compile…"; "the app SHALL contain the requested …") in the walkthrough — derived from the evidence and the brief's exact literals, never keyword-guessed from intent (intent stays the model's job).
+
+**🎯 0% false-verified.** A canonical mutant fixture set (`tests/verification-mutants.mjs`) runs 13 broken projects through the real pipeline: **0.00%** false-verified (10 parse mutants caught as failed, 3 semantic mutants degrade to unverified — never a false pass). Every slice passed an independent **adversarial review** before commit — which caught, among others, a real false-green regression in the badge itself.
 
 ---
 
@@ -1178,22 +1193,22 @@ NexoraAIEnvironment/
 
 The authoritative plan is [ROADMAP-2026.md](ROADMAP-2026.md), backed by the
 [Current Implementation Truth](docs/CURRENT-TRUTH.md). **Phase 1 — Truth and Safety is
-complete; Phase 2 — Verification OS is active.** Every phase must pass automated gates,
-an independent adversarial review, and a visible desktop acceptance test before the
+complete; Phase 2 — Verification OS shipped in v0.26.0.** Every phase must pass automated
+gates, an independent adversarial review, and a visible desktop acceptance test before the
 roadmap advances.
 
-Phase 2 slice 1 is implemented and verified on `main` (unreleased): a per-turn
-**Verification Ledger** (`src/lib/verificationLedger.ts`) with a deterministic Judge
-(worst-outcome wins; an empty ledger is `unverified`, never falsely green) and structured
-**Proof-of-Edit receipts** (path, before→after content hash, +/- lines), rendered into
-the walkthrough document. It is unit-tested (`test:engine` green) and live-verified
-end-to-end via the qwen-plus API — and it is model-agnostic, so a strong local model
-produces the same evidence offline, no API required.
+Phase 2 delivered a per-turn **Verification Ledger** (`src/lib/verificationLedger.ts`)
+with a deterministic Judge (worst-outcome wins; an empty ledger is `unverified`, never
+falsely green), structured **Proof-of-Edit receipts**, per-check rows (syntax → build →
+browser), a three-state header badge, **EARS acceptance criteria**, and a canonical
+mutant fixture set proving a **0% false-verified rate** — all four exit criteria met,
+each slice adversarially reviewed. It is model-agnostic: a strong local model produces
+the same evidence offline, no API required.
 
 | 2026 phase | Status | Outcome |
 | --- | --- | --- |
 | 1. Truth and Safety | ✅ Complete | Isolated turns, transactional writes, exact rollback, authoritative capabilities |
-| 2. Verification OS | 🚧 Active | Ledger + Judge + Proof-of-Edit receipts (slice 1 done on `main`); per-check rows, three-state badge, EARS next |
+| 2. Verification OS | ✅ Complete | Ledger + Judge + Proof-of-Edit receipts, per-check rows, three-state badge, EARS, 0% false-verified |
 | 3. Local Engine Autopilot | Planned | Hardware-aware scheduling and lifecycle management |
 | 4. Reliable App Factory | Planned | One canonical build/preview/verify pipeline |
 | 5–8 | Planned | Product UX, extensibility, release engineering, benchmark moat |
