@@ -9,7 +9,9 @@
 **Status:** Phase 1 complete and hardened (v0.25.1); **Phase 2 — Verification OS shipped
 in v0.26.0**: all four exit criteria met, syntax/build/browser ledger rows, the
 three-state badge, EARS acceptance criteria, and a 0%-false-verified mutant set, each
-slice adversarially reviewed. Next: Phase 3 — Local Engine Autopilot.
+slice adversarially reviewed. **Phase 3 — Local Engine Autopilot is active** (on `main`,
+unreleased): slice 1 fixed the Turbo b9870 flag regression + added the draft/target
+vocab-compatibility gate.
 
 ## Product promise
 
@@ -390,8 +392,15 @@ EARS-style acceptance criteria (the latter feeds Phase 4).
 
 ### Work
 
-- Fix Turbo flags for the bundled llama.cpp and probe binary capabilities.
-- Verify draft/target tokenizer compatibility and auto-disable poor pairings.
+- [done] Fix Turbo flags for the bundled llama.cpp (b9870 removed `--draft-max`/`--draft-min`
+  → `--spec-draft-n-max`/`--spec-draft-n-min`; the old flags made every Turbo-on load exit
+  at arg-parse). Binary capability *probing* is deferred to a later slice.
+- [done] Verify draft/target tokenizer compatibility and auto-disable poor pairings:
+  `isDraftCompatible` (identical tokenizer model + pre + eos + vocab size) + a
+  positive-proof `pickDraftModelChecked` fed by GGUF metadata (`readVocabSig`) — an
+  incompatible or unverifiable draft self-disables Turbo, surfaced in Settings, never
+  silently degraded. Directly meets the "incompatible pairs never selected" exit
+  criterion. (`tests/turbo-engine.mjs`, 36/36; adversarially reviewed.)
 - Add request-scoped inference scheduling, cancellation, and backpressure.
 - Add one lifecycle manager for text, vision, image, embedding, and Whisper sidecars.
 - Budget context/output from real tokens, model metadata, RAM, VRAM, and KV cost.
