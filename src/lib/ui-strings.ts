@@ -2,6 +2,22 @@ import type { Lang } from './i18n'
 
 // OTOMATIK URETILDI (gen-i18n.mjs) — satir-ici UI metinleri, Ingilizce anahtarli.
 export const UI: Record<string, Partial<Record<Lang, string>>> = {
+  "Verified": {
+    "tr": "Doğrulandı", "es": "Verificado", "fr": "Vérifié", "de": "Verifiziert",
+    "pt": "Verificado", "ru": "Проверено", "zh": "已验证", "ja": "検証済み", "ar": "تم التحقق"
+  },
+  "Failed": {
+    "tr": "Başarısız", "es": "Falló", "fr": "Échec", "de": "Fehlgeschlagen",
+    "pt": "Falhou", "ru": "Не пройдено", "zh": "失败", "ja": "失敗", "ar": "فشل"
+  },
+  "Unverified": {
+    "tr": "Doğrulanamadı", "es": "No verificado", "fr": "Non vérifié", "de": "Nicht verifiziert",
+    "pt": "Não verificado", "ru": "Не проверено", "zh": "未验证", "ja": "未検証", "ar": "لم يتم التحقق"
+  },
+  "Verification": {
+    "tr": "Doğrulama", "es": "Verificación", "fr": "Vérification", "de": "Verifizierung",
+    "pt": "Verificação", "ru": "Проверка", "zh": "验证", "ja": "検証", "ar": "التحقق"
+  },
   "Recurring prompts — enqueued when due, run when the engine is free. Only while the app is open (local-first, no hidden daemon).": {
     "tr": "Yinelenen istemler — zamanı gelince kuyruğa alınır, motor boşta olunca çalışır. Yalnızca uygulama açıkken (local-first, gizli daemon yok).",
     "es": "Prompts recurrentes — se ponen en cola cuando toca y se ejecutan cuando el motor está libre. Solo mientras la app esté abierta (local-first, sin daemon oculto).",

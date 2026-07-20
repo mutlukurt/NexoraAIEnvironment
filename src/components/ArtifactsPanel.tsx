@@ -7,7 +7,7 @@ import { useTermStore } from '@/store/termStore'
 import { decideCommand } from '@shared/trust'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
-import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch, Eye } from 'lucide-react'
+import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch, Eye, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 
@@ -114,6 +114,7 @@ export default function ArtifactsPanel() {
   const undoFiles = useArtifactsStore((s) => s.undo)
   const redoFiles = useArtifactsStore((s) => s.redo)
   const generating = useAppStore((s) => s.generating)
+  const verificationLedger = useAppStore((s) => s.verificationLedger)
   const [exporting, setExporting] = useState(false)
   // 4.3: proje içi arama (dosya adı + içerik, büyük/küçük harfsiz)
   const [searchQ, setSearchQ] = useState('')
@@ -350,6 +351,32 @@ export default function ArtifactsPanel() {
               </button>
             ))}
           </div>
+          {/* Faz 2 — 3-durum doğrulama rozeti: son turun Verification Ledger hükmü
+              (passed/failed/unverified) görünür olsun; hover satır-satır kırılım verir. */}
+          {verificationLedger && (() => {
+            const o = verificationLedger.outcome
+            const Icon = o === 'passed' ? ShieldCheck : o === 'failed' ? ShieldAlert : ShieldQuestion
+            const cls =
+              o === 'passed'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600'
+                : o === 'failed'
+                  ? 'border-red-500/40 bg-red-500/10 text-red-600'
+                  : 'border-amber-500/40 bg-amber-500/10 text-amber-600'
+            const label =
+              o === 'passed' ? tt(language, 'Verified') : o === 'failed' ? tt(language, 'Failed') : tt(language, 'Unverified')
+            const detail = verificationLedger.rows
+              .map((r) => `${r.kind}: ${r.outcome}${r.diagnostic ? ' — ' + r.diagnostic.split('\n')[0].slice(0, 80) : ''}`)
+              .join('\n')
+            return (
+              <div
+                title={`${tt(language, 'Verification')}\n${detail}`}
+                className={`ml-2 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold ${cls}`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{label}</span>
+              </div>
+            )
+          })()}
           {fileCount > 0 && (
             <>
               {/* Watch mode (5.7): canlı arka plan taraması aç/kapa + bulgu rozeti */}

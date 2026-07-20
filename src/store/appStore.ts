@@ -123,6 +123,8 @@ interface AppState {
   modelLoadProgress: { stage: 'model' | 'context'; progress: number } | null
   /** "Çalıştır" denetiminin yakaladığı son derleme hatası — "düzelt" denince modele iliştirilir. */
   lastBuildError: string | null
+  /** Faz 2 — son turun Doğrulama Defteri (3-durum rozeti + walkthrough burdan okur). */
+  verificationLedger: VerificationLedger | null
   /** 6.8 Debug Paneli: motorun canlı olay akışı (logRepair'den beslenir). */
   engineEvents: Array<{ id: string; ts: number; layer: string; detail: string }>
   /** 16.1: tur şeffaflık kayıtları — opt-in denetçi açıkken dolar ("hiçbir şey makineden çıkmadı"). */
@@ -799,6 +801,17 @@ async function postGenVerify(
   let verifiedClean = false
   let verificationOutcome: VerificationOutcome = 'unverified'
   let lastDiagnosis = ''
+  // Faz 2 slice 2 — per-check ledger satırları: son turun ayrı syntax + build
+  // denetim sonuçları (tek "post-verify" satırı yerine granüler kanıt).
+  // ⚠️ Varsayılan 'unverified' (asla 'passed'): tur Durdur / async sırasında yeni
+  // tur ile denetim TAMAMLANMADAN erken dönerse, defter sahte-yeşil kurmasın
+  // (no-unproven-green). Ledger yalnız verificationRan=true iken kurulur.
+  let verificationRan = false
+  let lastSyntaxOutcome: VerificationOutcome = 'unverified'
+  let lastSyntaxDiag = ''
+  let lastBuildRan = false
+  let lastBuildOutcome: VerificationOutcome = 'unverified'
+  let lastBuildDiag = ''
   try {
     for (let round = 0; round < 4; round++) {
       if (pvEpoch !== stopEpoch || queuePaused || (operationId && latestTurnRequestId !== operationId)) return
@@ -832,6 +845,30 @@ async function postGenVerify(
         } catch {
           buildCheckUnavailable = true
         }
+      }
+      // Faz 2 slice 2 — bu turun syntax + build denetimlerini AYRI kaydet (defter
+      // per-check satırları için). decideVerification'ın kurallarıyla hizalı.
+      // Buraya ulaşmak = bu turda GERÇEK bir denetim tamamlandı → ledger meşru.
+      verificationRan = true
+      lastSyntaxOutcome = issues.length > 0 ? 'failed' : 'passed'
+      lastSyntaxDiag = issues.length > 0 ? diagnosis : ''
+      if (issues.length === 0) {
+        lastBuildRan = true
+        if (buildCheckUnavailable || !buildCheck) {
+          lastBuildOutcome = 'unverified'
+          lastBuildDiag = 'Build verification was unavailable.'
+        } else if (!buildCheck.ok) {
+          lastBuildOutcome = 'failed'
+          lastBuildDiag = buildCheck.error || 'Build verification failed.'
+        } else if (buildCheck.skipped) {
+          lastBuildOutcome = 'unverified'
+          lastBuildDiag = 'Build verification was skipped because dependencies are not installed.'
+        } else {
+          lastBuildOutcome = 'passed'
+          lastBuildDiag = ''
+        }
+      } else {
+        lastBuildRan = false
       }
       const decision = decideVerification(diagnosis || null, buildCheck, buildCheckUnavailable)
       verificationOutcome = decision.outcome
@@ -957,20 +994,36 @@ async function postGenVerify(
       const receipts = [...changedPaths]
         .map((p) => editReceipt(p, turnBaseFiles.get(p) ?? '', nowFiles[p]?.content ?? ''))
         .filter((r) => r.beforeHash !== r.afterHash)
-      if (receipts.length > 0 || verificationOutcome !== 'unverified') {
+      if (verificationRan) {
+        const at = Date.now()
+        // Per-check satırlar: syntax her zaman koşar (makbuzları taşır); build
+        // yalnız syntax geçtiyse denendi. Judge genel hükmü satırlardan hesaplar.
+        const rows = [
+          ledgerRow({
+            id: 'syntax',
+            kind: 'syntax',
+            outcome: lastSyntaxOutcome,
+            diagnostic: lastSyntaxDiag || undefined,
+            evidence: receipts,
+            at
+          })
+        ]
+        if (lastBuildRan) {
+          rows.push(
+            ledgerRow({
+              id: 'build',
+              kind: 'build',
+              outcome: lastBuildOutcome,
+              diagnostic: lastBuildDiag || undefined,
+              at
+            })
+          )
+        }
         lastVerificationLedger = buildLedger({
           turnId: operationId || latestTurnRequestId || nanoid(),
-          rows: [
-            ledgerRow({
-              id: 'post-verify',
-              kind: 'post-verify',
-              outcome: verificationOutcome,
-              diagnostic: lastDiagnosis || undefined,
-              evidence: receipts,
-              at: Date.now()
-            })
-          ]
+          rows
         })
+        set({ verificationLedger: lastVerificationLedger })
       }
     } catch {
       /* defter üretimi asla akışı bozmaz */
@@ -3164,6 +3217,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelError: null,
   modelLoadProgress: null,
   lastBuildError: null,
+  verificationLedger: null,
   pendingImage: null,
   engineEvents: [],
   turnInspections: [],
@@ -3465,6 +3519,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     currentSessionProject = null
     currentSessionTitle = null // 26: yeni oturumun özel başlığı yok
     pendingWalkthrough = null // 7.2: walkthrough bağlamı eski oturuma aittir
+    lastVerificationLedger = null // Faz 2: defter/rozet de eski oturuma aitti
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
     queuePaused = false
@@ -3472,6 +3527,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       messages: [],
       currentSessionId: null,
+      verificationLedger: null, // Faz 2: yeni oturumda eski projenin rozetini gösterme
       branchOrigin: null, // 20.1: temiz sayfa dal değildir
 
       profileId: DEFAULT_PROFILE_ID,
@@ -4044,10 +4100,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 20.1: açılan oturum bir dalsa köken geri gelir (banner + sidebar rozeti).
     set({ branchOrigin: data.branchedFrom ?? null })
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
+    lastVerificationLedger = null // Faz 2: rozet/defter önceki oturuma aitti
     // 7.4: açılan oturumun KENDİ yorum kuyruğu geri gelir — çapalar o
     // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.
     // 7.7: görev kuyruğu da; yarıda kalmış koşu dürüstçe needs-review olur.
     set({
+      verificationLedger: null, // Faz 2: açılan oturum kendi turunu doğrulayana dek rozet yok
       pendingComments: data.comments ?? [],
       queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
       queueWaitReason: null,
