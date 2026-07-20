@@ -113,6 +113,27 @@ check('walkthrough: doğrulama defteri başlık + karar + makbuzlar',
 // Defter yokken bölüm hiç çıkmaz (mevcut belgeler bozulmaz).
 check('walkthrough: defter yoksa bölüm eklenmez', !wtPending.includes('Doğrulama Defteri'), wtPending)
 
+// Faz 2: EARS kabul kriterleri — ledger satırları + goal literalleri belgeye işlenir.
+const wtEars = api.composeWalkthrough({
+  request: 'x', when: 'T', lang: 'en',
+  files: [{ path: 'src/App.tsx', status: 'done' }],
+  ledger: {
+    turnId: 'op1', outcome: 'failed',
+    rows: [
+      { id: 'syntax', kind: 'syntax', outcome: 'passed', at: 1, evidence: [] },
+      { id: 'build', kind: 'build', outcome: 'failed', diagnostic: 'vite failed', at: 1, evidence: [] }
+    ]
+  },
+  goal: { present: ['Coffee Roasters'], absent: ['#8B4513'] }
+})
+check('walkthrough: EARS acceptance-criteria section rendered',
+  wtEars.includes('## Acceptance Criteria (EARS)') &&
+  wtEars.includes('WHEN the project is built, the app SHALL compile without syntax errors.') &&
+  wtEars.includes('✅') && wtEars.includes('❌') &&
+  wtEars.includes('The app SHALL contain the requested "Coffee Roasters".') &&
+  wtEars.includes('#8B4513'), wtEars)
+check('walkthrough: no ledger/goal → no EARS section', !wtPending.includes('EARS'), wtPending)
+
 const td = api.composeTaskDoc('Planlı üretim — 3 dosya', [
   { label: 'a.css', status: 'done', detail: 'otomatik' },
   { label: 'b.tsx', status: 'failed', detail: 'üretilemedi' },

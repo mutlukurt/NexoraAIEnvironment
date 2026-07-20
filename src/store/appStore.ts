@@ -1043,6 +1043,19 @@ async function postGenVerify(
       if (pendingWalkthrough) {
         pendingWalkthrough.verify = { outcome: verificationOutcome, detail: lastDiagnosis || undefined }
         if (lastVerificationLedger) pendingWalkthrough.ledger = lastVerificationLedger
+        // Faz 2 — goal-fidelity: brief'in birebir literalleri üretilen dosyalarda
+        // VAR/YOK mu? EARS kabul kriterine dönüşür (present→passed, absent→failed).
+        // goalCheck saf + format-tabanlı (intent değil); literal yoksa alan boş kalır.
+        // ⚠️ Turun YAKALANMIŞ brief'ini (pendingWalkthrough.request) kullan, global
+        // lastVisibleUserPrompt'u DEĞİL (8.4 dersi: global sonraki tura kayabilir).
+        try {
+          const { goalCheck } = await import('@/lib/goalCheck')
+          const contents = Object.values(useArtifactsStore.getState().files).map((f) => f.content)
+          const g = goalCheck(pendingWalkthrough.request, contents)
+          if (g.checked) pendingWalkthrough.goal = { present: g.present, absent: g.absent }
+        } catch {
+          /* goal kontrolü koşamadı — EARS yalnız ledger satırlarından türer */
+        }
         void writeWalkthrough(
           get().language === 'tr'
             ? '📄 Walkthrough hazır — Dosyalar & Kod → Belgeler sekmesinden okuyabilirsin. (Çalıştır sonrası davranış kanıtı da eklenir.)'

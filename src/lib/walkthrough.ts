@@ -9,6 +9,7 @@
 import type { TaskStep } from '@shared/ipc'
 import type { VerificationOutcome } from './verificationResult'
 import type { VerificationLedger } from './verificationLedger'
+import { criteriaFromEvidence, formatEars } from './ears'
 
 export interface WalkthroughInput {
   /** Kullanıcının görünür isteği (walkthrough başlığının bağlamı). */
@@ -25,6 +26,13 @@ export interface WalkthroughInput {
    * tanı) türetilir. Belgeye işlenince "doğrulandı" açılabilir bir kanıt olur.
    */
   ledger?: VerificationLedger
+  /**
+   * Faz 2 — goal-fidelity: brief'in birebir literalleri (tırnaklı metin, url,
+   * hex) üretilen dosyalarda VAR (present) / YOK (absent). EARS kabul kriterine
+   * çevrilir: "uygulama '<literal>' içeriğini barındırmalı" (present→passed,
+   * absent→failed). goalCheck'ten (saf, format-tabanlı) beslenir.
+   */
+  goal?: { present?: string[]; absent?: string[] }
   /** Davranış testi (6.5): satırlar, kusurlar, ekran kareleri. */
   behavior?: { rows: string[]; fails: string[]; shots: string[] }
   /** Repro mührü hükümleri (6.6) — logRepair boğaz noktasından akar (7.7). */
@@ -61,6 +69,8 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         ledgerOutcome: 'Karar',
         ledgerChanged: 'değişti',
         ledgerUntouched: 'dokunulmadı',
+        earsTitle: 'Kabul Kriterleri (EARS)',
+        earsNote: 'Doğrulama sinyalleri EARS kabul kriterine çevrildi ("içermeli" satırları içerik VARLIĞINI denetler, uygulamanın çalıştığını değil) — Faz 4 bunları düzenlenebilir yapacak.',
         outPassed: 'doğrulandı',
         outFailed: 'başarısız',
         outUnverified: 'doğrulanamadı',
@@ -92,6 +102,8 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         ledgerOutcome: 'Outcome',
         ledgerChanged: 'changed',
         ledgerUntouched: 'untouched',
+        earsTitle: 'Acceptance Criteria (EARS)',
+        earsNote: 'The verification signals expressed as EARS acceptance criteria ("SHALL contain" rows check content PRESENCE, not that the app runs) — Phase 4 makes these editable.',
         outPassed: 'passed',
         outFailed: 'failed',
         outUnverified: 'unverified',
@@ -165,6 +177,16 @@ export function composeWalkthrough(i: WalkthroughInput): string {
         lines.push(`  - \`${e.path}\` — ${delta}`)
       }
     }
+  }
+
+  // Faz 2 — doğrulama sinyallerini EARS kabul kriterlerine çevir (Faz 4'ün
+  // düzenlenebilir Living Spec'ini besler). Kriterler kanıttan türer; brief'ten
+  // keyword'le UYDURULMAZ (intent modele ait kalır).
+  const earsCriteria = criteriaFromEvidence(i.ledger ?? null, i.goal, tr)
+  if (earsCriteria.length > 0) {
+    const emark = (o: VerificationOutcome) => (o === 'passed' ? '✅' : o === 'failed' ? '❌' : 'ℹ️')
+    lines.push('', `## ${L.earsTitle}`, '', `_${L.earsNote}_`, '')
+    for (const c of earsCriteria) lines.push(`- ${emark(c.status)} ${formatEars(c, tr)}`)
   }
 
   if (i.repro && i.repro.length > 0) {
