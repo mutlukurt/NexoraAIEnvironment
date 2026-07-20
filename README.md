@@ -183,24 +183,21 @@ v0.26 makes "verified" a document you can open, not a sentence the model wrote. 
 
 ## Truth & Safety — the v0.25 Scorecard (2026 Roadmap, Phase 1)
 
-v0.25 establishes the boundary that every later verification and automation feature
-depends on. Turns are request-scoped, delayed events cannot mutate a newer turn,
-file-producing work is staged and rolled back byte-for-byte on failure or abort, and
-verification distinguishes `passed`, `failed`, and `unverified` instead of treating a
-skipped check as green.
+v0.25 is the foundation the whole Verification OS (v0.26) stands on: make turns isolated, writes reversible, permissions authoritative, and CI incapable of accepting a known-broken change. Nothing here is a feature you click — it is the safety floor under everything else.
 
-The Electron boundary is now explicit and test-enforced: all 108 renderer-to-main
-invoke methods belong to one authoritative capability inventory. Privileged effects
-show a main-owned confirmation with the exact capability, project, effect, and policy;
-renderer trust claims cannot approve themselves. The renderer is sandboxed, provider
-secrets require OS-backed secure storage, MCP processes cannot silently auto-start,
-external automation is loopback-only, and exports cannot forge an arbitrary save path.
+**🧭 Request-scoped turns.** Every turn carries its own operation identity. A delayed stream chunk, a late `done` event, a stale permission answer, or a verification result from an *old* turn can no longer mutate a *newer* turn, session, or project — the class of bug where "I stopped it and started again, but the previous answer leaked in" is now structurally impossible. Stop a generation, start another, and only the new turn's events touch state.
 
-The release passed typecheck, the complete engine and capability suites, the production
-build, production dependency audit, and a visible Electron acceptance run. See the
-[2026 roadmap](ROADMAP-2026.md) and
-[current implementation truth](docs/CURRENT-TRUTH.md) for the exact evidence and known
-limits.
+**↩️ Transactional writes, byte-exact rollback.** File-producing work is staged inside a transaction. An abort, a crash, a malformed model output, or a failed validation restores the project to its **exact** prior bytes — a half-written `App.tsx` or an orphaned file never survives. Live streaming and atomic rollback coexist: you watch files fill in real time, but a stopped turn rewinds cleanly.
+
+**🚦 Tri-state verification (`passed` / `failed` / `unverified`).** The primitive Phase 2 later built the whole ledger on: a check that was **skipped or unavailable** (e.g. dependencies aren't installed, so the build can't run) is reported honestly as `unverified` — never quietly promoted to a green `passed`. Absence of evidence stops being mistaken for proof.
+
+**🔐 The Electron capability boundary.** All **108** renderer→main invoke methods belong to one authoritative, test-enforced inventory — CI fails if a new bridge method escapes classification. Privileged effects (run, fetch, dev-server, package, font, browser-open, MCP, provider network) are authorized in the **main process** behind a serialized, main-owned confirmation that shows the exact capability, project, effect, and policy in a sandboxed, preload-free window (Deny owns focus). A forged renderer `approved` / `projectAlways` / `full` claim **cannot approve itself** — main re-derives the real class of every action.
+
+**🧱 Closure controls.** The renderer is sandboxed with context isolation and no Node integration; provider secrets live in OS-backed secure storage (never renderer local storage); MCP servers cannot silently auto-start and config reads redact env values; browser automation is loopback-only; ZIP export always uses the main-owned save chooser, so a renderer-supplied path cannot be forged. A mandatory PR/main quality gate (typecheck · engine suite · production build · dependency audit) means a type, test, or build failure blocks the merge.
+
+**🩹 Hardened in v0.25.1.** Phase 1 passed both its own gates yet a six-agent adversarial review still found nine regressions — which is exactly why the roadmap now has a mandatory adversarial-review gate. v0.25.1 kept the entire boundary and fixed them: builds no longer pop an approval modal on every ordinary `npm`/`vite`/`tsc` command, live file streaming was restored, an existing API key stays readable on keyring-less Linux (safeStorage-when-available with a documented base64 fallback), and a broken confirmation modal can no longer wedge a turn.
+
+**✅ Verified:** `typecheck` clean · full engine + capability suites green (108-invoke inventory, native-authority forgery/deny/hard-deny checks, MCP lifecycle) · production build · `npm audit --omit=dev` zero vulnerabilities · a visible Electron acceptance run against a real localhost server (Deny/Allow behavior, sandbox isolation, forged-path rejection, clean relaunch). See the [2026 roadmap](ROADMAP-2026.md) and [current implementation truth](docs/CURRENT-TRUTH.md) for the exact evidence and known limits.
 
 ---
 
