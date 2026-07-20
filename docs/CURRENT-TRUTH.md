@@ -162,8 +162,11 @@ behavior test via an immutable `appendRow` that re-runs the Judge (worst-outcome
 failing behavior test downgrades the badge, a passing one never upgrades). Both slices
 passed a clean adversarial review.
 
-Still open as later Phase 2 enrichment (not gating the exit criteria): EARS-style
-acceptance criteria (which feeds Phase 4), and optionally a strict per-snapshot file-hash
+EARS-style acceptance criteria are now derived from the ledger rows and the
+goal-fidelity literals (`src/lib/ears.ts`) and rendered in the walkthrough — evidence-
+derived, never keyword-parsed from the brief, feeding Phase 4's Living Spec. Phase 2 is
+feature-complete on `main`: all four exit criteria met, all work items done, each slice
+adversarially reviewed. The only optional follow-up is a strict per-snapshot file-hash
 guard on the browser row. Build, queue, history, browser, and UI surfaces must keep
 preserving the three states.
 

@@ -6,9 +6,10 @@
 
 **Product position:** Local Verified App Factory
 
-**Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 active; all four Phase 2
-exit criteria met on `main` (unreleased); syntax/build/browser ledger rows + the
-three-state badge shipped, only EARS acceptance criteria remaining as enrichment
+**Status:** Phase 1 complete and hardened (v0.25.1) — Phase 2 feature-complete on `main`
+(unreleased): all four exit criteria met, syntax/build/browser ledger rows, the
+three-state badge, and EARS acceptance criteria all shipped and adversarially reviewed.
+Next: package as a release, then Phase 3 — Local Engine Autopilot
 
 ## Product promise
 
@@ -310,7 +311,9 @@ user can open, not a chat sentence.
   Judge: a failing behavior test downgrades the badge, a passing one never upgrades).
 - [done] Add the three-state verification UI badge (passed / failed / unverified) in the
   workspace header — colored, 10-language, hover shows the per-check breakdown.
-- Wire EARS-style acceptance criteria into the production build flow (feeds Phase 4).
+- [done] Wire EARS-style acceptance criteria into the production build flow (feeds Phase 4):
+  `src/lib/ears.ts` turns the ledger rows + goal-fidelity literals into EARS criteria
+  rendered in the walkthrough — derived from evidence, never keyword-parsed from the brief.
 
 ### Data model (target)
 
@@ -341,8 +344,11 @@ the model.
 6. [done] Browser-check ledger row (from the post-Run behavior test) + per-row build
    command/exit capture; `appendRow` re-judges immutably (6 unit tests, clean adversarial
    pass). The sub-1% false-verified rate is proven (`tests/verification-mutants.mjs`).
-7. Remaining Phase 2 enrichment (non-gating): EARS-style acceptance criteria (feeds
-   Phase 4); a strict per-snapshot file-hash guard on the browser row is optional.
+7. [done] EARS-style acceptance criteria (`src/lib/ears.ts`, 22 unit tests, clean
+   adversarial pass) — evidence-derived, rendered in the walkthrough, feeds Phase 4.
+
+All Phase 2 work items and all four exit criteria are met on `main` (unreleased). The
+only optional follow-up is a strict per-snapshot file-hash guard on the browser row.
 
 ### Slice 1 checkpoint (unreleased, on `main`)
 
