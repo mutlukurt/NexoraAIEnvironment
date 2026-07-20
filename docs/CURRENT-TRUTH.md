@@ -140,10 +140,18 @@ local and API builds — and was live-verified end to end via the qwen-plus API 
 `__nexoraDebug.lastLedger`. It is unit-tested (`tests/verification-ledger.mjs`, in
 `test:engine`).
 
-Still open for later Phase 2 slices: splitting the single `post-verify` row into
-per-check rows (syntax / build / goal, then browser) each with its own command and exit
-code; a distinct three-state verification UI badge; and EARS-style acceptance criteria.
-Build, queue, history, browser, and UI surfaces must keep preserving the three states.
+Slice 2 (also on `main`) split that single row into per-check rows — a `syntax` row and,
+when syntax passed, a `build` row, each with its own outcome and diagnostic — and added a
+three-state verification badge (passed / failed / unverified) in the workspace header,
+colored and localized in all ten languages, live-verified via a real API build. An
+adversarial review before commit closed a false-green early-return regression (the ledger
+is now built only when a check actually completed this turn) and a cross-session badge
+leak.
+
+Still open for later Phase 2 slices: browser-check rows and per-row command/exit-code
+capture; EARS-style acceptance criteria; and demonstrating the sub-1% false-verified rate
+on the canonical mutant fixture set. Build, queue, history, browser, and UI surfaces must
+keep preserving the three states.
 
 ## Packaging truth
 

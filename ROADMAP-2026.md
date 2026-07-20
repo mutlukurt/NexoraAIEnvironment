@@ -302,9 +302,11 @@ user can open, not a chat sentence.
   → unverified, else `passed`), so the headline can never disagree with its evidence.
 - [done] Surface the ledger in the walkthrough/receipt document. *(A distinct three-state
   UI badge is the next slice — the document already renders all three states.)*
-- Split the single post-verify row into per-check rows (syntax / build / goal, then
-  browser) each with its own command, exit code, and evidence.
-- Add the three-state verification UI badge (passed / failed / unverified).
+- [done] Split the single post-verify row into per-check rows: a `syntax` row (always)
+  and a `build` row (when syntax passed), each with its own outcome + diagnostic.
+  Browser rows and per-row command/exit-code capture are the remaining enrichment.
+- [done] Add the three-state verification UI badge (passed / failed / unverified) in the
+  workspace header — colored, 10-language, hover shows the per-check breakdown.
 - Wire EARS-style acceptance criteria into the production build flow (feeds Phase 4).
 
 ### Data model (target)
@@ -329,8 +331,12 @@ the model.
 3. [done] Populate the ledger from the post-verify pass (one `post-verify` row for now;
    per-check syntax/build/goal rows are the next slice).
 4. [done] Render the ledger in the walkthrough document. *(Three-state UI badge: next.)*
-5. Split per-check rows + the three-state UI badge, then desktop live acceptance across
-   passed / failed / unverified projects.
+5. [done] Split per-check rows (syntax + build) + the three-state UI badge, live-verified
+   in the desktop app (a real API build rendered the red "Failed" badge with its
+   syntax-row diagnostic; an adversarial review then closed a false-green early-return
+   regression and a cross-session badge leak before commit).
+6. Remaining: browser-check rows + per-row command/exit capture, EARS acceptance
+   criteria, and the sub-1% false-verified rate on the canonical mutant fixture set.
 
 ### Slice 1 checkpoint (unreleased, on `main`)
 
