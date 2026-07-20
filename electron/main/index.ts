@@ -80,6 +80,7 @@ import {
   setLifecycleAuthorized as mcpSetLifecycleAuthorized
 } from './mcpService'
 import { startServe, stopServe, serveStatus } from './serveEngine'
+import { registerSidecarStop, stopAllSidecars } from './sidecarLifecycle'
 import { setupTray, disposeTray, setKeepAwake, showNotification } from './systemIntegration'
 import { globalSearch } from './searchService'
 import { listCommands } from './commandsService'
@@ -1602,12 +1603,19 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+// Faz 3 — sidecar teardown'larını merkezi registry'ye kaydet. Statik-bilinenler
+// burada; lazy-spawn edilenler (sd-server, embed) kendi spawn noktalarında kaydeder.
+// Not: hepsi null-güvenli no-op (koşmuyorsa zarar yok). registerSidecarStop +
+// stopAllSidecars ./sidecarLifecycle'dan statik import edilir.
+registerSidecarStop('text-worker', disposeWorker)
+registerSidecarStop('dev-server', stopDev)
+registerSidecarStop('vision', stopVisionServer)
+registerSidecarStop('mcp', mcpShutdown)
+registerSidecarStop('serve', stopServe)
 app.on('before-quit', () => {
-  disposeWorker()
-  void stopDev()
-  stopVisionServer()
-  mcpShutdown()
-  stopServe()
+  // Tüm sidecar'lar İZOLE try/catch'te kapanır (biri fırlarsa gerisi yine kapanır →
+  // orphan yok). Eskiden sd-server + embed HİÇ kapatılmıyordu (Faz 3 canlı bulgu).
+  void stopAllSidecars()
   setKeepAwake(false)
   disposeTray()
 })

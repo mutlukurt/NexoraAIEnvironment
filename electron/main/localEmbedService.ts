@@ -13,6 +13,7 @@ import { readdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { findInstalledLlamaBinary } from './llamaServerEngine'
+import { registerSidecarStop } from './sidecarLifecycle'
 
 const MODELS_DIR = join(homedir(), 'NexoraAI', 'models')
 const EMBED_PORT = 8093
@@ -56,6 +57,8 @@ async function ensureServer(): Promise<{ ok: boolean; error?: string }> {
         { env: { ...process.env, LD_LIBRARY_PATH: dirname(bin) } as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' }
       )
       proc = child
+      // Faz 3 — embed sunucusu DETACHED; before-quit'te otomatik kapansın (orphan yok).
+      registerSidecarStop('embed', stopEmbedServer)
       let out = ''
       let settled = false
       const timer = setTimeout(() => { if (!settled) { settled = true; resolve({ ok: false, error: 'Embed sunucusu 120sn içinde hazır olmadı' }) } }, 120000)

@@ -20,6 +20,7 @@ import { mkdir, rename, rm } from 'fs/promises'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { localImageSize, type ImageGenOptions } from '../shared/imageModels'
 import { IMAGE_CATALOG, catalogById, type ImageCatalogEntry } from '../shared/imageCatalog'
+import { registerSidecarStop } from './sidecarLifecycle'
 
 const SD_TAG = 'master-773-1b04283'
 const SD_ASSET = 'sd-master-1b04283-bin-' // + <platform>.zip
@@ -270,6 +271,9 @@ async function startImageServer(modelPath: string, onStatus: ImageStatusCallback
       }
     )
     sdProc = child
+    // Faz 3 — sd-server DETACHED; app before-quit'te otomatik kapatılsın diye
+    // teardown'ını kaydet (eskiden orphan kalıyordu, GB'larca RAM + port sızıntısı).
+    registerSidecarStop('image', stopImageServer)
     let out = ''
     let settled = false
     const timer = setTimeout(() => {
