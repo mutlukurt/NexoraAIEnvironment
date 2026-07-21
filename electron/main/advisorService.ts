@@ -23,6 +23,26 @@ function detectNvidia(): Promise<{ name: string; vramGb: number } | null> {
   })
 }
 
+/**
+ * Kartta ŞU AN boş bellek (bayt). Co-residence kararı için (Faz 3): yazı modeli
+ * zaten kartı doldurmuşsa bu değer düşer → ikincil iş (görsel) işlemciye yönlenir.
+ * GPU yoksa / nvidia-smi başarısızsa 0 (çağıran taraf "kart yok gibi" davranır).
+ */
+export function detectFreeVramBytes(): Promise<number> {
+  return new Promise((resolve) => {
+    execFile(
+      'nvidia-smi',
+      ['--query-gpu=memory.free', '--format=csv,noheader,nounits'],
+      { timeout: 5000 },
+      (err, stdout) => {
+        if (err || !stdout.trim()) return resolve(0)
+        const freeMib = Number(stdout.trim().split('\n')[0].trim())
+        resolve(Number.isFinite(freeMib) ? freeMib * 1024 * 1024 : 0)
+      }
+    )
+  })
+}
+
 export async function detectHardware(): Promise<HardwareInfo> {
   const gpu = await detectNvidia()
   return {

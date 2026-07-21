@@ -14,13 +14,15 @@
  *  - Vulkan binary CPU backend'i de içerir → GPU yoksa otomatik CPU'ya düşer.
  */
 import { spawn, type ChildProcess } from 'child_process'
-import { homedir } from 'os'
+import { homedir, freemem } from 'os'
 import { join, dirname, basename } from 'path'
 import { mkdir, rename, rm } from 'fs/promises'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { localImageSize, type ImageGenOptions } from '../shared/imageModels'
 import { IMAGE_CATALOG, catalogById, type ImageCatalogEntry } from '../shared/imageCatalog'
 import { registerSidecarStop } from './sidecarLifecycle'
+import { planLoad } from '../shared/modelResidency'
+import { detectFreeVramBytes } from './advisorService'
 
 const SD_TAG = 'master-773-1b04283'
 const SD_ASSET = 'sd-master-1b04283-bin-' // + <platform>.zip
@@ -258,12 +260,37 @@ async function startImageServer(modelPath: string, onStatus: ImageStatusCallback
     stopImageServer()
   }
   sdModelInUse = modelPath
-  onStatus('Görsel modeli belleğe yükleniyor…')
+
+  // --diffusion-fa (H2): bedava VRAM + hız. Vulkan binary GPU yoksa CPU'ya düşer.
+  const args = ['-m', modelPath, '--listen-ip', '127.0.0.1', '--listen-port', String(IMAGE_PORT), '--diffusion-fa', '-v']
+  // Faz 3 — co-residence/taşma koruması (Option A: sohbet korunur). Kart ŞU AN başka
+  // modelle (yazı modeli) doluysa görseli KARTA sokup taşırmak yerine `--backend cpu`
+  // ile işlemcide üret: çökme/donma yerine biraz yavaşlık. Ölçüm başarısızsa eski
+  // davranış (GPU; Vulkan zaten GPU yoksa CPU'ya düşer).
+  try {
+    const bytes = statSync(modelPath).size
+    const vramFreeBytes = await detectFreeVramBytes()
+    if (vramFreeBytes > 0) {
+      const plan = planLoad({ name: 'image', preferGpu: true, bytes }, { vramFreeBytes, ramFreeBytes: freemem() })
+      console.log('[localImageService] co-residence:',
+        `boşVRAM=${(vramFreeBytes / 1e9).toFixed(1)}GB model=${(bytes / 1e9).toFixed(1)}GB → ${plan.device}`)
+      if (plan.device === 'cpu') {
+        args.push('--backend', 'cpu')
+        onStatus('Kart başka modelle dolu; görsel işlemcide üretilecek (biraz yavaş)…')
+      } else {
+        onStatus('Görsel modeli belleğe yükleniyor…')
+      }
+    } else {
+      onStatus('Görsel modeli belleğe yükleniyor…')
+    }
+  } catch {
+    onStatus('Görsel modeli belleğe yükleniyor…')
+  }
+
   return new Promise((resolvePromise) => {
     const child = spawn(
       sdServerPath(),
-      // --diffusion-fa (H2): bedava VRAM + hız. Vulkan binary GPU yoksa CPU'ya düşer.
-      ['-m', modelPath, '--listen-ip', '127.0.0.1', '--listen-port', String(IMAGE_PORT), '--diffusion-fa', '-v'],
+      args,
       {
         env: { ...process.env, LD_LIBRARY_PATH: sdBinDir() } as NodeJS.ProcessEnv,
         stdio: ['ignore', 'pipe', 'pipe'],

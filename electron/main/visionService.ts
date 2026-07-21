@@ -15,6 +15,7 @@ import { join, dirname } from 'path'
 import { mkdir, readFile, rename, rm } from 'fs/promises'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { nativeImage } from 'electron'
+import { planLoad } from '../shared/modelResidency'
 
 const BIN_TAG = 'b9870'
 const BIN_ROOT = join(homedir(), 'NexoraAI', 'bin')
@@ -283,6 +284,19 @@ async function startVisionServer(
     stopVisionServer()
   }
   visionModelInUse = eyes.model
+  // Faz 3 — co-residence: görsel-anlama modeli işlemcide/RAM'de çalışır. Yazı modeli
+  // zaten sistem belleğini doldurmuşsa ikisi birden sığmayabilir → kullanıcıyı sade
+  // mesajla uyar (yine de dener; OS takas eder, yavaşlar). Option A: sık kullanılanı
+  // zorla kapatma. Ölçüm başarısızsa sessizce devam.
+  try {
+    const bytes = statSync(eyes.model).size + (existsSync(eyes.mmproj) ? statSync(eyes.mmproj).size : 0)
+    const plan = planLoad({ name: 'vision', preferGpu: false, bytes }, { vramFreeBytes: 0, ramFreeBytes: freemem() })
+    if (!plan.fits) {
+      console.log('[visionService] co-residence: RAM dar,',
+        `model=${(bytes / 1e9).toFixed(1)}GB boşRAM=${(freemem() / 1e9).toFixed(1)}GB`)
+      onStatus('Not: sistem belleği dar (başka model açık) — görsel-anlama yavaş olabilir.')
+    }
+  } catch { /* ölçüm başarısızsa sessizce devam */ }
   onStatus(`Görsel modeli belleğe yükleniyor (${eyes.label})…`)
   return new Promise((resolvePromise) => {
     const child = spawn(
