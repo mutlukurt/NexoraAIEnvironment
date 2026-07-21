@@ -2,7 +2,7 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.27.0
+**Current release:** v0.27.1
 
 **Current roadmap:** [ROADMAP-2026.md](../ROADMAP-2026.md)
 

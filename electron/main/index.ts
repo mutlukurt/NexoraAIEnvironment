@@ -121,7 +121,16 @@ const isDev = !!process.env['ELECTRON_RENDERER_URL']
 // use-gl=swiftshader + disable-software-rasterizer ikilisi Electron 43'te
 // Wayland altında hiç kare üretmiyor ve pencere hiç görünmüyordu.
 if (process.platform === 'linux') {
+  // Ubuntu 24.04+/26 güvenlik kısıtı (apparmor_restrict_unprivileged_userns=1)
+  // Chromium sandbox'ını bozuyor: renderer'lar /dev/shm paylaşımlı bellekte
+  // "No such process (ESRCH)" ile çöküp pencere BEYAZ kalıyor. `appendSwitch`
+  // tek başına yetmez — gerçek komut-satırı `--no-sandbox` şart. Bayrak yoksa
+  // uygulamayı BİR KEZ onunla yeniden başlat (double-click/terminal fark etmez).
   app.commandLine.appendSwitch('no-sandbox')
+  if (!process.argv.includes('--no-sandbox')) {
+    app.relaunch({ args: process.argv.slice(1).concat('--no-sandbox') })
+    app.exit(0)
+  }
 }
 
 if (process.env['NEXORA_HEADLESS']) {

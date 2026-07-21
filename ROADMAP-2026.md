@@ -2,7 +2,7 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.27.0
+**Current release:** v0.27.1
 
 **Product position:** Local Verified App Factory
 
