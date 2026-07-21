@@ -313,6 +313,8 @@ export interface UsageSample {
   cachedTokens?: number
   contextSize: number
   exact: boolean
+  /** Faz 3 — yerel motor hız telemetrisi (ilk-token süresi, decode hızı, Turbo kabul). */
+  telemetry?: import('./telemetry').Telemetry
 }
 
 /**

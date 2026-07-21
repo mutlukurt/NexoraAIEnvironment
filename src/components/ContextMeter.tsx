@@ -10,6 +10,7 @@ import { Gauge, ChevronDown } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { contextFill, usageBand } from '@shared/usage'
+import { tt } from '@/lib/i18n'
 
 function fmtK(n: number): string {
   if (n < 1000) return String(n)
@@ -79,6 +80,16 @@ export default function ContextMeter() {
                 {ctx > 0 && <Row label={tr ? 'Bağlam penceresi' : 'Context window'} value={ctx.toLocaleString()} />}
                 {ctx > 0 && <Row label={tr ? 'Doluluk' : 'Fill'} value={`${pct}%`} />}
                 <Row label={tr ? 'Kaynak' : 'Source'} value={last.source} />
+                {/* Faz 3 — yerel motor hız telemetrisi (yalnız değer geldiyse) */}
+                {last.telemetry?.decodeTps != null && (
+                  <Row label={tt(language, 'Speed')} value={`${last.telemetry.decodeTps} tok/s`} />
+                )}
+                {last.telemetry?.ttftMs != null && (
+                  <Row label={tt(language, 'First token')} value={`${last.telemetry.ttftMs} ms`} />
+                )}
+                {last.telemetry?.draftAcceptPct != null && (
+                  <Row label={tt(language, 'Turbo accepted')} value={`%${last.telemetry.draftAcceptPct}`} />
+                )}
               </>
             )}
             {activeApi && <Row label={tr ? 'Aktif model' : 'Active model'} value={activeApi.label} />}

@@ -568,7 +568,7 @@ export function getLastTurnUsage(): UsageSample | null {
   if (turnSource === 'server') {
     const u = getLastServerUsage()
     return u
-      ? { source: 'llama-server', promptTokens: u.promptTokens, completionTokens: u.completionTokens, totalTokens: u.totalTokens, cachedTokens: u.cachedTokens, contextSize: u.contextSize, exact: true }
+      ? { source: 'llama-server', promptTokens: u.promptTokens, completionTokens: u.completionTokens, totalTokens: u.totalTokens, cachedTokens: u.cachedTokens, contextSize: u.contextSize, exact: true, telemetry: u.telemetry }
       : estimate('estimate', getLoadedInfo()?.contextSize ?? 4096)
   }
   return estimate('llama-native', getLoadedInfo()?.contextSize ?? 4096)

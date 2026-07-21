@@ -2,6 +2,18 @@ import type { Lang } from './i18n'
 
 // OTOMATIK URETILDI (gen-i18n.mjs) — satir-ici UI metinleri, Ingilizce anahtarli.
 export const UI: Record<string, Partial<Record<Lang, string>>> = {
+  "Speed": {
+    "tr": "Hız", "es": "Velocidad", "fr": "Vitesse", "de": "Geschwindigkeit",
+    "pt": "Velocidade", "ru": "Скорость", "zh": "速度", "ja": "速度", "ar": "السرعة"
+  },
+  "First token": {
+    "tr": "İlk token", "es": "Primer token", "fr": "Premier jeton", "de": "Erstes Token",
+    "pt": "Primeiro token", "ru": "Первый токен", "zh": "首个 token", "ja": "最初のトークン", "ar": "الرمز الأول"
+  },
+  "Turbo accepted": {
+    "tr": "Turbo kabul", "es": "Turbo aceptado", "fr": "Turbo accepté", "de": "Turbo akzeptiert",
+    "pt": "Turbo aceito", "ru": "Турбо принято", "zh": "Turbo 采纳", "ja": "Turbo 採用", "ar": "قبول تيربو"
+  },
   "Turbo active": {
     "tr": "Turbo aktif", "es": "Turbo activo", "fr": "Turbo actif", "de": "Turbo aktiv",
     "pt": "Turbo ativo", "ru": "Турбо активен", "zh": "Turbo 已启用", "ja": "Turbo 有効", "ar": "تيربو مُفعّل"

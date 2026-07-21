@@ -34,6 +34,7 @@ import { findNodeBinary } from './llamaWorkerEngine'
 import { chatSystemPrompt } from '../shared/prompts'
 import { fitGpuLayers, planRungs, type RungPlan } from '../shared/gpuPlan'
 import { GenerationGate } from '../shared/generationGate'
+import { computeTelemetry, type RawTimings, type Telemetry } from '../shared/telemetry'
 import {
   pumpWithLiveness,
   StreamDeadError,
@@ -504,7 +505,7 @@ interface Usage {
 }
 
 // 10.12.2 — son turun usage'ı (llama-server include_usage'dan) + bağlam boyutu.
-let lastServerUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number; contextSize: number } | null = null
+let lastServerUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number; contextSize: number; telemetry?: Telemetry } | null = null
 export function getLastServerUsage(): typeof lastServerUsage {
   return lastServerUsage
 }
@@ -516,7 +517,7 @@ async function chatRequest(
   onToken: ((t: string) => void) | null,
   signal?: AbortSignal,
   liveness?: { firstMs: number; idleMs: number }
-): Promise<{ text: string; usage: Usage | null; aborted: boolean }> {
+): Promise<{ text: string; usage: Usage | null; aborted: boolean; timings: RawTimings | null; ttftMs: number | null }> {
   // Düz-metin (sohbet/brief) turları ile kod turlarının tarifi AYRILIR
   // (canlı-test matrisi, 2026-07-05): kod tarifindeki tekrar cezaları Türkçe
   // gibi eklemeli dillerde ekleri cezalandırıp uydurma kelimelere itiyor,
@@ -556,6 +557,8 @@ async function chatRequest(
   // (Qwen2.5-Coder) her iki durumda da yok sayar.
   if (!prose) body.chat_template_kwargs = { enable_thinking: false }
 
+  // Faz 3 — telemetri: istek başlangıcı (ilk-token süresi = istek→ilk token, istemci ölçümü).
+  const reqStart = Date.now()
   const res = await fetch(baseUrl + '/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -571,6 +574,7 @@ async function chatRequest(
     const j = (await res.json()) as {
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
       usage?: Usage
+      timings?: RawTimings
     }
     const msg = j.choices?.[0]?.message
     // Savunma: enable_thinking yok sayılıp content boş kaldıysa, düşünme
@@ -579,13 +583,15 @@ async function chatRequest(
     if (!text && msg?.reasoning_content) {
       text = msg.reasoning_content.replace(/^[\s\S]*?<\/think>\s*/i, '').trim()
     }
-    return { text, usage: j.usage ?? null, aborted: false }
+    return { text, usage: j.usage ?? null, aborted: false, timings: j.timings ?? null, ttftMs: null }
   }
 
   // SSE akışı — 8.1 canlılık bekçisiyle: 0-bayt sessizlik bütçeyi aşarsa reader
   // İPTAL edilir (soket teardown → sunucu decode'u durur), StreamDeadError yükselir.
   let text = ''
   let usage: Usage | null = null
+  let timings: RawTimings | null = null
+  let ttftMs: number | null = null
   const reader = res.body!.getReader()
   activeReader = reader
   const dec = new TextDecoder()
@@ -602,13 +608,16 @@ async function chatRequest(
         const j = JSON.parse(payload) as {
           choices?: Array<{ delta?: { content?: string } }>
           usage?: Usage
+          timings?: RawTimings
         }
         const delta = j.choices?.[0]?.delta?.content
         if (delta) {
+          if (ttftMs === null) ttftMs = Date.now() - reqStart // ilk token süresi
           text += delta
           onToken(delta)
         }
         if (j.usage) usage = j.usage
+        if (j.timings) timings = j.timings
       } catch {
         /* bozuk SSE satırı — atla */
       }
@@ -623,13 +632,13 @@ async function chatRequest(
     // gerçekten durduruldu. Üst kat (prompt) bunu hayalet retry'a çevirmez.
     if (name === 'AbortError' || name === 'StreamDeadError') {
       if (name === 'StreamDeadError') console.warn('[llamaServerEngine] akış ölü sayıldı:', (err as Error).message)
-      return { text, usage, aborted: true }
+      return { text, usage, aborted: true, timings, ttftMs }
     }
     throw err
   } finally {
     if (activeReader === reader) activeReader = null
   }
-  return { text, usage, aborted: false }
+  return { text, usage, aborted: false, timings, ttftMs }
 }
 
 // ---------------------------------------------------------------------------
@@ -887,13 +896,15 @@ export const serverEngine: InferenceEngine = {
         else ctxUsed += Math.ceil((promptText.length + r.text.length) / 4)
       }
       // 10.12.2: usage'ı dışa aç (panel için). ephemeral/isolate turlar da sayılır.
+      // Faz 3: hız telemetrisi (ilk-token süresi + decode hızı + Turbo kabul oranı).
       if (r.usage) {
         lastServerUsage = {
           promptTokens: r.usage.prompt_tokens ?? 0,
           completionTokens: r.usage.completion_tokens ?? 0,
           totalTokens: r.usage.total_tokens ?? 0,
           cachedTokens: r.usage.prompt_tokens_details?.cached_tokens,
-          contextSize: ctxSize
+          contextSize: ctxSize,
+          telemetry: computeTelemetry(r.timings, r.ttftMs)
         }
       }
       return r.text
