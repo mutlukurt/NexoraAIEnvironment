@@ -146,6 +146,14 @@ export function slotFileFor(key: string): string {
 }
 
 /** llama-server draft spawn argümanları (draft yoksa boş dizi). */
+/**
+ * Turbo'nun kullandığı SÜRÜM-HASSAS bayraklar. Bir binary güncellemesinde bunlar
+ * yeniden adlandırılırsa/kaldırılırsa (b9870'de --draft-max kalktı gibi) binary
+ * arg-parse'ta çıkar → turbo açık her yükleme kırılırdı. Yetenek probu (binaryCaps)
+ * yüklemeden ÖNCE bunların binary --help'inde olduğunu doğrular; yoksa turbo kapanır.
+ */
+export const DRAFT_FLAGS: readonly string[] = ['--model-draft', '--spec-draft-n-max', '--spec-draft-n-min', '-ngld']
+
 export function draftArgs(draftPath: string | null): string[] {
   if (!draftPath) return []
   // spec-draft-n-max: kabul edilirse sıçranan taslak token sayısı; -ngld 0 draft

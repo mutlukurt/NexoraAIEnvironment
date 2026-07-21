@@ -35,6 +35,8 @@ import { chatSystemPrompt } from '../shared/prompts'
 import { fitGpuLayers, planRungs, type RungPlan } from '../shared/gpuPlan'
 import { GenerationGate } from '../shared/generationGate'
 import { computeTelemetry, type RawTimings, type Telemetry } from '../shared/telemetry'
+import { hasAllFlags, missingFlags } from '../shared/binaryCaps'
+import { DRAFT_FLAGS } from '../shared/turboEngine'
 import {
   pumpWithLiveness,
   StreamDeadError,
@@ -289,6 +291,30 @@ async function readVocabSig(path: string): Promise<import('../shared/turboEngine
   }
 }
 
+/**
+ * Faz 3 — binary yetenek probu: llama-server `--help` çıktısını BİR KEZ okuyup önbellekler
+ * (bayrak jetonları binaryCaps'te ayrıştırılır). Motor, sürüm-hassas bir bayrağı
+ * kullanmadan önce burada olduğunu doğrular; yoksa özelliği zarifçe kapatır (crash yok).
+ */
+let cachedServerHelp: string | null = null
+async function probeServerHelp(bin: string): Promise<string> {
+  if (cachedServerHelp !== null) return cachedServerHelp
+  try {
+    const { execFile } = await import('child_process')
+    cachedServerHelp = await new Promise<string>((resolve) => {
+      execFile(
+        bin,
+        ['--help'],
+        { timeout: 5000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, LD_LIBRARY_PATH: dirname(bin) } },
+        (_err, stdout, stderr) => resolve((stdout || '') + (stderr || '')) // --help stderr'e de basabilir
+      )
+    })
+  } catch {
+    cachedServerHelp = ''
+  }
+  return cachedServerHelp
+}
+
 // ---------------------------------------------------------------------------
 // CJK yasağı: kimlikler ayrı süreçte (cjkScan.js, vocabOnly) çıkarılır ve
 // model dosyası başına diske önbellenir (~1 sn, bir kez).
@@ -440,24 +466,37 @@ async function spawnServer(bin: string, modelPath: string, rung: SpawnRung, port
   // (yanlış-vocab draft server'ı bozabilir; opt-in, worker fallback yine korur).
   if (turboDraftEnabled) {
     try {
-      const { pickDraftModelChecked, draftArgs } = await import('../shared/turboEngine')
-      const { readdirSync, statSync } = await import('fs')
-      const dir = join(homedir(), 'NexoraAI', 'models')
-      const cands = readdirSync(dir).filter((f) => /\.gguf$/i.test(f)).map((f) => {
-        const p = join(dir, f)
-        return { path: p, sizeBytes: (() => { try { return statSync(p).size } catch { return 0 } })() }
-      })
-      // Faz 3 — aile+boyut ön-filtresi + GERÇEK vocab imzası uyum kapısı. Uyumsuz
-      // (ör. 14B vocab≠3B) ASLA seçilmez; hedef/aday metadata okunamazsa da seçilmez
-      // (pozitif kanıt şart). readVocabSig enjekte edilir (node-llama-cpp, main).
-      const pick = await pickDraftModelChecked(modelPath, sizeBytes, cands, readVocabSig)
-      pickedDraft = pick.path ? (pick.path.split('/').pop() ?? pick.path) : null
-      pickedDraftReason = pick.path ? null : (pick.reason ?? null)
-      if (pick.path) {
-        args.push(...draftArgs(pick.path))
-        console.log('[llamaServerEngine] TURBO draft:', pickedDraft)
+      // Faz 3 — yetenek probu: bu binary Turbo (draft) bayraklarını GERÇEKTEN destekliyor mu?
+      // Bir güncelleme bayrakları değiştirdiyse (slice 1: b9870 --draft-max'i kaldırdı → turbo
+      // açık her yükleme "hiçbir konfigürasyonla başlatılamadı" ile ölüyordu) ÖNCE burada yakala,
+      // Turbo'yu açma (worker fallback zaten korur). Pozitif kanıt yoksa (help okunamadı) açma.
+      const help = await probeServerHelp(bin)
+      if (!hasAllFlags(help, DRAFT_FLAGS)) {
+        // Bu binary Turbo bayraklarını desteklemiyor → Turbo'yu AÇMA (draft args ekleme),
+        // turbosuz devam (worker fallback zaten korur). Slice 1 crash'ini kökten önler.
+        pickedDraft = null
+        pickedDraftReason = 'binary-flags'
+        console.log('[llamaServerEngine] TURBO: bu binary draft bayraklarını desteklemiyor → kapalı; eksik:', missingFlags(help, DRAFT_FLAGS).join(', ') || '(help okunamadı)')
       } else {
-        console.log('[llamaServerEngine] TURBO açık ama uyumlu draft yok → otomatik kapatıldı:', pickedDraftReason)
+        const { pickDraftModelChecked, draftArgs } = await import('../shared/turboEngine')
+        const { readdirSync, statSync } = await import('fs')
+        const dir = join(homedir(), 'NexoraAI', 'models')
+        const cands = readdirSync(dir).filter((f) => /\.gguf$/i.test(f)).map((f) => {
+          const p = join(dir, f)
+          return { path: p, sizeBytes: (() => { try { return statSync(p).size } catch { return 0 } })() }
+        })
+        // Faz 3 — aile+boyut ön-filtresi + GERÇEK vocab imzası uyum kapısı. Uyumsuz
+        // (ör. 14B vocab≠3B) ASLA seçilmez; hedef/aday metadata okunamazsa da seçilmez
+        // (pozitif kanıt şart). readVocabSig enjekte edilir (node-llama-cpp, main).
+        const pick = await pickDraftModelChecked(modelPath, sizeBytes, cands, readVocabSig)
+        pickedDraft = pick.path ? (pick.path.split('/').pop() ?? pick.path) : null
+        pickedDraftReason = pick.path ? null : (pick.reason ?? null)
+        if (pick.path) {
+          args.push(...draftArgs(pick.path))
+          console.log('[llamaServerEngine] TURBO draft:', pickedDraft)
+        } else {
+          console.log('[llamaServerEngine] TURBO açık ama uyumlu draft yok → otomatik kapatıldı:', pickedDraftReason)
+        }
       }
     } catch { pickedDraft = null; pickedDraftReason = 'metadata' /* draft edinilemezse turbosuz devam */ }
   } else {
