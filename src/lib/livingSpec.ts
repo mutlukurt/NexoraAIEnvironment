@@ -42,18 +42,46 @@ export function specLiterals(text: string): string[] {
   return out
 }
 
+/** Literal bir dosya YOLU gibi mi görünüyor (uzantılı + boşluksuz, ör. src/Login.tsx). */
+export function isPathLike(lit: string): boolean {
+  const s = lit.trim()
+  // Boşluksuz + HARFLE başlayan bir uzantıyla bitmeli (.tsx/.css/.md…) — "3.14" gibi
+  // rakamsal ondalıkları yol sanmasın.
+  return !/\s/.test(s) && /[^/.]\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(s)
+}
+
+/** Projede bu yola sahip dosyayı bul (baştaki ./ ve büyük/küçük harf duyarsız; son-ek eşleşmesi). */
+function findFile(path: string, files: Array<{ path: string; content: string }>): { path: string; content: string } | undefined {
+  const norm = (p: string) => p.replace(/^\.?\/+/, '').toLowerCase()
+  const target = norm(path)
+  return files.find((f) => {
+    const fp = norm(f.path)
+    return fp === target || fp.endsWith('/' + target)
+  })
+}
+
 /**
- * Bir kullanıcı maddesini üretilen dosyalara göre MEKANİK değerlendir:
- *  • Tırnaklı literal(ler) varsa → hepsi dosyalarda geçiyorsa 'passed', biri bile
- *    eksikse 'failed'.
- *  • Literal yoksa → 'unverified' (mekanik denetlenemez; körlemesine geçmez).
+ * Bir kullanıcı maddesini üretilen dosyalara göre MEKANİK değerlendir (Faz 4):
+ *  • Tırnaklı literal bir DOSYA YOLU ise (Faz 4 slice 2) → o dosya PROJEDE var mı
+ *    (yoksa 'failed').
+ *  • İçerik literali (yol değil) → dosyalarda geçiyor mu. Maddede bir YOL da varsa
+ *    içerik O DOSYADA aranır (yerleşim); yoksa herhangi bir dosyada.
+ *  • Denetlenebilir literal yoksa → 'unverified' (körlemesine geçmez).
  */
 export function evaluateUserItem(text: string, files: Array<{ path: string; content: string }>): VerificationOutcome {
   const lits = specLiterals(text)
   if (lits.length === 0) return 'unverified'
-  const hay = files.map((f) => f.content).join('\n')
-  const anyMissing = lits.some((l) => !hay.includes(l))
-  return anyMissing ? 'failed' : 'passed'
+  const paths = lits.filter(isPathLike)
+  const contents = lits.filter((l) => !isPathLike(l))
+
+  // Yol literalleri: dosya projede olmalı.
+  for (const p of paths) if (!findFile(p, files)) return 'failed'
+
+  // İçerik literalleri: yol varsa O dosyada (yerleşim), yoksa herhangi bir dosyada.
+  const scope = paths.length ? (findFile(paths[0], files)?.content ?? '') : files.map((f) => f.content).join('\n')
+  for (const c of contents) if (!scope.includes(c)) return 'failed'
+
+  return 'passed'
 }
 
 /** İki metin aynı kriter mi (kırpılmış, boşluk/noktalama-duyarsız kaba eşitlik). */

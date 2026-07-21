@@ -9,7 +9,7 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = mkdtempSync(join(tmpdir(), 'nexora-livingspec-'))
 const entry = join(work, 'entry.ts')
 const outfile = join(work, 'bundle.mjs')
-writeFileSync(entry, `export { specLiterals, evaluateUserItem, reconcileSpec, specOutcome, specCounts, addUserItem, editUserItem, removeUserItem } from '${join(repo, 'src/lib/livingSpec.ts')}'\n`)
+writeFileSync(entry, `export { specLiterals, isPathLike, evaluateUserItem, reconcileSpec, specOutcome, specCounts, addUserItem, editUserItem, removeUserItem } from '${join(repo, 'src/lib/livingSpec.ts')}'\n`)
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile })
 const M = await import(pathToFileURL(outfile).href)
 
@@ -33,6 +33,27 @@ ok(M.evaluateUserItem('the app SHALL have "Welcome to Acme" and "prod"', files) 
 ok(M.evaluateUserItem('has "Welcome to Acme" and "Missing"', files) === 'failed', 'biri eksik → failed')
 ok(M.evaluateUserItem('the login form works correctly', files) === 'unverified', 'literal yok → unverified (körlemesine geçmez)')
 ok(M.evaluateUserItem('anything', []) === 'unverified', 'dosya yok + literal yok → unverified')
+
+// ── Faz 4 slice 2: DOSYA / YERLEŞİM kontrolü ────────────────────────────
+ok(M.isPathLike('src/Login.tsx'), 'yol gibi: src/Login.tsx')
+ok(M.isPathLike('index.css'), 'yol gibi: index.css (uzantılı)')
+ok(!M.isPathLike('Welcome to Acme'), 'yol değil: boşluklu metin')
+ok(!M.isPathLike('Login'), 'yol değil: uzantısız')
+ok(!M.isPathLike('3.14'), 'yol değil: sadece nokta-sayı (uzantı yok)')
+const proj = [
+  { path: 'src/App.tsx', content: 'import Login from "./Login"\n<h1>Welcome</h1>' },
+  { path: 'src/Login.tsx', content: 'export default function Login(){ return <form>Giriş Yap</form> }' }
+]
+// yol literali → dosya var mı
+ok(M.evaluateUserItem('the app SHALL have "src/Login.tsx"', proj) === 'passed', 'yol var → passed')
+ok(M.evaluateUserItem('the app SHALL have "src/Signup.tsx"', proj) === 'failed', 'yol yok → failed')
+ok(M.evaluateUserItem('SHALL include "Login.tsx"', proj) === 'passed', 'son-ek eşleşmesi (Login.tsx) → passed')
+// yerleşim: içerik O dosyada mı
+ok(M.evaluateUserItem('"src/Login.tsx" SHALL contain "Giriş Yap"', proj) === 'passed', 'yerleşim: içerik doğru dosyada → passed')
+ok(M.evaluateUserItem('"src/Login.tsx" SHALL contain "Welcome"', proj) === 'failed', 'yerleşim: içerik YANLIŞ dosyada (Welcome App.tsx\'te) → failed')
+ok(M.evaluateUserItem('"src/App.tsx" SHALL contain "Welcome"', proj) === 'passed', 'yerleşim: içerik doğru dosyada (Welcome App.tsx) → passed')
+// yol yoksa içerik herhangi bir dosyada (slice 1 davranışı korunur)
+ok(M.evaluateUserItem('SHALL contain "Giriş Yap"', proj) === 'passed', 'yol yok → içerik herhangi bir dosyada')
 
 // ── reconcileSpec: otomatik + kullanıcı, çift-eleme, değerlendirme ───────
 const auto = [
