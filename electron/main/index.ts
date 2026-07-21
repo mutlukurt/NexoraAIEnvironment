@@ -130,6 +130,14 @@ if (process.env['NEXORA_HEADLESS']) {
   app.commandLine.appendSwitch('no-sandbox')
 }
 
+// Opt-in canlı-test/hata-ayıklama: NEXORA_CDP=<port> ile Chrome DevTools Protocol'ü aç
+// (yalnız geliştirici bu env'i verirse; normal kullanıcıda kapalı). Motor/UI'yi
+// dışarıdan sürebilmek için (CDP eval), üretimde kapalı.
+if (process.env['NEXORA_CDP']) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env['NEXORA_CDP'])
+  app.commandLine.appendSwitch('remote-allow-origins', '*')
+}
+
 let mainWindow: BrowserWindow | null = null
 /** The UI inference engine is single-flight; every event is request-scoped. */
 let activeChatRequestId: string | null = null
