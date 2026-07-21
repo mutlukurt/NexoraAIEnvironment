@@ -46,6 +46,7 @@ import {
   openProjectDir
 } from './agentService'
 import { runBenchmark, readBenchmarks } from './benchService'
+import { loadSemanticIndex, saveSemanticIndex } from './semanticIndexStore'
 import { inspectRuntimeException } from './debugInspect'
 import { runBehaviorTest } from './behaviorTest'
 import { reproCheck } from './reproCheck'
@@ -732,6 +733,9 @@ function registerIpc(): void {
   // Yerel mini-benchmark (roadmap 4.5): yüklü modeli sabit görevle ölç.
   ipcMain.handle(IPC.BENCH_RUN, () => runBenchmark())
   ipcMain.handle(IPC.BENCH_GET, () => readBenchmarks())
+  // Faz 3 — semantik indeks kalıcılığı (proje bazında, userData): açılışta yükle, tazeleyince yaz.
+  ipcMain.handle(IPC.SEMANTIC_INDEX_LOAD, (_e, key: string) => loadSemanticIndex(key))
+  ipcMain.handle(IPC.SEMANTIC_INDEX_SAVE, (_e, key: string, blob: string) => saveSemanticIndex(key, blob))
 
   // Gerçek runtime debugger (roadmap 6.1): çökme anını CDP ile oku.
   ipcMain.handle(IPC.DEBUG_INSPECT, (_e, input: { url: string }) => {

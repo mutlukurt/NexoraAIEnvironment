@@ -2842,7 +2842,8 @@ function ensureStream(get: () => AppState, set: (p: Partial<AppState> | ((s: App
                 const { semanticSearch } = await import('@/lib/semanticIndex')
                 const semBlocks: string[] = []
                 for (const q of directives.searches.slice(0, 2)) {
-                  const sem = await semanticSearch(q, files)
+                  // Faz 3 — indeks proje bazında kalıcı: proje adıyla yükle/yaz.
+                  const sem = await semanticSearch(q, files, { projectKey: getProjectName() })
                   if (sem) semBlocks.push(sem)
                 }
                 if (semBlocks.length) block = (block ? block + '\n\n' : '') + semBlocks.join('\n\n')

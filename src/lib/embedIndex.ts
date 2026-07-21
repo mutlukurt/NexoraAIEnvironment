@@ -103,6 +103,13 @@ export interface IndexedChunk extends CodeChunk {
   vector: number[]
 }
 
+/** Diske yazılabilir indeks anlık görüntüsü (Faz 3 — kalıcılık). */
+export interface SerializedIndex {
+  v: 1
+  chunks: IndexedChunk[]
+  fileHashes: Array<[string, string]>
+}
+
 /**
  * Bellek-içi vektör indeksi + ARTIMLI dosya-hash takibi. Kalıcılaştırma (on-disk)
  * çağırana bırakılır — bu çekirdek saf/deterministik. `staleFiles` yalnız hash'i
@@ -136,6 +143,32 @@ export class VectorIndex {
 
   size(): number {
     return this.chunks.size
+  }
+
+  /**
+   * Faz 3 — indeksi diske yazılabilir anlık görüntüye çevir (embed vektörleriyle +
+   * dosya hash'leriyle). Yükleyince artımlı tazeleme kaldığı yerden sürer: yalnız
+   * DEĞİŞEN dosyalar yeniden embed edilir, oturum başında tam yeniden-kurma YOK.
+   */
+  serialize(): SerializedIndex {
+    return { v: 1, chunks: [...this.chunks.values()], fileHashes: [...this.fileHashes.entries()] }
+  }
+
+  /** Anlık görüntüden indeks kur (bozuk/eski sürüm → boş indeks, güvenli). */
+  static deserialize(data: SerializedIndex | null | undefined): VectorIndex {
+    const idx = new VectorIndex()
+    if (!data || data.v !== 1 || !Array.isArray(data.chunks) || !Array.isArray(data.fileHashes)) return idx
+    for (const c of data.chunks) {
+      if (c && typeof c.id === 'string' && typeof c.path === 'string' && Array.isArray(c.vector)) {
+        idx.chunks.set(c.id, c)
+      }
+    }
+    for (const pair of data.fileHashes) {
+      if (Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string') {
+        idx.fileHashes.set(pair[0], pair[1])
+      }
+    }
+    return idx
   }
 
   /** Sorgu vektörüne en yakın top-K parça (kosinüs). */

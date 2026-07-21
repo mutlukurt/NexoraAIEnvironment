@@ -279,6 +279,12 @@ export interface NexoraApi {
     /** Her tura gömülecek bütçeli, comment-stripped kalıcı bağlam. */
     context: (projectName: string) => Promise<string>
   }
+  semanticIndex: {
+    /** Faz 3 — proje adına göre kayıtlı semantik indeks anlık görüntüsü (yoksa null). */
+    load: (key: string) => Promise<string | null>
+    /** İndeks anlık görüntüsünü diske yaz (userData). */
+    save: (key: string, blob: string) => Promise<boolean>
+  }
   providers: {
     /** 10.9: sağlayıcı API anahtarını OS keychain'e (safeStorage) yaz. */
     setKey: (input: { providerId: string; key: string }) => Promise<{ ok: boolean; encrypted: boolean; error?: string }>
@@ -530,6 +536,10 @@ const api: NexoraApi = {
     get: (projectName: string) => ipcRenderer.invoke(IPC.PROJHIST_GET, projectName),
     set: (input: { projectName: string; content: string }) => ipcRenderer.invoke(IPC.PROJHIST_SET, input),
     context: (projectName: string) => ipcRenderer.invoke(IPC.PROJHIST_CONTEXT, projectName)
+  },
+  semanticIndex: {
+    load: (key: string) => ipcRenderer.invoke(IPC.SEMANTIC_INDEX_LOAD, key),
+    save: (key: string, blob: string) => ipcRenderer.invoke(IPC.SEMANTIC_INDEX_SAVE, key, blob)
   },
   providers: {
     setKey: (input: { providerId: string; key: string }) => ipcRenderer.invoke(IPC.PROVIDERS_SET_KEY, input),

@@ -80,6 +80,34 @@ const ok = (c, l) => { if (c) { pass++; console.log('✓', l) } else { fail++; f
   ok(formatSemanticResult('q', []) === '', 'hit yoksa boş')
 }
 
+// 7) KALICILIK (Faz 3): serialize → JSON → deserialize round-trip + artımlı devam
+{
+  const idx = new VectorIndex()
+  const files = [{ path: 'a.ts', content: 'export const A = 1' }, { path: 'b.ts', content: 'export const B = 2' }]
+  idx.upsertFile('a.ts', files[0].content, [{ path: 'a.ts', id: 'a.ts#1', startLine: 1, endLine: 1, text: 'A', vector: [1, 0, 0] }])
+  idx.upsertFile('b.ts', files[1].content, [{ path: 'b.ts', id: 'b.ts#1', startLine: 1, endLine: 1, text: 'B', vector: [0, 1, 0] }])
+
+  // JSON'a yaz → oku → yükle (diske yazma simülasyonu)
+  const blob = JSON.stringify(idx.serialize())
+  const restored = VectorIndex.deserialize(JSON.parse(blob))
+  ok(restored.size() === 2, 'kalıcılık: yükledikten sonra iki parça geri geldi')
+  ok(restored.search([1, 0.1, 0], 1)[0].chunk.path === 'a.ts', 'kalıcılık: yüklenen indekste arama çalışır')
+
+  // KRİTİK: yükledikten sonra DEĞİŞMEYEN dosyalar stale DEĞİL → oturum başında tam yeniden-embed YOK
+  ok(restored.staleFiles(files).length === 0, 'kalıcılık: yükleme sonrası değişmeyen dosya stale değil (artımlı devam)')
+  // yalnız değişen dosya yeniden işlenir
+  const changed = [{ path: 'a.ts', content: 'export const A = 999' }, files[1]]
+  ok(restored.staleFiles(changed).length === 1 && restored.staleFiles(changed)[0] === 'a.ts', 'kalıcılık: yükleme sonrası yalnız değişen dosya stale')
+
+  // Güvenlik: bozuk/eksik/eski-sürüm anlık görüntü → boş indeks (çökmez)
+  ok(VectorIndex.deserialize(null).size() === 0, 'deserialize(null) → boş indeks')
+  ok(VectorIndex.deserialize({ v: 2, chunks: [], fileHashes: [] }).size() === 0, 'eski/farklı sürüm → boş indeks')
+  ok(VectorIndex.deserialize({ v: 1, chunks: 'bozuk', fileHashes: [] }).size() === 0, 'bozuk chunks → boş indeks')
+  // bozuk parça atlanır, sağlam kalır
+  const partial = VectorIndex.deserialize({ v: 1, chunks: [{ id: 'ok', path: 'x.ts', startLine: 1, endLine: 1, text: 'x', vector: [1] }, { id: 'bad' }], fileHashes: [] })
+  ok(partial.size() === 1, 'bozuk parça atlanır, sağlam parça kalır')
+}
+
 rmSync(work, { recursive: true, force: true }); rmSync(outfile, { force: true })
 console.log(`\nembed-index: ${pass} geçti, ${fail} kaldı`)
 if (fail > 0) { console.error(failures.join('\n')); process.exit(1) }

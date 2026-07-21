@@ -297,6 +297,8 @@ export const IPC = {
   PROJHIST_RECORD: 'projhist:record',
   PROJHIST_DECISION: 'projhist:decision',
   PROJHIST_SEED: 'projhist:seed',
+  SEMANTIC_INDEX_LOAD: 'semanticIndex:load',
+  SEMANTIC_INDEX_SAVE: 'semanticIndex:save',
   PROJHIST_SWITCH: 'projhist:switch',
   PROJHIST_GET: 'projhist:get',
   PROJHIST_SET: 'projhist:set',
