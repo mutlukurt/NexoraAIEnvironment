@@ -391,8 +391,12 @@ export interface BehaviorReport {
   error?: string
   images?: { total: number; broken: string[] }
   nav?: Array<{ href: string; target: boolean; moved: boolean }>
-  buttons?: { total: number; clicked: number; errors: number }
-  form?: { present: boolean }
+  /** Faz 4 — `changed`: tıklayınca GERÇEKTEN bir şey olan buton sayısı; `dead`:
+   *  tıklandı ama hiçbir sonuç üretmeyen (ölü) buton sayısı. */
+  buttons?: { total: number; clicked: number; errors: number; changed: number; dead: number }
+  /** Faz 4 — `outcome`: form gönderiminin gözlenen sonucu (navigated/validation/
+   *  message/cleared/none). 'none' = gönderildi ama hiçbir sonuç yok (ölü form). */
+  form?: { present: boolean; submitted?: boolean; outcome?: 'navigated' | 'validation' | 'message' | 'cleared' | 'none' }
   consoleErrors?: string[]
   /** Bölüm bölüm ekran şeridi (PNG yolları). */
   shots?: string[]

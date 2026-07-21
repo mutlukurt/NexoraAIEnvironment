@@ -17,6 +17,11 @@ import { mkdir, writeFile, rm } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { BehaviorReport } from '../shared/ipc'
+import { snapshotChanged, classifyFormOutcome, type UiSnapshot } from '../shared/browserOutcome'
+
+/** Sayfadan anlık-görüntü toplayan JS ifadesi (behaviorTest içinde executeJavaScript ile). */
+const SNAP_JS =
+  "({ url: location.href, title: document.title, domCount: document.querySelectorAll('*').length, textLen: (document.body.innerText||'').length, dialogOpen: !!document.querySelector('[role=dialog], dialog[open], .modal:not([hidden])') })"
 
 const SHOT_DIR = join(homedir(), 'NexoraAI', 'cache', 'behavior')
 
@@ -70,23 +75,35 @@ async function behaviorInner(url: string): Promise<BehaviorReport> {
       return out
     })()`)
 
-    // 3) Butonlar: tıklamalar çökme üretmeden yaşıyor mu?
+    // 3) Butonlar: Faz 4 — tıklamak GERÇEKTEN bir şey yapıyor mu? Her butonun
+    // ÖNCE/SONRA anlık-görüntüsü alınır; hiçbir şey değişmeyen = ÖLÜ buton.
     const errorsBeforeButtons = consoleErrors.length
-    const buttons = await exec<{ total: number; clicked: number }>(`(async () => {
+    const btnRun = await exec<{ total: number; clicked: number; runs: Array<{ before: UiSnapshot; after: UiSnapshot; ok: boolean }> }>(`(async () => {
+      const snap = () => (${SNAP_JS})
       const btns = [...document.querySelectorAll('button')].slice(0, 8)
-      let clicked = 0
+      const runs = []; let clicked = 0
       for (const b of btns) {
-        try { b.click(); clicked++ } catch (e) {}
-        await new Promise((r) => setTimeout(r, 250))
+        const before = snap()
+        let ok = true; try { b.click() } catch (e) { ok = false }
+        if (ok) clicked++
+        await new Promise((r) => setTimeout(r, 300))
+        runs.push({ before, after: snap(), ok })
       }
-      return { total: btns.length, clicked }
+      return { total: btns.length, clicked, runs }
     })()`)
     const buttonErrors = consoleErrors.length - errorsBeforeButtons
+    const changed = btnRun.runs.filter((r) => r.ok && snapshotChanged(r.before, r.after)).length
+    const dead = btnRun.runs.filter((r) => r.ok && !snapshotChanged(r.before, r.after)).length
+    const buttons = { total: btnRun.total, clicked: btnRun.clicked, errors: buttonErrors, changed, dead }
 
-    // 4) Form: doldur, gönder, sayfa yerinde kalsın.
-    const form = await exec<{ present: boolean }>(`(async () => {
+    // 4) Form: Faz 4 — doldur, gönder, GERÇEK SONUCU gözle (yönlendirme/doğrulama/
+    // mesaj/temizlenme). Sonuç yoksa 'none' → ölü form (sadece "gönderildi" yetmez).
+    const formRun = await exec<{ present: boolean; before?: UiSnapshot; after?: UiSnapshot; invalidCount?: number; cleared?: boolean }>(`(async () => {
+      const snap = () => (${SNAP_JS})
       const f = document.querySelector('form')
       if (!f) return { present: false }
+      const before = snap()
+      const fields = [...f.querySelectorAll('input, textarea')]
       for (const i of f.querySelectorAll('input')) {
         if (i.type === 'checkbox' || i.type === 'radio') continue
         i.value = i.type === 'email' ? 'test@nexora.dev' : 'Test'
@@ -94,10 +111,23 @@ async function behaviorInner(url: string): Promise<BehaviorReport> {
       }
       const ta = f.querySelector('textarea')
       if (ta) { ta.value = 'Merhaba, deneme mesajı.'; ta.dispatchEvent(new Event('input', { bubbles: true })) }
+      const valsBefore = fields.map((x) => x.value)
       ;(f.querySelector('button[type="submit"]') ?? f.querySelector('button'))?.click()
-      await new Promise((r) => setTimeout(r, 600))
-      return { present: true }
+      await new Promise((r) => setTimeout(r, 700))
+      const invalidCount = f.querySelectorAll(':invalid').length
+      const cleared = fields.some((x, i) => valsBefore[i] && !x.value)
+      return { present: true, before, after: snap(), invalidCount, cleared }
     })()`)
+    const form = formRun.present
+      ? {
+          present: true,
+          submitted: true,
+          outcome: classifyFormOutcome(formRun.before!, formRun.after!, {
+            invalidCount: formRun.invalidCount ?? 0,
+            cleared: !!formRun.cleared
+          })
+        }
+      : { present: false }
 
     // 5) Bölüm bölüm ekran şeridi (artifact).
     await rm(SHOT_DIR, { recursive: true, force: true })
@@ -119,7 +149,7 @@ async function behaviorInner(url: string): Promise<BehaviorReport> {
       ok: true,
       images,
       nav,
-      buttons: { ...buttons, errors: buttonErrors },
+      buttons,
       form,
       consoleErrors: consoleErrors.slice(0, 6),
       shots

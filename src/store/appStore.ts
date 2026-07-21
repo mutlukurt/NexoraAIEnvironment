@@ -3744,10 +3744,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         for (const n of r.nav.filter((x: { target: boolean }) => !x.target)) fails.push(`nav hedefi yok: ${n.href} (id'li bölüm bulunamadı)`)
       }
       if (r.buttons && r.buttons.total > 0) {
-        rows.push(`butonlar ${r.buttons.clicked}/${r.buttons.total} tıklandı${r.buttons.errors > 0 ? `, ${r.buttons.errors} hata ✗` : ' ✓'}`)
+        // Faz 4 — "tıklandı" yetmez: kaç buton GERÇEKTEN bir şey yaptı (changed).
+        const changed = r.buttons.changed ?? 0
+        const okBtn = r.buttons.errors === 0 && !(r.buttons.clicked > 0 && changed === 0)
+        rows.push(`butonlar ${r.buttons.clicked}/${r.buttons.total} tıklandı, ${changed} bir şey yaptı${r.buttons.errors > 0 ? `, ${r.buttons.errors} hata` : ''} ${okBtn ? '✓' : '✗'}`)
         if (r.buttons.errors > 0) fails.push(`buton tıklamaları ${r.buttons.errors} konsol hatası üretti`)
+        // Tıklandı ama HİÇBİRİ gözlenebilir sonuç üretmedi → sadece "tıklama aldı" diye geçmez.
+        if (r.buttons.clicked > 0 && changed === 0) fails.push(`${r.buttons.clicked} butona tıklandı ama hiçbiri gözlenebilir bir sonuç üretmedi (ölü butonlar)`)
       }
-      if (r.form?.present) rows.push('form dolduruldu+gönderildi ✓')
+      if (r.form?.present) {
+        // Faz 4 — "gönderildi" yetmez: gözlenen GERÇEK sonuç (yönlendirme/doğrulama/mesaj/temizlenme).
+        const oc = r.form.outcome
+        const label = oc === 'navigated' ? 'yönlendirdi ✓' : oc === 'validation' ? 'doğrulama tetikledi ✓' : oc === 'message' ? 'geri bildirim gösterdi ✓' : oc === 'cleared' ? 'temizlendi ✓' : 'sonuç YOK ✗'
+        rows.push(`form dolduruldu+gönderildi → ${label}`)
+        if (oc === 'none') fails.push('form gönderildi ama hiçbir gözlenebilir sonuç üretmedi (yönlendirme/doğrulama/mesaj yok)')
+      }
       if (r.consoleErrors && r.consoleErrors.length > 0) {
         rows.push(`konsol: ${r.consoleErrors.length} hata ✗`)
         fails.push(`gezinti sırasında konsol hataları: ${r.consoleErrors[0]}`)
