@@ -113,10 +113,11 @@ After installing, open the in-app **Model Browser** to download a GGUF model (or
 Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
 
 <details open>
-<summary><b>📜 Full release history — v0.6.4 → v0.26.0 (45 releases)</b></summary>
+<summary><b>📜 Full release history — v0.6.4 → v0.27.0 (46 releases)</b></summary>
 
 | Version | Date | What it brought |
 | --- | --- | --- |
+| [v0.27.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.27.0) | 2026-07-21 | **Local Engine Autopilot** (2026 Roadmap Phase 3) — the local inference engine now runs itself: **physics-based VRAM-fit loading** (reads the card + real model shape, offloads the layers that actually fit on the first try, never regresses the small daily model), a **co-residence / OOM guard** (a second GPU job runs on CPU instead of crashing when the card is busy), a **single-flight guard** (concurrent/aborted turns produce zero mixed output and no zombie generation), **speed telemetry** (first-token time, decode tok/s, Turbo acceptance), a **binary capability probe** (Turbo flags verified before use so a runtime update can't silently break loading), and a **persistent semantic index** (survives restarts, re-embeds only changed files). Every slice live-verified on real hardware |
 | [v0.26.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.26.0) | 2026-07-20 | **Verification OS** (2026 Roadmap Phase 2) — a per-turn **Verification Ledger** with a deterministic Judge and Proof-of-Edit receipts; per-check rows (syntax → build → browser) carrying the real build command + exit code; a **three-state badge** (passed / failed / unverified) in the workspace header; **EARS acceptance criteria** derived from the evidence; and a canonical mutant fixture set proving a **0% false-verified rate**. Model-agnostic — works with local models, no API required. Each slice adversarially reviewed |
 | [v0.25.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.1) | 2026-07-19 | **Truth & Safety, hardened** — keeps the v0.25.0 capability boundary but fixes the regressions a 6-agent adversarial review found: builds run without a modal on every command again, live file streaming restored, the existing API key stays readable on keyring-less Linux, and a broken confirmation modal can no longer wedge a turn |
 | [v0.25.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.25.0) | 2026-07-19 | **Truth & Safety** — request-scoped turns, stale-event isolation, transactional artifact writes with exact rollback, tri-state verification foundations, a complete 108-method renderer→main IPC capability inventory, main-owned exact-effect confirmation, renderer sandboxing, secure credential storage, MCP lifecycle authority, and mandatory CI + visible desktop acceptance |
@@ -164,6 +165,24 @@ Every version, newest first. Deep-dive scorecards for the recent milestones foll
 | [v0.6.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.4) | 2026-07-03 | Early build |
 
 </details>
+
+---
+
+## Local Engine Autopilot — the v0.27 Scorecard (2026 Roadmap, Phase 3)
+
+v0.27 makes the local inference engine drive itself. Loading a GGUF, sharing one small GPU between jobs, staying responsive under concurrent turns, showing you real speed, surviving a runtime update, and remembering its index across restarts — all of it now happens automatically, and every part was **live-verified on real hardware** (an RTX 2050 4 GB), not just unit-tested. The engine core is split into small, pure, unit-tested modules (`gpuPlan`, `modelResidency`, `generationGate`, `telemetry`, `binaryCaps`) so the behavior is deterministic and provable.
+
+**🧮 Physics-based VRAM-fit loading.** Before loading, the engine reads the card's free memory and the model's real shape (layer count, embedding size, KV-head count) and computes how many layers actually fit — each GPU layer costs its weights **plus its own KV-cache**, counted per-offloaded-layer (not a flat reserve), so high context no longer starves the GPU. If the model's weights fit the card, it tries full-GPU first (the small daily model is never slowed); if they don't, it starts at the fitted count instead of blindly overflowing and retrying. Live: a 7B on a 4 GB card loads 16/28 layers on the first try (72 % VRAM, no OOM); the daily 3B stays full-speed.
+
+**🛡️ Co-residence / OOM guard.** The text, image, vision and embed engines used to never coordinate — a second job could grab a busy card and crash it. Now a heavy job checks the *currently-free* VRAM and, if it won't fit alongside the resident model, runs on CPU instead (chat stays fast on the card, the image is a little slower — never a freeze). Live: image generation booted with `--backend cpu` while a text model held the card, GPU delta ≈ 0 MiB.
+
+**🔒 Single-flight turns.** A generation gate gives every turn an id; if a newer turn starts, the older one's tokens are dropped and its socket is torn down — so concurrent requests never interleave output and an aborted turn never leaves a zombie holding the server. Live: cancelling mid-stream freed the server slot in 129 ms.
+
+**📊 Speed telemetry.** Each local turn now surfaces first-token time (TTFT), decode tokens/sec, prompt speed and — when Turbo is on — draft acceptance %, shown in the context meter in all ten languages. Read straight from the engine's own timings.
+
+**🔌 Binary capability probe.** Turbo's flags are version-sensitive (a bundled-runtime update once removed one and silently broke every Turbo load). The engine now reads the binary's `--help` and verifies the exact flags before enabling Turbo — if they're missing, Turbo disables itself gracefully instead of the binary throwing.
+
+**💾 Persistent semantic index.** The code-search index is now saved per-project to app-data and reloaded on startup, so the first search of a new session resumes incrementally (only changed files are re-embedded) instead of rebuilding from scratch. Corruption-safe and path-traversal-safe.
 
 ---
 
@@ -1190,9 +1209,9 @@ NexoraAIEnvironment/
 
 The authoritative plan is [ROADMAP-2026.md](ROADMAP-2026.md), backed by the
 [Current Implementation Truth](docs/CURRENT-TRUTH.md). **Phase 1 — Truth and Safety is
-complete; Phase 2 — Verification OS shipped in v0.26.0.** Every phase must pass automated
-gates, an independent adversarial review, and a visible desktop acceptance test before the
-roadmap advances.
+complete; Phase 2 — Verification OS shipped in v0.26.0; Phase 3 — Local Engine Autopilot
+shipped in v0.27.0.** Every phase must pass automated gates, an independent adversarial
+review, and a visible desktop acceptance test before the roadmap advances.
 
 Phase 2 delivered a per-turn **Verification Ledger** (`src/lib/verificationLedger.ts`)
 with a deterministic Judge (worst-outcome wins; an empty ledger is `unverified`, never
@@ -1206,7 +1225,7 @@ the same evidence offline, no API required.
 | --- | --- | --- |
 | 1. Truth and Safety | ✅ Complete | Isolated turns, transactional writes, exact rollback, authoritative capabilities |
 | 2. Verification OS | ✅ Complete | Ledger + Judge + Proof-of-Edit receipts, per-check rows, three-state badge, EARS, 0% false-verified |
-| 3. Local Engine Autopilot | Planned | Hardware-aware scheduling and lifecycle management |
+| 3. Local Engine Autopilot | ✅ Complete | Physics-based VRAM-fit loading, co-residence/OOM guard, single-flight turns, speed telemetry, binary capability probe, persistent semantic index — live-verified on real hardware |
 | 4. Reliable App Factory | Planned | One canonical build/preview/verify pipeline |
 | 5–8 | Planned | Product UX, extensibility, release engineering, benchmark moat |
 

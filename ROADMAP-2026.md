@@ -2,17 +2,19 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.26.0
+**Current release:** v0.27.0
 
 **Product position:** Local Verified App Factory
 
 **Status:** Phase 1 complete and hardened (v0.25.1); **Phase 2 — Verification OS shipped
 in v0.26.0**: all four exit criteria met, syntax/build/browser ledger rows, the
 three-state badge, EARS acceptance criteria, and a 0%-false-verified mutant set, each
-slice adversarially reviewed. **Phase 3 — Local Engine Autopilot is active** (on `main`,
-unreleased): slice 1 fixed the Turbo b9870 flag regression + added the draft/target
-vocab-compatibility gate; slice 2 added the central sidecar teardown registry (no more
-orphaned sd-server/embed on quit).
+slice adversarially reviewed. **Phase 3 — Local Engine Autopilot shipped in v0.27.0**: all
+exit criteria met across eight slices — Turbo b9870 flag fix + draft/target vocab gate (1),
+central sidecar teardown registry (2), physics-based VRAM-fit loading (3), co-residence/OOM
+guard (4), single-flight turns with zero mixed-output/zombie (5), speed telemetry (6),
+binary capability probe (7), and a persistent semantic index (8). Every slice live-verified
+on real hardware (RTX 2050 4 GB) and the full flow driven in the real running app.
 
 ## Product promise
 

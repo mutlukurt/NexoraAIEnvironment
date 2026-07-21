@@ -2,11 +2,11 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.26.0
+**Current release:** v0.27.0
 
 **Current roadmap:** [ROADMAP-2026.md](../ROADMAP-2026.md)
 
-**Status:** Phase 1 complete; Phase 2 — Verification OS is active.
+**Status:** Phase 1 complete; Phase 2 — Verification OS shipped in v0.26.0; Phase 3 — Local Engine Autopilot shipped in v0.27.0 (physics-based VRAM-fit loading, co-residence/OOM guard, single-flight turns, speed telemetry, binary capability probe, persistent semantic index — live-verified on real hardware).
 
 This document describes what the current implementation can prove. Historical
 roadmaps and release narratives explain how the product evolved, but they are not
