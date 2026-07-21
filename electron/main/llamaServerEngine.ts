@@ -33,6 +33,7 @@ import type {
 import { findNodeBinary } from './llamaWorkerEngine'
 import { chatSystemPrompt } from '../shared/prompts'
 import { fitGpuLayers, planRungs, type RungPlan } from '../shared/gpuPlan'
+import { GenerationGate } from '../shared/generationGate'
 import {
   pumpWithLiveness,
   StreamDeadError,
@@ -66,6 +67,26 @@ let cjkBias: Record<number, number> | null = null
 let abortCtl: AbortController | null = null
 /** 8.1: aktif SSE reader — abort() bunu da iptal eder (gerçek soket teardown). */
 let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+/** Faz 3 — tek-uçuş kapısı: eskimiş turun token'ı düşer (çıktı karışmaz). */
+const gate = new GenerationGate()
+
+/**
+ * Faz 3 — aktif üretimi DÜZGÜN iptal et: fetch'i abort et + SSE reader'ı cancel et
+ * (gerçek soket teardown → sunucu decode'u durdurur, zombi kalmaz). Hem kullanıcı
+ * Durdur'u (abort) hem de yeni istek başlarken (süperseme) buradan geçer.
+ */
+async function abortActive(): Promise<void> {
+  abortCtl?.abort()
+  const r = activeReader
+  activeReader = null
+  if (r) {
+    try {
+      await r.cancel()
+    } catch {
+      /* reader zaten kapanmış olabilir */
+    }
+  }
+}
 let loadedPath = ''
 let procLog = ''
 
@@ -741,10 +762,17 @@ export const serverEngine: InferenceEngine = {
 
   async prompt(text: string, options: PromptOptions | undefined, onToken: (t: string) => void): Promise<string> {
     if (!proc) throw new Error('Model yüklenmemiş. Önce bir GGUF seç.')
+    // Faz 3 — tek-uçuş: önceki üretim hâlâ sürüyorsa önce onu DÜZGÜN iptal et (soket +
+    // fetch), sonra yenisini başlat. Böylece iki üretim aynı anda akıp çıktı KARIŞMAZ,
+    // eski istek zombi kalmaz. Her turun kendi kimliği (myGenId) var: daha yeni bir tur
+    // başlarsa eskimiş turun token'ları gate.fence ile düşer.
+    await abortActive()
+    const myGenId = gate.begin()
     // 8.1: abortCtl'yi EN BAŞTA yarat — böylece tur-öncesi sıkıştırma özeti de
     // (eskiden sinyalsiz + iptal-edilemezdi, net 36-dk zombi katkısı) kullanıcı
     // Durdur'una bağlanır. Tek controller tüm tur boyunca yaşar; finally temizler.
-    abortCtl = new AbortController()
+    const myCtl = new AbortController()
+    abortCtl = myCtl
 
     // Bağlam sıkıştırma (worker ile aynı eşik): %75 üstünde geçmiş, modele
     // özetletilip sıfırlanır — özet yeni ilk mesajın notuna gömülür.
@@ -773,7 +801,7 @@ export const serverEngine: InferenceEngine = {
             null,
             // Kullanıcı Durdur'u VEYA mutlak tavan (COMPACTION_MAX_MS) — özet
             // sunucuda sonsuza dek asılamaz.
-            anySignal([abortCtl.signal, AbortSignal.timeout(COMPACTION_MAX_MS)])
+            anySignal([myCtl.signal, AbortSignal.timeout(COMPACTION_MAX_MS)])
           )
           summary = r.text.trim().slice(0, 1200)
           if (summary) console.log('[llamaServerEngine] sıkıştırma özeti alındı (' + summary.length + ' karakter)')
@@ -811,13 +839,15 @@ export const serverEngine: InferenceEngine = {
     // aksi hâlde sıkıştırma sırasında basılan Durdur kaybolurdu.
     try {
       let streamedAny = false
-      const countingToken = (t: string) => {
+      // Faz 3 — token'ları tur-kimliği kapısından geçir: daha yeni bir tur başladıysa
+      // (myGenId eskidi) bu turun token'ları düşer → kullanıcıya karışık çıktı gitmez.
+      const emit = gate.fence(myGenId, (t: string) => {
         streamedAny = true
         onToken(t)
-      }
+      })
       let r
       try {
-        r = await chatRequest(messages, options, !CJK_RE.test(promptText), countingToken, abortCtl.signal)
+        r = await chatRequest(messages, options, !CJK_RE.test(promptText), emit, myCtl.signal)
       } catch (err) {
         const emsg = (err as Error).message ?? ''
         const aborted = (err as Error).name === 'AbortError'
@@ -835,14 +865,14 @@ export const serverEngine: InferenceEngine = {
             [{ role: 'system', content: sysForTurn }, { role: 'user', content: promptText }],
             options,
             !CJK_RE.test(promptText),
-            onToken,
-            abortCtl.signal
+            emit,
+            myCtl.signal
           )
         } else if (options?.grammar && !streamedAny && !aborted) {
           // Bozuk gramer üretimi KİLİTLEMESİN: sunucu daha token akıtmadan
           // hata verdiyse (tipik: gramer 400'ü) bir kez gramersiz dene.
           console.warn('[llamaServerEngine] gramerli istek reddedildi, gramersiz yeniden deneniyor:', emsg)
-          r = await chatRequest(messages, { ...options, grammar: undefined }, !CJK_RE.test(promptText), onToken, abortCtl.signal)
+          r = await chatRequest(messages, { ...options, grammar: undefined }, !CJK_RE.test(promptText), emit, myCtl.signal)
         } else {
           throw err
         }
@@ -868,24 +898,17 @@ export const serverEngine: InferenceEngine = {
       }
       return r.text
     } finally {
-      abortCtl = null
+      // Faz 3 — YALNIZ hâlâ bu turun controller'ı ise temizle: eğer araya yeni bir
+      // prompt girip abortCtl'yi değiştirdiyse (süperseme), onunkini SİLME.
+      if (abortCtl === myCtl) abortCtl = null
     }
   },
 
   async abort(): Promise<void> {
-    abortCtl?.abort()
-    // 8.1 GERÇEK sunucu-iptali: aktif SSE reader'ı da iptal et → soket yıkılır →
-    // llama-server disconnect'i görüp decode'u durdurur. Yalnız fetch-abort'a
-    // güvenmek sunucuda "hayalet üretim" bırakıyordu (36-dakikalık zombi turu).
-    const r = activeReader
-    activeReader = null
-    if (r) {
-      try {
-        await r.cancel()
-      } catch {
-        /* reader zaten kapanmış olabilir */
-      }
-    }
+    // 8.1 GERÇEK sunucu-iptali: fetch abort + aktif SSE reader cancel → soket yıkılır →
+    // llama-server disconnect'i görüp decode'u durdurur (yalnız fetch-abort'a güvenmek
+    // sunucuda "hayalet üretim" bırakıyordu, 36-dakikalık zombi turu). Ortak yardımcı.
+    await abortActive()
   },
 
   async unload(): Promise<void> {
