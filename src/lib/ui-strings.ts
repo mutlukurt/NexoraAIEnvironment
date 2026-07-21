@@ -2,6 +2,18 @@ import type { Lang } from './i18n'
 
 // OTOMATIK URETILDI (gen-i18n.mjs) — satir-ici UI metinleri, Ingilizce anahtarli.
 export const UI: Record<string, Partial<Record<Lang, string>>> = {
+  "Acceptance criteria": {
+    "tr": "Kabul kriterleri", "es": "Criterios de aceptación", "fr": "Critères d'acceptation", "de": "Akzeptanzkriterien",
+    "pt": "Critérios de aceitação", "ru": "Критерии приёмки", "zh": "验收标准", "ja": "受け入れ基準", "ar": "معايير القبول"
+  },
+  "Add a criterion the app should meet…": {
+    "tr": "Uygulamanın karşılaması gereken bir madde ekle…", "es": "Añade un criterio que la app debe cumplir…", "fr": "Ajoutez un critère que l'app doit satisfaire…", "de": "Kriterium hinzufügen, das die App erfüllen soll…",
+    "pt": "Adicione um critério que o app deve cumprir…", "ru": "Добавьте критерий, которому приложение должно соответствовать…", "zh": "添加应用应满足的标准…", "ja": "アプリが満たすべき基準を追加…", "ar": "أضف معيارًا يجب أن يفي به التطبيق…"
+  },
+  "No acceptance criteria yet — the app adds its own after a build; add yours above.": {
+    "tr": "Henüz kabul kriteri yok — uygulama derleme sonrası kendi maddelerini ekler; sen de yukarıdan ekleyebilirsin.", "es": "Aún no hay criterios — la app añade los suyos tras compilar; añade los tuyos arriba.", "fr": "Aucun critère pour l'instant — l'app ajoute les siens après une build ; ajoutez les vôtres ci-dessus.", "de": "Noch keine Kriterien — die App fügt nach einem Build eigene hinzu; füge oben deine hinzu.",
+    "pt": "Ainda sem critérios — o app adiciona os seus após compilar; adicione os seus acima.", "ru": "Пока нет критериев — приложение добавит свои после сборки; добавьте свои выше.", "zh": "尚无验收标准——构建后应用会添加自己的；在上方添加你的。", "ja": "まだ基準がありません — ビルド後にアプリが独自の基準を追加します。上から追加できます。", "ar": "لا توجد معايير بعد — يضيف التطبيق معاييره بعد البناء؛ أضف معاييرك أعلاه."
+  },
   "Speed": {
     "tr": "Hız", "es": "Velocidad", "fr": "Vitesse", "de": "Geschwindigkeit",
     "pt": "Velocidade", "ru": "Скорость", "zh": "速度", "ja": "速度", "ar": "السرعة"

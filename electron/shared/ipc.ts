@@ -523,6 +523,8 @@ export interface SessionData extends SessionMeta {
   queuedTasks?: QueuedTask[]
   /** 10.4: prompt-başı checkpoint'ler — kod+sohbet durumunu geri sarma. */
   checkpoints?: CheckpointEntry[]
+  /** Faz 4: Living Spec — kullanıcının düzenlediği kabul kriterleri (oturumla yaşar). */
+  livingSpec?: Array<{ id: string; text: string }>
   /**
    * 15.1: reboot-dayanıklı bekleyen capability izinleri.
    * yalnız bellekteydi; çökme/kapanma onu SESSİZCE kaybediyordu. Artık diske iner:

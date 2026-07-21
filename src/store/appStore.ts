@@ -36,6 +36,7 @@ import { deriveSectionPlan, planText, composeAppTsx, BASE_INDEX_CSS, looksLikeBu
 import { buildIntentPrompt, parseIntent, INTENT_SYSTEM, type TurnIntent, type IntentContext } from '@/lib/intentClassify'
 import { looksUnderspecified } from '@/lib/intentGate'
 import { extractAgentDocs } from '@/lib/specDocs'
+import { addUserItem, editUserItem, removeUserItem } from '@/lib/livingSpec'
 import { collectFullRewrites } from '@/lib/afterEdit'
 import { detectDeadInteractions, formatBehaviorReport } from '@/lib/behaviorCheck'
 import { scanSecurity, filterByConfidence, formatSecurityReport } from '@/lib/securityReview'
@@ -125,6 +126,12 @@ interface AppState {
   lastBuildError: string | null
   /** Faz 2 — son turun Doğrulama Defteri (3-durum rozeti + walkthrough burdan okur). */
   verificationLedger: VerificationLedger | null
+  /** Faz 4 — Living Spec: kullanıcının düzenlediği kabul kriterleri (oturumla saklanır). */
+  livingSpecItems: import('@/lib/livingSpec').UserSpecItem[]
+  /** Faz 4 — kabul kriteri ekle / düzenle / sil (kalıcı, saf işlemler). */
+  addSpecItem: (text: string) => void
+  editSpecItem: (id: string, text: string) => void
+  removeSpecItem: (id: string) => void
   /** 6.8 Debug Paneli: motorun canlı olay akışı (logRepair'den beslenir). */
   engineEvents: Array<{ id: string; ts: number; layer: string; detail: string }>
   /** 16.1: tur şeffaflık kayıtları — opt-in denetçi açıkken dolar ("hiçbir şey makineden çıkmadı"). */
@@ -3239,6 +3246,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelLoadProgress: null,
   lastBuildError: null,
   verificationLedger: null,
+  livingSpecItems: [],
+  addSpecItem: (text: string) => set((s) => ({ livingSpecItems: addUserItem(s.livingSpecItems, text) })),
+  editSpecItem: (id: string, text: string) => set((s) => ({ livingSpecItems: editUserItem(s.livingSpecItems, id, text) })),
+  removeSpecItem: (id: string) => set((s) => ({ livingSpecItems: removeUserItem(s.livingSpecItems, id) })),
   pendingImage: null,
   engineEvents: [],
   turnInspections: [],
@@ -3544,7 +3555,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
     queuePaused = false
-    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null, checkpoints: [], sessionTokensIn: 0, sessionTokensOut: 0, lastUsage: null })
+    set({ pendingComments: [], queuedTasks: [], queueWaitReason: null, checkpoints: [], livingSpecItems: [], sessionTokensIn: 0, sessionTokensOut: 0, lastUsage: null })
     set({
       messages: [],
       currentSessionId: null,
@@ -4029,6 +4040,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       queuedTasks: s.queuedTasks,
       // 10.4: prompt-başı checkpoint'ler oturumla yaşar.
       checkpoints: s.checkpoints,
+      // Faz 4: Living Spec kabul kriterleri oturumla yaşar.
+      livingSpec: s.livingSpecItems,
       // 15.1: bekleyen izinler oturumla yaşar — çökme/kapanma onay istemini kaybetmesin.
       pendingApprovals: s.pendingApprovals,
       // 15.3: son-bilinen durum rozeti — pasif oturum için kenar çubuğunda gösterilir
@@ -4151,6 +4164,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
       queueWaitReason: null,
       checkpoints: data.checkpoints ?? [],
+      livingSpecItems: data.livingSpec ?? [],
       sessionTokensIn: 0,
       sessionTokensOut: 0,
       lastUsage: null

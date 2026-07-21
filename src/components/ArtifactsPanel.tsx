@@ -8,6 +8,7 @@ import { decideCommand } from '@shared/trust'
 import FileTree from '@/components/FileTree'
 import CodeEditor from '@/components/CodeEditor'
 import { MessageSquare, Download, Terminal, ArrowRight, X, Play, Square, Undo2, Redo2, ScanSearch, Eye, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
+import LivingSpec from './LivingSpec'
 import { translations } from '@/lib/translations'
 import { getProjectName } from '@/lib/agentActions'
 
@@ -952,7 +953,9 @@ function ArtifactDocsView({ language }: { language: Lang }) {
         </button>
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Faz 4 — düzenlenebilir kabul kriterleri (Living Spec) belgelerin üstünde */}
+          <LivingSpec />
           {selected && content != null ? (
             <MarkdownLite text={content} onComment={(section) => setCommentDraft({ section, text: '' })} />
           ) : (
