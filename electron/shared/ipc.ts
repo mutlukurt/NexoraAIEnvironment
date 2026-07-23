@@ -529,6 +529,15 @@ export interface SessionData extends SessionMeta {
   checkpoints?: CheckpointEntry[]
   /** Faz 4: Living Spec — kullanıcının düzenlediği kabul kriterleri (oturumla yaşar). */
   livingSpec?: Array<{ id: string; text: string }>
+  /** Faz 4: son turun Doğrulama Defteri (verdict rozeti + Living Spec otomatik
+   *  kriterleri oturumla yaşasın; yapısal — VerificationLedger ile eşdeğer JSON). */
+  verificationLedger?: {
+    turnId: string
+    projectId?: string
+    baseHash?: string
+    outcome: 'passed' | 'failed' | 'unverified'
+    rows: unknown[]
+  }
   /**
    * 15.1: reboot-dayanıklı bekleyen capability izinleri.
    * yalnız bellekteydi; çökme/kapanma onu SESSİZCE kaybediyordu. Artık diske iner:

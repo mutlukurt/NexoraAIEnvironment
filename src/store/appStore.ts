@@ -4053,6 +4053,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       checkpoints: s.checkpoints,
       // Faz 4: Living Spec kabul kriterleri oturumla yaşar.
       livingSpec: s.livingSpecItems,
+      // Faz 4: son turun verdict defteri oturumla yaşar (rozet + otomatik kriterler).
+      verificationLedger: s.verificationLedger ?? undefined,
       // 15.1: bekleyen izinler oturumla yaşar — çökme/kapanma onay istemini kaybetmesin.
       pendingApprovals: s.pendingApprovals,
       // 15.3: son-bilinen durum rozeti — pasif oturum için kenar çubuğunda gösterilir
@@ -4170,7 +4172,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.
     // 7.7: görev kuyruğu da; yarıda kalmış koşu dürüstçe needs-review olur.
     set({
-      verificationLedger: null, // Faz 2: açılan oturum kendi turunu doğrulayana dek rozet yok
+      // Faz 4: kaydedilen verdict defterini geri yükle (rozet + Living Spec otomatik
+      // kriterleri oturumla yaşar); yoksa null.
+      verificationLedger: (data.verificationLedger as VerificationLedger | undefined) ?? null,
       pendingComments: data.comments ?? [],
       queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
       queueWaitReason: null,
