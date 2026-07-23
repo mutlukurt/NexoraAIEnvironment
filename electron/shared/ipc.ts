@@ -255,6 +255,8 @@ export const IPC = {
   ARTIFACT_DOC_SAVE: 'artifact-doc:save',
   ARTIFACT_DOC_LIST: 'artifact-doc:list',
   ARTIFACT_DOC_READ: 'artifact-doc:read',
+  /** Faz 4 slice 5: davranış testi ekran karelerini oturumun KALICI klasörüne dondur. */
+  ARTIFACT_DOC_SAVE_SHOTS: 'artifact-doc:save-shots',
   RULES_GET: 'rules:get',
   RULES_SET: 'rules:set',
   PROJECT_IMPORT: 'project:import',
@@ -537,6 +539,25 @@ export interface SessionData extends SessionMeta {
     baseHash?: string
     outcome: 'passed' | 'failed' | 'unverified'
     rows: unknown[]
+  }
+  /** Faz 4 slice 5: son turun DAVRANIŞ (tarayıcı) kanıtı — oturumla yaşar.
+   *  Yapısal rapor + KALICI kare yolları (<id>.artifacts/shots/). Ekran görüntüsü
+   *  BLOB'u DEĞİL, yalnız dosya yolu → oturum JSON'u şişmez. Böylece eski oturum
+   *  açılınca tarayıcı kanıtı (satırlar/kusurlar/kareler) tam görünür kalır. */
+  browserEvidence?: {
+    turnId: string
+    outcome: 'passed' | 'failed'
+    rows: string[]
+    fails: string[]
+    report?: {
+      images?: { total: number; broken: string[] }
+      nav?: Array<{ href: string; target: boolean }>
+      buttons?: { total: number; clicked: number; changed: number; dead: number; errors: number }
+      form?: { present: boolean; outcome?: 'navigated' | 'validation' | 'message' | 'cleared' | 'none' }
+      consoleErrors?: string[]
+    }
+    shots: string[]
+    at: number
   }
   /**
    * 15.1: reboot-dayanıklı bekleyen capability izinleri.

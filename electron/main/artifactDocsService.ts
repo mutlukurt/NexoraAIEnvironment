@@ -11,7 +11,7 @@
  * evrildi görülebilir, hiçbir sürüm kaybolmaz. Aynı bayt yeniden yazılmaz.
  */
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { promises as fs } from 'fs'
 import type { ArtifactDocMeta } from '../shared/ipc'
 
@@ -54,6 +54,31 @@ export async function saveArtifactDoc(
   await fs.writeFile(tmp, content, 'utf8')
   await fs.rename(tmp, file)
   return { ok: true, version }
+}
+
+/**
+ * Faz 4 slice 5: davranış testi ekran KARELERİNİ oturuma KALICI kopyala.
+ * behaviorTest kareleri paylaşımlı ~/NexoraAI/cache/behavior/ altına yazar ve HER
+ * koşunun başında o klasörü siler → eski oturumu açınca walkthrough'daki kareler
+ * kırık çıkardı. Burada kareleri <id>.artifacts/shots/ altına donduruyoruz (kanıt
+ * kilidi): sonraki hiçbir koşu bunları silemez. PNG blob'u değil, dosya kopyası.
+ * Dönen değer: kalıcı kare yolları (kopyalanamayan atlanır — akış bozulmaz).
+ */
+export async function saveArtifactShots(sessionId: string, shots: string[]): Promise<string[]> {
+  if (!sessionId || !shots?.length) return []
+  const dir = join(dirOf(sessionId), 'shots')
+  await fs.mkdir(dir, { recursive: true })
+  const out: string[] = []
+  for (const src of shots) {
+    try {
+      const dst = join(dir, basename(src))
+      await fs.copyFile(src, dst)
+      out.push(dst)
+    } catch {
+      /* eksik/erişilemez kare — atla */
+    }
+  }
+  return out
 }
 
 export async function listArtifactDocs(sessionId: string): Promise<ArtifactDocMeta[]> {

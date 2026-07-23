@@ -57,7 +57,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
 import { listSessions, saveSession, loadSession, deleteSession } from './sessionsService'
-import { saveArtifactDoc, listArtifactDocs, readArtifactDoc } from './artifactDocsService'
+import { saveArtifactDoc, listArtifactDocs, readArtifactDoc, saveArtifactShots } from './artifactDocsService'
 import {
   learnKnowledge,
   listKnowledge,
@@ -1225,6 +1225,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.ARTIFACT_DOC_READ, async (_e, input: { sessionId: string; name: string; version?: number }) => {
     return readArtifactDoc(input.sessionId, input.name, input.version)
+  })
+  ipcMain.handle(IPC.ARTIFACT_DOC_SAVE_SHOTS, async (_e, input: { sessionId: string; shots: string[] }) => {
+    return saveArtifactShots(input.sessionId, input.shots)
   })
 
   // Klasör Aç (roadmap 3.1): var olan projeyi çalışma alanına bağla.

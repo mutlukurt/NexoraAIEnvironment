@@ -194,6 +194,8 @@ export interface NexoraApi {
     save: (input: { sessionId: string; name: string; content: string }) => Promise<{ ok: boolean; version?: number; error?: string }>
     list: (sessionId: string) => Promise<import('../shared/ipc').ArtifactDocMeta[]>
     read: (input: { sessionId: string; name: string; version?: number }) => Promise<string | null>
+    /** Faz 4 slice 5: davranış kareleri paylaşımlı önbellekten oturumun kalıcı klasörüne. */
+    saveShots: (input: { sessionId: string; shots: string[] }) => Promise<string[]>
   }
   rules: {
     get: (projectName: string) => Promise<{ content: string }>
@@ -467,7 +469,9 @@ const api: NexoraApi = {
       ipcRenderer.invoke(IPC.ARTIFACT_DOC_SAVE, input),
     list: (sessionId: string) => ipcRenderer.invoke(IPC.ARTIFACT_DOC_LIST, sessionId),
     read: (input: { sessionId: string; name: string; version?: number }) =>
-      ipcRenderer.invoke(IPC.ARTIFACT_DOC_READ, input)
+      ipcRenderer.invoke(IPC.ARTIFACT_DOC_READ, input),
+    saveShots: (input: { sessionId: string; shots: string[] }) =>
+      ipcRenderer.invoke(IPC.ARTIFACT_DOC_SAVE_SHOTS, input)
   },
   rules: {
     get: (projectName: string) => ipcRenderer.invoke(IPC.RULES_GET, projectName),

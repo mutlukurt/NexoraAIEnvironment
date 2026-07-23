@@ -126,6 +126,9 @@ interface AppState {
   lastBuildError: string | null
   /** Faz 2 — son turun Doğrulama Defteri (3-durum rozeti + walkthrough burdan okur). */
   verificationLedger: VerificationLedger | null
+  /** Faz 4 slice 5 — son turun DAVRANIŞ kanıtı (yapısal rapor + kalıcı kare yolları);
+   *  oturumla saklanır → eski oturum açılınca tarayıcı kanıtı tam görünür. */
+  browserEvidence: SessionData['browserEvidence'] | null
   /** Faz 4 — Living Spec: kullanıcının düzenlediği kabul kriterleri (oturumla saklanır). */
   livingSpecItems: import('@/lib/livingSpec').UserSpecItem[]
   /** Faz 4 — kabul kriteri ekle / düzenle / sil (kalıcı, saf işlemler). */
@@ -399,6 +402,26 @@ async function saveArtifactDocForSession(name: string, content: string): Promise
     await window.nexora.artifactDocs.save({ sessionId: id, name, content })
   } catch {
     /* belge yazılamadıysa akışı bozma — sohbet ve kart zaten doğruyu söylüyor */
+  }
+}
+
+// Faz 4 slice 5: davranış testi karelerini paylaşımlı önbellekten (behaviorTest
+// her koşuda siler) oturumun KALICI klasörüne kopyala → kanıt kilidi. Oturum
+// kimliği yoksa önce kayıt zorlanır; kopyalanamazsa özgün önbellek yollarıyla
+// devam edilir (akış bozulmaz). Dönen değer walkthrough + browserEvidence'e girer.
+async function saveDurableShots(shots: string[]): Promise<string[]> {
+  if (!shots?.length) return shots ?? []
+  try {
+    let id = useAppStore.getState().currentSessionId
+    if (!id) {
+      await useAppStore.getState().saveSessionNow()
+      id = useAppStore.getState().currentSessionId
+    }
+    if (!id) return shots // bağlanacak oturum yok — önbellek yollarıyla devam
+    const durable = await window.nexora.artifactDocs.saveShots({ sessionId: id, shots })
+    return durable.length ? durable : shots
+  } catch {
+    return shots
   }
 }
 
@@ -3246,6 +3269,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelLoadProgress: null,
   lastBuildError: null,
   verificationLedger: null,
+  browserEvidence: null,
   livingSpecItems: [],
   addSpecItem: (text: string) => set((s) => ({ livingSpecItems: addUserItem(s.livingSpecItems, text) })),
   editSpecItem: (id: string, text: string) => set((s) => ({ livingSpecItems: editUserItem(s.livingSpecItems, id, text) })),
@@ -3560,6 +3584,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: [],
       currentSessionId: null,
       verificationLedger: null, // Faz 2: yeni oturumda eski projenin rozetini gösterme
+      browserEvidence: null, // Faz 4 slice 5: tarayıcı kanıtı da eski oturuma aitti
       branchOrigin: null, // 20.1: temiz sayfa dal değildir
 
       profileId: DEFAULT_PROFILE_ID,
@@ -3731,6 +3756,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const r = await window.nexora.agent.behaviorTest(url)
       const isTr = get().language === 'tr'
       if (!r.ok) return // sayfa açılamadı/zaman aşımı — görsel denetim zaten konuştu
+      // Faz 4 slice 5: kareleri paylaşımlı önbellekten oturumun KALICI klasörüne dondur
+      // (sonraki koşular önbelleği siler → eski oturum kareleri kırılmasın). Kanıt kilidi.
+      const shots = await saveDurableShots(r.shots ?? [])
       const fails: string[] = []
       const rows: string[] = []
       if (r.images) {
@@ -3765,7 +3793,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else {
         rows.push('konsol temiz ✓')
       }
-      const shotLine = r.shots && r.shots.length > 0 ? `\n📸 ${r.shots.length} bölüm karesi: ${r.shots[0].slice(0, r.shots[0].lastIndexOf('/'))}` : ''
+      const shotLine = shots.length > 0 ? `\n📸 ${shots.length} bölüm karesi: ${shots[0].slice(0, shots[0].lastIndexOf('/'))}` : ''
       const head = fails.length === 0 ? (isTr ? '🧪 Davranış testi GEÇTİ — siteyi gezdim:' : '🧪 Behavior test PASSED — I walked the site:') : isTr ? '🧪 Davranış testi kusur buldu:' : '🧪 Behavior test found defects:'
       const failLines = fails.length > 0 ? '\n' + fails.map((f) => '  ⚠️ ' + f).join('\n') + (isTr ? '\n"düzelt" yazman yeterli — izi modele ben iletirim.' : '\nType "fix" — I will hand the trace to the model.') : ''
       if (fails.length > 0) {
@@ -3797,6 +3825,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastVerificationLedger = appendRow(lastVerificationLedger, browserRow)
         set({ verificationLedger: lastVerificationLedger })
       }
+      // Faz 4 slice 5: yapısal davranış kanıtını + KALICI kareleri oturuma bağla →
+      // eski oturum açılınca tarayıcı kanıtı (satırlar/kusurlar/kareler/rapor) tam görünür.
+      set({
+        browserEvidence: {
+          turnId: lastVerificationLedger?.turnId ?? nanoid(),
+          outcome: fails.length === 0 ? 'passed' : 'failed',
+          rows,
+          fails,
+          report: {
+            images: r.images,
+            nav: r.nav?.map((n: { href: string; target: boolean }) => ({ href: n.href, target: n.target })),
+            buttons: r.buttons,
+            form: r.form ? { present: r.form.present, outcome: r.form.outcome } : undefined,
+            consoleErrors: r.consoleErrors
+          },
+          shots,
+          at: Date.now()
+        }
+      })
       // 7.2: davranış kanıtı walkthrough'a işlenir — satırlar, kusurlar ve
       // ekran şeridi belgeye gömülür; önceki sürüm .resolved.N olarak kalır.
       if (pendingWalkthrough) {
@@ -4055,6 +4102,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       livingSpec: s.livingSpecItems,
       // Faz 4: son turun verdict defteri oturumla yaşar (rozet + otomatik kriterler).
       verificationLedger: s.verificationLedger ?? undefined,
+      // Faz 4 slice 5: son turun tarayıcı davranış kanıtı oturumla yaşar (kalıcı kareler).
+      browserEvidence: s.browserEvidence ?? undefined,
       // 15.1: bekleyen izinler oturumla yaşar — çökme/kapanma onay istemini kaybetmesin.
       pendingApprovals: s.pendingApprovals,
       // 15.3: son-bilinen durum rozeti — pasif oturum için kenar çubuğunda gösterilir
@@ -4175,6 +4224,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Faz 4: kaydedilen verdict defterini geri yükle (rozet + Living Spec otomatik
       // kriterleri oturumla yaşar); yoksa null.
       verificationLedger: (data.verificationLedger as VerificationLedger | undefined) ?? null,
+      // Faz 4 slice 5: kaydedilen tarayıcı davranış kanıtını geri yükle (kalıcı kareler dahil).
+      browserEvidence: data.browserEvidence ?? null,
       pendingComments: data.comments ?? [],
       queuedTasks: deactivateTasks(data.queuedTasks ?? [], Date.now()),
       queueWaitReason: null,
