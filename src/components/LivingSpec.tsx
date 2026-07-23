@@ -84,7 +84,7 @@ export default function LivingSpec() {
                 <span
                   className={`flex-1 leading-snug ${it.source === 'user' ? 'cursor-text' : 'opacity-80'}`}
                   onClick={() => { if (it.source === 'user') { setEditingId(it.id); setEditText(it.text) } }}
-                  title={it.source === 'user' ? (tr ? 'Düzenlemek için tıkla' : 'Click to edit') : ''}
+                  title={it.source === 'user' ? tt(language, 'Click to edit') : ''}
                 >
                   {it.text}
                 </span>
@@ -93,7 +93,7 @@ export default function LivingSpec() {
                 <button
                   onClick={() => removeSpecItem(it.id)}
                   className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition"
-                  title={tr ? 'Sil' : 'Delete'}
+                  title={tt(language, 'Delete')}
                 >
                   <Trash2 size={13} />
                 </button>

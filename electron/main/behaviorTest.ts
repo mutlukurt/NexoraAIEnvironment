@@ -21,7 +21,7 @@ import { snapshotChanged, classifyFormOutcome, type UiSnapshot } from '../shared
 
 /** Sayfadan anlık-görüntü toplayan JS ifadesi (behaviorTest içinde executeJavaScript ile). */
 const SNAP_JS =
-  "({ url: location.href, title: document.title, domCount: document.querySelectorAll('*').length, textLen: (document.body.innerText||'').length, dialogOpen: !!document.querySelector('[role=dialog], dialog[open], .modal:not([hidden])') })"
+  "({ url: location.href, title: document.title, domCount: document.querySelectorAll('*').length, textLen: (document.body.innerText||'').length, textSig: (function(){ var t=(document.body.innerText||'').replace(/\\s+/g,' ').trim(); var h=0; for(var k=0;k<t.length;k++){h=(h*31+t.charCodeAt(k))|0} return t.length+':'+h })(), dialogOpen: !!document.querySelector('[role=dialog], dialog[open], .modal:not([hidden])') })"
 
 const SHOT_DIR = join(homedir(), 'NexoraAI', 'cache', 'behavior')
 
@@ -61,15 +61,23 @@ async function behaviorInner(url: string): Promise<BehaviorReport> {
       return { total: imgs.length, broken: imgs.filter((i) => !(i.complete && i.naturalWidth > 0)).map((i) => i.src.slice(0, 120)).slice(0, 6) }
     })()`)
 
-    // 2) Menü bağlantıları: tıkla, hedef bölüm var mı + sayfa kaydı mı?
+    // 2) Menü bağlantıları: tıkla — hedef bölüm VAR MI + tıklama onu GERÇEKTEN
+    //    görünüme getirdi mi (Faz 4: "eleman var" yetmez, gözlenen sonuç iste).
     const nav = await exec<Array<{ href: string; target: boolean; moved: boolean }>>(`(async () => {
       const out = []
       for (const a of [...document.querySelectorAll('a[href^="#"]')].slice(0, 8)) {
         const href = a.getAttribute('href') || ''
-        const before = scrollY
+        const sel = href.length > 1 ? href.replace(/([^\\w#-])/g, '\\\\$1') : ''
+        let el = null; try { el = sel ? document.querySelector(sel) : null } catch (e) { el = null }
+        window.scrollTo(0, 0) // bilinen konumdan başla → 'moved' güvenilir olur
+        await new Promise((r) => setTimeout(r, 60))
         a.click()
         await new Promise((r) => setTimeout(r, 700))
-        out.push({ href, target: href.length > 1 && !!document.querySelector(href.replace(/([^\\w#-])/g, '\\\\$1')), moved: Math.abs(scrollY - before) > 10 || before > 0 })
+        // Tıklama hedefi görünümün üst yarısına getirdi mi? Kırık smooth-scroll'u
+        // yakalar; en üstteki #home linki zaten görünümdedir → doğru geçer.
+        let reached = false
+        if (el) { const rc = el.getBoundingClientRect(); reached = rc.top >= -60 && rc.top <= innerHeight * 0.6 }
+        out.push({ href, target: !!el, moved: reached })
       }
       window.scrollTo(0, 0)
       return out
@@ -102,7 +110,6 @@ async function behaviorInner(url: string): Promise<BehaviorReport> {
       const snap = () => (${SNAP_JS})
       const f = document.querySelector('form')
       if (!f) return { present: false }
-      const before = snap()
       const fields = [...f.querySelectorAll('input, textarea')]
       for (const i of f.querySelectorAll('input')) {
         if (i.type === 'checkbox' || i.type === 'radio') continue
@@ -112,6 +119,10 @@ async function behaviorInner(url: string): Promise<BehaviorReport> {
       const ta = f.querySelector('textarea')
       if (ta) { ta.value = 'Merhaba, deneme mesajı.'; ta.dispatchEvent(new Event('input', { bubbles: true })) }
       const valsBefore = fields.map((x) => x.value)
+      // Faz 4 düzeltmesi: 'before'ı doldurma SONRASI, gönderimden hemen ÖNCE al →
+      // snapshotChanged yalnız GÖNDERİMİN etkisini ölçer (doldurmanın tetiklediği canlı
+      // sayaç/doğrulama değişimini "gönderim geri bildirimi" sanmaz → ölü form 'none' kalır).
+      const before = snap()
       ;(f.querySelector('button[type="submit"]') ?? f.querySelector('button'))?.click()
       await new Promise((r) => setTimeout(r, 700))
       const invalidCount = f.querySelectorAll(':invalid').length

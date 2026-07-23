@@ -6,6 +6,10 @@ export const UI: Record<string, Partial<Record<Lang, string>>> = {
     "tr": "Kabul kriterleri", "es": "Criterios de aceptación", "fr": "Critères d'acceptation", "de": "Akzeptanzkriterien",
     "pt": "Critérios de aceitação", "ru": "Критерии приёмки", "zh": "验收标准", "ja": "受け入れ基準", "ar": "معايير القبول"
   },
+  "Click to edit": {
+    "tr": "Düzenlemek için tıkla", "es": "Haz clic para editar", "fr": "Cliquez pour modifier", "de": "Zum Bearbeiten klicken",
+    "pt": "Clique para editar", "ru": "Нажмите, чтобы изменить", "zh": "点击编辑", "ja": "クリックして編集", "ar": "انقر للتعديل"
+  },
   "Add a criterion the app should meet…": {
     "tr": "Uygulamanın karşılaması gereken bir madde ekle…", "es": "Añade un criterio que la app debe cumplir…", "fr": "Ajoutez un critère que l'app doit satisfaire…", "de": "Kriterium hinzufügen, das die App erfüllen soll…",
     "pt": "Adicione um critério que o app deve cumprir…", "ru": "Добавьте критерий, которому приложение должно соответствовать…", "zh": "添加应用应满足的标准…", "ja": "アプリが満たすべき基準を追加…", "ar": "أضف معيارًا يجب أن يفي به التطبيق…"

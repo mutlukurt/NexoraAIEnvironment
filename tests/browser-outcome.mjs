@@ -24,9 +24,13 @@ ok(!snapshotChanged(snap(), snap()), 'hiçbir şey değişmedi → false (ölü 
 ok(snapshotChanged(snap(), snap({ url: 'http://x/next' })), 'URL değişti → true')
 ok(snapshotChanged(snap(), snap({ title: 'T2' })), 'başlık değişti → true')
 ok(snapshotChanged(snap(), snap({ dialogOpen: true })), 'diyalog açıldı → true')
-ok(snapshotChanged(snap(), snap({ domCount: 101 })), 'DOM eleman sayısı değişti → true (menü açıldı)')
-ok(snapshotChanged(snap(), snap({ textLen: 540 })), 'metin uzunluğu değişti → true (mesaj çıktı)')
+ok(snapshotChanged(snap(), snap({ domCount: 110 })), 'DOM YAPISAL değişti → true (bölüm/modal açıldı)')
+ok(!snapshotChanged(snap(), snap({ domCount: 102 })), 'küçük DOM oynaması (≤4) → false (animasyon gürültüsü, ölü buton)')
+ok(snapshotChanged(snap(), snap({ textLen: 540 })), 'metin uzunluğu değişti → true (imza yoksa uzunluğa düşer)')
 ok(!snapshotChanged(snap(), snap({ textLen: 501 })), 'minik metin farkı (≤2) → false (reflow gürültüsü değil)')
+// içerik imzası (varsa uzunluk yerine kullanılır): eşit-uzunluklu içerik değişimini de yakalar
+ok(snapshotChanged(snap({ textSig: '10:1' }), snap({ textSig: '10:2' })), 'içerik imzası değişti (eşit uzunluk ▶→⏸) → true')
+ok(!snapshotChanged(snap({ textSig: '10:1' }), snap({ textSig: '10:1' })), 'içerik imzası aynı → false (gerçek etki yok)')
 
 // ── interactionWorked: butonun gerçekten bir şey yaptığı ────────────────
 ok(interactionWorked(snap(), snap({ dialogOpen: true })), 'buton diyalog açtı → çalıştı')
@@ -34,8 +38,9 @@ ok(!interactionWorked(snap(), snap()), 'buton hiçbir şey yapmadı → çalış
 
 // ── classifyFormOutcome: öncelik sırası + none ──────────────────────────
 ok(classifyFormOutcome(snap(), snap({ url: 'http://x/thanks' }), { invalidCount: 0, cleared: false }) === 'navigated', 'form yönlendirdi → navigated')
-ok(classifyFormOutcome(snap(), snap(), { invalidCount: 2, cleared: false }) === 'validation', 'form doğrulama tetikledi → validation')
+ok(classifyFormOutcome(snap(), snap(), { invalidCount: 2, cleared: false }) === 'validation', 'form doğrulama tetikledi (değerler korundu) → validation')
 ok(classifyFormOutcome(snap(), snap(), { invalidCount: 0, cleared: true }) === 'cleared', 'form temizlendi → cleared')
+ok(classifyFormOutcome(snap(), snap(), { invalidCount: 2, cleared: true }) === 'cleared', 'temizlendi + boş-zorunlu :invalid → yine cleared (yanlışlıkla validation değil)')
 ok(classifyFormOutcome(snap(), snap({ textLen: 560 }), { invalidCount: 0, cleared: false }) === 'message', 'yeni içerik (teşekkür mesajı) → message')
 ok(classifyFormOutcome(snap(), snap(), { invalidCount: 0, cleared: false }) === 'none', 'gönderildi ama HİÇBİR sonuç yok → none (ÖLÜ FORM)')
 // öncelik: yönlendirme, doğrulamayı geçer

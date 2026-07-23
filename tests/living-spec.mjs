@@ -40,6 +40,17 @@ ok(M.isPathLike('index.css'), 'yol gibi: index.css (uzantılı)')
 ok(!M.isPathLike('Welcome to Acme'), 'yol değil: boşluklu metin')
 ok(!M.isPathLike('Login'), 'yol değil: uzantısız')
 ok(!M.isPathLike('3.14'), 'yol değil: sadece nokta-sayı (uzantı yok)')
+// Faz 4 denetim düzeltmeleri: URL/e-posta içerik literalidir; noktalı-id yol değil;
+// bilinen uzantısız adlar + ayıraçlı yollar yoldur.
+ok(!M.isPathLike('https://acme.com'), 'yol değil: URL (içerik literali)')
+ok(!M.isPathLike('info@acme.com'), 'yol değil: e-posta (içerik literali)')
+ok(!M.isPathLike('com.example.App'), 'yol değil: noktalı tanımlayıcı (bilinen uzantı değil)')
+ok(M.isPathLike('Dockerfile'), 'yol: Dockerfile (uzantısız bilinen ad)')
+ok(M.isPathLike('README'), 'yol: README')
+ok(M.isPathLike('.gitignore'), 'yol: .gitignore (nokta-önekli)')
+ok(M.isPathLike('src/utils'), 'yol: ayıraçlı uzantısız (src/utils)')
+// URL bir içerik literali olarak aranır (yol sanılıp yanlış-fail olmaz)
+ok(M.evaluateUserItem('footer links to "https://acme.com"', [{ path: 'src/App.tsx', content: '<a href="https://acme.com">x</a>' }]) === 'passed', 'URL içerik literali dosyada geçiyor → passed (yol sanılmadı)')
 const proj = [
   { path: 'src/App.tsx', content: 'import Login from "./Login"\n<h1>Welcome</h1>' },
   { path: 'src/Login.tsx', content: 'export default function Login(){ return <form>Giriş Yap</form> }' }
@@ -54,6 +65,17 @@ ok(M.evaluateUserItem('"src/Login.tsx" SHALL contain "Welcome"', proj) === 'fail
 ok(M.evaluateUserItem('"src/App.tsx" SHALL contain "Welcome"', proj) === 'passed', 'yerleşim: içerik doğru dosyada (Welcome App.tsx) → passed')
 // yol yoksa içerik herhangi bir dosyada (slice 1 davranışı korunur)
 ok(M.evaluateUserItem('SHALL contain "Giriş Yap"', proj) === 'passed', 'yol yok → içerik herhangi bir dosyada')
+// Faz 4 denetim düzeltmesi (L): içerik adı geçen HER dosyada olmalı (sadece paths[0] değil)
+const two = [
+  { path: 'src/A.tsx', content: 'import { useAuth } from "./auth"' },
+  { path: 'src/B.tsx', content: 'no auth here' }
+]
+ok(M.evaluateUserItem('both "src/A.tsx" and "src/B.tsx" SHALL contain "useAuth"', two) === 'failed', 'çok-yol: içerik B\'de yok → failed (paths[0] boşluğu kapandı)')
+const twoOk = [
+  { path: 'src/A.tsx', content: 'useAuth()' },
+  { path: 'src/B.tsx', content: 'const x = useAuth' }
+]
+ok(M.evaluateUserItem('both "src/A.tsx" and "src/B.tsx" SHALL contain "useAuth"', twoOk) === 'passed', 'çok-yol: içerik HER iki dosyada → passed')
 
 // ── reconcileSpec: otomatik + kullanıcı, çift-eleme, değerlendirme ───────
 const auto = [

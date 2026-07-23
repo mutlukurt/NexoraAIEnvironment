@@ -3403,6 +3403,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       queuedTasks: [],
       pendingApprovals: undefined,
       statusBadge: undefined,
+      // Faz 4 düzeltmesi: dal, ebeveynin SON turuna ait verdict defterini/rozetini ve
+      // tarayıcı kanıtını miras ALMASIN — dosyalar fork noktasının durumu, o yeşil rozet
+      // dala ait değil (sahte-yeşil + başka oturumun kare yollarına referans).
+      verificationLedger: undefined,
+      browserEvidence: undefined,
       branchedFrom: makeBranchOrigin({ id: parent.id, title: parent.title }, messageId, now)
     }
     try {
@@ -3578,6 +3583,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     lastVerificationLedger = null // Faz 2: defter/rozet de eski oturuma aitti
     // 7.4 yorumlar + 7.7 görevler eski çalışma alanına aitti — temiz sayfa.
     stopQueueHeartbeat() // 8.2: eski oturumun kalp atışını durdur
+    get().cancelBehaviorReview() // Faz 4 düzeltmesi: eski oturuma silahlanmış davranış testi YENİ oturuma sızmasın (kanıt karışması)
     queuePaused = false
     set({ pendingComments: [], queuedTasks: [], queueWaitReason: null, checkpoints: [], livingSpecItems: [], sessionTokensIn: 0, sessionTokensOut: 0, lastUsage: null })
     set({
@@ -3767,18 +3773,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (r.images.broken.length > 0) fails.push(`${r.images.broken.length} görsel yüklenmedi: ${r.images.broken.join(', ')}`)
       }
       if (r.nav && r.nav.length > 0) {
-        const okNav = r.nav.filter((n: { target: boolean }) => n.target).length
-        rows.push(`menü bağlantıları ${okNav}/${r.nav.length} ${okNav === r.nav.length ? '✓' : '✗'}`)
+        // Faz 4: "hedef bölüm var" yetmez — tıklama hedefi GERÇEKTEN görünüme getirdi mi
+        // (moved). Kırık smooth-scroll → hedef var ama menü çalışmıyor → geçmesin.
+        const worksNav = (n: { target: boolean; moved?: boolean }) => n.target && n.moved !== false
+        const okNav = r.nav.filter(worksNav).length
+        rows.push(`menü bağlantıları ${okNav}/${r.nav.length} çalışıyor ${okNav === r.nav.length ? '✓' : '✗'}`)
         for (const n of r.nav.filter((x: { target: boolean }) => !x.target)) fails.push(`nav hedefi yok: ${n.href} (id'li bölüm bulunamadı)`)
+        for (const n of r.nav.filter((x: { target: boolean; moved?: boolean }) => x.target && x.moved === false)) fails.push(`menü bağlantısı "${n.href}" tıklandı ama hedefe götürmedi (kırık kaydırma)`)
       }
       if (r.buttons && r.buttons.total > 0) {
-        // Faz 4 — "tıklandı" yetmez: kaç buton GERÇEKTEN bir şey yaptı (changed).
+        // Faz 4 — "tıklandı" yetmez: kaç buton GERÇEKTEN bir şey yaptı (changed) ve kaçı
+        // ÖLÜ (dead: tıklandı ama hiçbir sonuç yok). Tek çalışan buton diğer ölüleri örtmesin.
         const changed = r.buttons.changed ?? 0
-        const okBtn = r.buttons.errors === 0 && !(r.buttons.clicked > 0 && changed === 0)
-        rows.push(`butonlar ${r.buttons.clicked}/${r.buttons.total} tıklandı, ${changed} bir şey yaptı${r.buttons.errors > 0 ? `, ${r.buttons.errors} hata` : ''} ${okBtn ? '✓' : '✗'}`)
+        const deadN = r.buttons.dead ?? 0
+        const okBtn = r.buttons.errors === 0 && deadN === 0
+        rows.push(`butonlar ${r.buttons.clicked}/${r.buttons.total} tıklandı, ${changed} bir şey yaptı${deadN > 0 ? `, ${deadN} ölü` : ''}${r.buttons.errors > 0 ? `, ${r.buttons.errors} hata` : ''} ${okBtn ? '✓' : '✗'}`)
         if (r.buttons.errors > 0) fails.push(`buton tıklamaları ${r.buttons.errors} konsol hatası üretti`)
-        // Tıklandı ama HİÇBİRİ gözlenebilir sonuç üretmedi → sadece "tıklama aldı" diye geçmez.
-        if (r.buttons.clicked > 0 && changed === 0) fails.push(`${r.buttons.clicked} butona tıklandı ama hiçbiri gözlenebilir bir sonuç üretmedi (ölü butonlar)`)
+        // Tıklanan ama gözlenebilir sonuç üretmeyen HER ölü buton kusurdur (biri çalışsa da).
+        if (deadN > 0) fails.push(`${deadN} buton tıklandı ama hiçbir gözlenebilir sonuç üretmedi (ölü butonlar)`)
       }
       if (r.form?.present) {
         // Faz 4 — "gönderildi" yetmez: gözlenen GERÇEK sonuç (yönlendirme/doğrulama/mesaj/temizlenme).
@@ -3847,7 +3859,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 7.2: davranış kanıtı walkthrough'a işlenir — satırlar, kusurlar ve
       // ekran şeridi belgeye gömülür; önceki sürüm .resolved.N olarak kalır.
       if (pendingWalkthrough) {
-        pendingWalkthrough.behavior = { rows, fails, shots: r.shots ?? [] }
+        // Faz 4 düzeltmesi: walkthrough belgesine KALICI kare yollarını göm (r.shots
+        // değil) — yoksa sonraki koşu paylaşımlı önbelleği silince kareler kırılırdı.
+        pendingWalkthrough.behavior = { rows, fails, shots }
         if (lastVerificationLedger) pendingWalkthrough.ledger = lastVerificationLedger
         void writeWalkthrough(
           isTr
@@ -3855,6 +3869,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             : '📄 Walkthrough updated — behavior evidence and screenshots embedded (Files & Code → Docs).'
         )
       }
+      // Faz 4 düzeltmesi: tarayıcı kanıtını (browserEvidence + defter + rapor mesajı)
+      // ÜRETİM ANINDA diske akıt — sonraki tura/oturum değişimine bağlı kalmasın,
+      // uygulama kapansa da kanıt + dondurulan kareler yetim kalmasın.
+      scheduleSessionSave()
     } catch {
       /* davranış testi çalışamadı — görsel denetim ve kanca duyuları devrede */
     }
@@ -4216,7 +4234,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 20.1: açılan oturum bir dalsa köken geri gelir (banner + sidebar rozeti).
     set({ branchOrigin: data.branchedFrom ?? null })
     pendingWalkthrough = null // 7.2: bağlam önceki oturumundu
-    lastVerificationLedger = null // Faz 2: rozet/defter önceki oturuma aitti
+    get().cancelBehaviorReview() // Faz 4 düzeltmesi: önceki oturuma silahlanmış davranış testi bu oturuma sızmasın
+    // Faz 4 düzeltmesi: modül aynasını geri yüklenen deftere EŞİTLE (null değil) — yoksa
+    // yeniden açılan yeşil oturumda gözlenen tarayıcı-kusuru rozeti düşüremez (sahte-yeşil).
+    lastVerificationLedger = (data.verificationLedger as VerificationLedger | undefined) ?? null
     // 7.4: açılan oturumun KENDİ yorum kuyruğu geri gelir — çapalar o
     // oturumun dosyalarına aittir, restart/oturum-değişimi kuyruğu öldürmez.
     // 7.7: görev kuyruğu da; yarıda kalmış koşu dürüstçe needs-review olur.

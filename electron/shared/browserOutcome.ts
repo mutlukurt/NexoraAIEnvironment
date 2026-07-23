@@ -18,17 +18,29 @@ export interface UiSnapshot {
   domCount: number
   /** görünür metin uzunluğu (body.innerText.length) */
   textLen: number
+  /** görünür metnin içerik imzası (uzunluk:hash). Eşit-uzunluklu değişimi de
+   *  yakalar (ör. ▶→⏸, '9'→'8'); yalnız uzunluğa bakmanın kör noktasını kapatır.
+   *  behaviorTest sağlar; eski/testte yoksa textLen'e düşülür. */
+  textSig?: string
   /** açık bir diyalog/modal var mı ([role=dialog], dialog[open], görünür .modal) */
   dialogOpen: boolean
 }
 
-/** Anlamlı bir değişim oldu mu (küçük reflow'lar değil, gerçek etki). */
+/** domCount'ta bu kadar veya daha az fark GÜRÜLTÜ sayılır (animasyon mount/unmount,
+ *  ripple/tooltip vb. birkaç düğüm) — tek düğüm farkı "buton bir şey yaptı" olmasın. */
+const DOM_NOISE = 4
+
+/** Anlamlı bir değişim oldu mu (küçük reflow/animasyon gürültüsü değil, gerçek etki). */
 export function snapshotChanged(before: UiSnapshot, after: UiSnapshot): boolean {
   if (before.url !== after.url) return true
   if (before.title !== after.title) return true
   if (before.dialogOpen !== after.dialogOpen) return true
-  if (before.domCount !== after.domCount) return true
-  if (Math.abs(before.textLen - after.textLen) > 2) return true
+  // İçerik: imza varsa onu kullan (eşit-uzunluk değişimini de yakalar), yoksa uzunluğa düş.
+  if (before.textSig != null && after.textSig != null) {
+    if (before.textSig !== after.textSig) return true
+  } else if (Math.abs(before.textLen - after.textLen) > 2) return true
+  // DOM: yalnız YAPISAL değişim (bölüm/modal açıldı); küçük animasyon gürültüsünü ele.
+  if (Math.abs(before.domCount - after.domCount) > DOM_NOISE) return true
   return false
 }
 
@@ -42,14 +54,18 @@ export interface FormSignals {
 }
 
 /**
- * Form gönderiminin GERÇEK sonucunu sınıflandır. Öncelik: yönlendirme > doğrulama >
- * temizlenme > mesaj (yeni içerik) > 'none'. 'none' = gönderildi ama hiçbir gözlenebilir
+ * Form gönderiminin GERÇEK sonucunu sınıflandır. Öncelik: yönlendirme > temizlenme >
+ * doğrulama > mesaj (yeni içerik) > 'none'. 'none' = gönderildi ama hiçbir gözlenebilir
  * sonuç yok → şüpheli (ölü form).
+ *
+ * NOT: 'cleared' (alanlar boşaldı = başarılı gönderim) 'validation'dan ÖNCE gelir; aksi
+ * halde başarıyla temizlenen ama artık boş-zorunlu-alanları :invalid olan bir form yanlışlıkla
+ * "doğrulama" etiketlenir. Gerçek doğrulama-bloğunda alan değerleri KORUNUR (cleared=false).
  */
 export function classifyFormOutcome(before: UiSnapshot, after: UiSnapshot, sig: FormSignals): FormOutcome {
   if (before.url !== after.url) return 'navigated'
-  if (sig.invalidCount > 0) return 'validation'
   if (sig.cleared) return 'cleared'
+  if (sig.invalidCount > 0) return 'validation'
   if (snapshotChanged(before, after)) return 'message' // yeni metin/DOM/diyalog = geri bildirim
   return 'none'
 }

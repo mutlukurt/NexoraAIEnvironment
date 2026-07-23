@@ -42,12 +42,23 @@ export function specLiterals(text: string): string[] {
   return out
 }
 
-/** Literal bir dosya YOLU gibi mi görünüyor (uzantılı + boşluksuz, ör. src/Login.tsx). */
+/** Bilinen kaynak dosya uzantıları (yalnız bunlarla biten ad "yol" sayılır → "com.example.App"
+ *  gibi noktalı-tanımlayıcılar yol SANILMAZ, "3.14" gibi ondalıklar da). */
+const SRC_EXT =
+  /\.(tsx?|jsx?|mjs|cjs|css|scss|sass|less|html?|json5?|mdx?|markdown|vue|svelte|astro|py|go|rs|rb|php|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|zsh|ya?ml|toml|ini|cfg|conf|env|lock|xml|csv|sql|graphql|proto|txt|png|jpe?g|gif|svg|ico|webp|avif|bmp|woff2?|ttf|otf|eot|mp3|mp4|webm|wav|pdf)$/i
+/** Uzantısız ama iyi bilinen dosya adları (ve .gitignore gibi nokta-önekliler). */
+const KNOWN_NOEXT =
+  /^(Dockerfile|Containerfile|Makefile|LICENSE|README|CHANGELOG|CONTRIBUTING|NOTICE|AUTHORS|Procfile|Gemfile|Rakefile|Vagrantfile|Brewfile|\.[\w.-]+)$/i
+
+/** Literal bir dosya YOLU gibi mi görünüyor. URL/e-posta İÇERİK literalidir (yol değil);
+ *  bilinen uzantısız adlar (Dockerfile/README) ve ayıraçlı yollar (src/App) yoldur. */
 export function isPathLike(lit: string): boolean {
   const s = lit.trim()
-  // Boşluksuz + HARFLE başlayan bir uzantıyla bitmeli (.tsx/.css/.md…) — "3.14" gibi
-  // rakamsal ondalıkları yol sanmasın.
-  return !/\s/.test(s) && /[^/.]\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(s)
+  if (!s || /\s/.test(s)) return false
+  if (/:\/\//.test(s) || s.includes('@')) return false // URL / e-posta = içerik, yol değil
+  if (KNOWN_NOEXT.test(s)) return true // Dockerfile / README / LICENSE / .gitignore …
+  if (s.includes('/')) return true // gerçek ayıraç = yol (src/App, src/utils/x)
+  return SRC_EXT.test(s) // ayıraçsız: yalnız bilinen kaynak dosya uzantısı (App.tsx)
 }
 
 /** Projede bu yola sahip dosyayı bul (baştaki ./ ve büyük/küçük harf duyarsız; son-ek eşleşmesi). */
@@ -77,9 +88,13 @@ export function evaluateUserItem(text: string, files: Array<{ path: string; cont
   // Yol literalleri: dosya projede olmalı.
   for (const p of paths) if (!findFile(p, files)) return 'failed'
 
-  // İçerik literalleri: yol varsa O dosyada (yerleşim), yoksa herhangi bir dosyada.
-  const scope = paths.length ? (findFile(paths[0], files)?.content ?? '') : files.map((f) => f.content).join('\n')
-  for (const c of contents) if (!scope.includes(c)) return 'failed'
+  // İçerik literalleri: yol(lar) varsa adı geçen HER dosyada olmalı (yerleşim); yoksa
+  // herhangi bir dosyada. Sadece paths[0]'a bakıp "geçti" dememeli (çok-yol boşluğu).
+  for (const c of contents) {
+    if (paths.length) {
+      if (!paths.every((p) => (findFile(p, files)?.content ?? '').includes(c))) return 'failed'
+    } else if (!files.some((f) => f.content.includes(c))) return 'failed'
+  }
 
   return 'passed'
 }
