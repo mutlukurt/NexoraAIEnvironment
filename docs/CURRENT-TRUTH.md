@@ -2,11 +2,11 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.27.1
+**Current release:** v0.28.0
 
 **Current roadmap:** [ROADMAP-2026.md](../ROADMAP-2026.md)
 
-**Status:** Phase 1 complete; Phase 2 — Verification OS shipped in v0.26.0; Phase 3 — Local Engine Autopilot shipped in v0.27.0 (physics-based VRAM-fit loading, co-residence/OOM guard, single-flight turns, speed telemetry, binary capability probe, persistent semantic index — live-verified on real hardware).
+**Status:** Phase 1 complete; Phase 2 — Verification OS shipped in v0.26.0; Phase 3 — Local Engine Autopilot shipped in v0.27.0 (physics-based VRAM-fit loading, co-residence/OOM guard, single-flight turns, speed telemetry, binary capability probe, persistent semantic index — live-verified on real hardware); Phase 4 — Proof-Backed Builder shipped in v0.28.0 (editable Living Spec with mechanical literal-evaluation, project-aware file/path/placement, browser verification that observes real reached-target/page-changed/form-result outcomes, one evidence-driven verifier for local and API models, and full per-session evidence persistence with durable behavior-test screenshots — hardened by a six-dimension adversarial exit audit).
 
 This document describes what the current implementation can prove. Historical
 roadmaps and release narratives explain how the product evolved, but they are not

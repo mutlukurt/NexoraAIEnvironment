@@ -2,7 +2,7 @@
 
 **Baseline:** v0.24.1
 
-**Current release:** v0.27.1
+**Current release:** v0.28.0
 
 **Product position:** Local Verified App Factory
 
@@ -14,7 +14,14 @@ exit criteria met across eight slices — Turbo b9870 flag fix + draft/target vo
 central sidecar teardown registry (2), physics-based VRAM-fit loading (3), co-residence/OOM
 guard (4), single-flight turns with zero mixed-output/zombie (5), speed telemetry (6),
 binary capability probe (7), and a persistent semantic index (8). Every slice live-verified
-on real hardware (RTX 2050 4 GB) and the full flow driven in the real running app.
+on real hardware (RTX 2050 4 GB) and the full flow driven in the real running app. **Phase 4
+— Proof-Backed Builder shipped in v0.28.0**: all three exit criteria met across five slices —
+editable Living Spec with mechanical literal-evaluation (1), project-aware file/path/placement
+(2), browser verification that observes real outcomes rather than element-presence/clicks (3),
+one evidence-driven verifier for local and API models (4), and full per-session evidence
+persistence including durable behavior-test screenshots (5). Closed with a six-dimension
+adversarial exit audit (23 findings raised, 19 confirmed by independent skeptics, 2 correctly
+refuted) whose confirmed false-green leaks were fixed and re-verified before release.
 
 ## Product promise
 
@@ -423,9 +430,15 @@ EARS-style acceptance criteria (the latter feeds Phase 4).
 - Concurrent/aborted request stress produces zero mixed output or zombie generation.
 - Supported hardware loads successfully on the first plan at least 95% of the time.
 
-## Phase 4 — Proof-Backed Builder
+## Phase 4 — Proof-Backed Builder — ✅ shipped in v0.28.0
 
 **Goal:** turn user requirements into machine-checkable application behavior.
+
+**Result:** all three exit criteria met across five live-verified slices, then hardened by a
+six-dimension adversarial exit audit (browser verification now observes real reached-target /
+page-changed / form-result outcomes; every criterion visibly passed/failed/unverified; local
+and API models share one evidence-driven verifier; spec + diff + build + browser proof and
+durable screenshots persist per session). See the v0.28 scorecard in the README.
 
 ### Work
 

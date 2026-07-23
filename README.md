@@ -113,10 +113,11 @@ After installing, open the in-app **Model Browser** to download a GGUF model (or
 Every version, newest first. Deep-dive scorecards for the recent milestones follow below; this is the complete list from the first public build to today.
 
 <details open>
-<summary><b>📜 Full release history — v0.6.4 → v0.27.1 (47 releases)</b></summary>
+<summary><b>📜 Full release history — v0.6.4 → v0.28.0 (48 releases)</b></summary>
 
 | Version | Date | What it brought |
 | --- | --- | --- |
+| [v0.28.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.28.0) | 2026-07-23 | **Proof-Backed Builder** (2026 Roadmap Phase 4) — turns user requirements into machine-checkable behavior. An **editable acceptance list (Living Spec)** grades each criterion passed/failed/unverified by mechanically checking quoted literals against the real files (never blindly passes); **project-aware file/path/placement** checks; **browser verification that observes real outcomes** — a menu link must actually reach its target, a button must actually change the page, a form must produce a real result (dead buttons and dead forms are now caught, not just "it was clicked"); **one verifier for local and API models** (the verdict depends on evidence, not which model wrote the code); and **all evidence (spec + diff + build + browser + durable screenshots) persisted per session** so reopening a session shows the full proof. Closed with a **6-dimension adversarial exit audit** (every finding refuted-or-confirmed by an independent skeptic) that caught — and fixed — several false-green leaks before release |
 | [v0.27.1](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.27.1) | 2026-07-21 | **Launch fix for Ubuntu 24.04+ / 26.04** — the app now opens by double-click again. Newer Ubuntu restricts unprivileged user namespaces (AppArmor), which broke Chromium's sandbox and left a blank window; the app now detects Linux and relaunches itself once with `--no-sandbox`, so no manual step is needed. Also ships the first Phase 4 step — an **editable acceptance-criteria list (Living Spec)** persisted per session, each item marked passed/failed/unverified against real evidence |
 | [v0.27.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.27.0) | 2026-07-21 | **Local Engine Autopilot** (2026 Roadmap Phase 3) — the local inference engine now runs itself: **physics-based VRAM-fit loading** (reads the card + real model shape, offloads the layers that actually fit on the first try, never regresses the small daily model), a **co-residence / OOM guard** (a second GPU job runs on CPU instead of crashing when the card is busy), a **single-flight guard** (concurrent/aborted turns produce zero mixed output and no zombie generation), **speed telemetry** (first-token time, decode tok/s, Turbo acceptance), a **binary capability probe** (Turbo flags verified before use so a runtime update can't silently break loading), and a **persistent semantic index** (survives restarts, re-embeds only changed files). Every slice live-verified on real hardware |
 | [v0.26.0](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.26.0) | 2026-07-20 | **Verification OS** (2026 Roadmap Phase 2) — a per-turn **Verification Ledger** with a deterministic Judge and Proof-of-Edit receipts; per-check rows (syntax → build → browser) carrying the real build command + exit code; a **three-state badge** (passed / failed / unverified) in the workspace header; **EARS acceptance criteria** derived from the evidence; and a canonical mutant fixture set proving a **0% false-verified rate**. Model-agnostic — works with local models, no API required. Each slice adversarially reviewed |
@@ -166,6 +167,24 @@ Every version, newest first. Deep-dive scorecards for the recent milestones foll
 | [v0.6.4](https://github.com/mutlukurt/NexoraAIEnvironment/releases/tag/v0.6.4) | 2026-07-03 | Early build |
 
 </details>
+
+---
+
+## Proof-Backed Builder — the v0.28 Scorecard (2026 Roadmap, Phase 4)
+
+v0.28 turns "the app says it works" into "the app **shows** it works." Phase 4 makes user requirements machine-checkable and makes verification observe **real outcomes**, not surface signals — and it closes with an adversarial exit audit that hunted its own false-greens. Every claim below was **live-verified in the real app** (a real offscreen browser, real session round-trips over CDP), not just unit-tested.
+
+**📋 Living Spec — an editable acceptance list.** You write the "shoulds"; each item is graded **passed / failed / unverified** every turn by *mechanically* checking quoted literals against the real files — a quoted path must exist in the project, quoted content must appear (and, when a path is named, appear *in that file* — placement). Anything with no checkable literal stays honestly **unverified** — it never blindly passes. Persisted per session, editable inline.
+
+**📂 Project-aware file / path / placement.** The evaluator tells a real file path (`src/Login.tsx`) from prose, finds it case-insensitively by suffix, and — after the exit audit — no longer mistakes a URL or an email for a path, recognizes extensionless names (`Dockerfile`, `README`), and when a criterion names two files it requires the content in **both**, not just the first.
+
+**🖱️ Browser checks that observe the outcome.** "Verified" now means *worked*, not *rendered*. A menu link must actually **reach its target** (a broken smooth-scroll with a valid target is caught); a button must actually **change the page** (any dead button among working ones is now flagged, using a content signature + DOM-noise floor so an animation isn't mistaken for a result); a form must produce a **real result** — navigation, validation, a message, or a clear — measured from a snapshot taken *after* fill so a live character counter can't be mistaken for submit feedback. A dead form is reported as dead. Live against a fixture with a dead button, a broken nav link and a dead form: all three caught.
+
+**⚖️ One verifier, local or API.** The verdict depends on the **evidence** (files, ledger, browser outcome), not on which model produced the code — the judging functions take no model/route parameter (proven by signature-arity locks), so a local 3B and a frontier API model face the exact same bar.
+
+**🔒 All evidence persisted per session.** Spec + build ledger + change receipts + the structured browser report — and the behavior-test **screenshots, frozen into the session's own folder** so the next run can't wipe them — all ride with the session. Reopen an old session and the full proof is still there.
+
+**🕵️ A 6-dimension adversarial exit audit.** Before shipping, six hunter agents swept the phase (wiring, false-green, persistence, intent-invariance, edge-cases, i18n) and **every finding was refuted-or-confirmed by an independent skeptic reading the actual code** (23 raised, 19 real, 2 correctly refuted by existing guards). It caught real false-green leaks — a computed "dead button" count that was never consumed, screenshots wired to the wrong (volatile) path, a branch inheriting its parent's green badge — and those were fixed and re-verified before release.
 
 ---
 
@@ -1211,8 +1230,9 @@ NexoraAIEnvironment/
 The authoritative plan is [ROADMAP-2026.md](ROADMAP-2026.md), backed by the
 [Current Implementation Truth](docs/CURRENT-TRUTH.md). **Phase 1 — Truth and Safety is
 complete; Phase 2 — Verification OS shipped in v0.26.0; Phase 3 — Local Engine Autopilot
-shipped in v0.27.0.** Every phase must pass automated gates, an independent adversarial
-review, and a visible desktop acceptance test before the roadmap advances.
+shipped in v0.27.0; Phase 4 — Proof-Backed Builder shipped in v0.28.0.** Every phase must
+pass automated gates, an independent adversarial review, and a visible desktop acceptance
+test before the roadmap advances.
 
 Phase 2 delivered a per-turn **Verification Ledger** (`src/lib/verificationLedger.ts`)
 with a deterministic Judge (worst-outcome wins; an empty ledger is `unverified`, never
